@@ -17,6 +17,7 @@
 from collections.abc import Mapping, Sequence
 import dataclasses
 import os
+import types
 import typing
 from typing import Any
 
@@ -133,9 +134,21 @@ def _make_converter() -> cattrs.Converter:
   )
 
   # 4. Structure tuple[tuple[float, float], ...] consistently
+  def _is_tuple_of_pairs(typ: Any) -> bool:
+    if typ == tuple[tuple[float, float], ...]:
+      return True
+    origin = typing.get_origin(typ)
+    if origin in (typing.Union, types.UnionType):
+      return tuple[tuple[float, float], ...] in typing.get_args(typ)
+    return False
+
   conv.register_structure_hook_func(
-      lambda typ: typ == tuple[tuple[float, float], ...],
-      lambda data, _: tuple((float(x[0]), float(x[1])) for x in data),
+      _is_tuple_of_pairs,
+      lambda data, _: (
+          tuple((float(x[0]), float(x[1])) for x in data)
+          if data is not None
+          else None
+      ),
   )
 
   return conv
