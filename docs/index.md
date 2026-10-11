@@ -104,6 +104,9 @@ contributor expanding the library, explore the documentation below:
 
 *   **[Documentation Sitemap](sitemap.md)**: Complete table of contents and
     layout of the DPSynth documentation.
+*   **[Specifying Attribute Domains](specifying_domains.md)**: Upfront domain
+    requirements, supported attribute types, the DPSynth domain language, and
+    inferring domains from Pydantic, Protobuf, and Pandas schemas.
 *   **[Data Model & Terminology](data_and_terminology.md)**: Attributes
     (categorical vs. numerical), schema deduction, and `domain.yaml`
     specifications.
@@ -151,6 +154,7 @@ APIs:
 :caption: Getting Started
 :hidden:
 
+specifying_domains
 data_and_terminology
 in_memory_api
 scalable_pipeline_api
