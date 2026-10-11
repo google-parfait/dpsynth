@@ -392,14 +392,16 @@ def supporting_cliques(
 
   Args:
     domain: The domain of the dataset.
-    workload: A workload specification. Defaults to all three-way marginals.
+    workload: A workload specification. Defaults to all three-way marginals, or
+      the maximum possible degree for fewer than three columns.
     max_marginal_size: The maximum domain size of a clique to include.
 
   Returns:
     A list of cliques from the workload whose domain size is within the limit.
   """
   if workload is None:
-    cliques = list(itertools.combinations(domain.attributes, 3))
+    degree = min(3, len(domain.attributes))
+    cliques = list(itertools.combinations(domain.attributes, degree))
   elif isinstance(workload, Mapping):
     cliques = [tuple(cl) for cl in workload.keys()]
   else:
@@ -437,7 +439,8 @@ def compiled_workload(
   """
 
   if workload is None:
-    workload = list(itertools.combinations(domain.attributes, 3))
+    degree = min(3, len(domain.attributes))
+    workload = list(itertools.combinations(domain.attributes, degree))
 
   if not isinstance(workload, Mapping):
     workload = {tuple(cl): 1.0 for cl in workload}

@@ -64,6 +64,10 @@ class CommonTest(absltest.TestCase):
     self.assertCountEqual(
         cliques, list(itertools.combinations(domain.attributes, 3))
     )
+    # Default workload with two columns.
+    two_column_domain = mbi.Domain(["a", "b"], [3, 3])
+    cliques = common.supporting_cliques(two_column_domain, workload=None)
+    self.assertCountEqual(cliques, [("a", "b")])
     # List workload.
     cliques = common.supporting_cliques(domain, [("a", "b"), ("c", "d")])
     self.assertCountEqual(cliques, [("a", "b"), ("c", "d")])
@@ -88,6 +92,14 @@ class CommonTest(absltest.TestCase):
     self.assertIn(("a", "b"), workload)
     for cl in workload.keys():
       self.assertIsInstance(cl, tuple)
+
+  def test_compiled_workload_default_with_two_columns(self):
+    domain = mbi.Domain(["a", "b"], [3, 3])
+    workload = common.compiled_workload(domain, None)
+    self.assertCountEqual(
+        workload.keys(),
+        [("a",), ("b",), ("a", "b")],
+    )
 
   def test_precompute_marginals_standard_and_jax(self):
     domain = mbi.Domain(["a", "b"], [3, 4])
