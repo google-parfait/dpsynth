@@ -64,7 +64,7 @@ class SupportingCliquesSufficiencyTest(parameterized.TestCase):
     rng = np.random.default_rng(42)
 
     calibrated = mechanism.configure(budget=_ZCDP_RHO)
-    cliques = mechanism.supporting_cliques(domain)
+    cliques = calibrated.supporting_cliques(domain)
 
     precomputed = common.precompute_marginals(data, cliques)
 

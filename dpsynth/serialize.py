@@ -26,6 +26,7 @@ import dp_accounting
 from dpsynth import api
 from dpsynth import domain
 from dpsynth import reporting
+from dpsynth import workload
 from dpsynth.relational import domain as relational_domain
 from etils import epath
 import mbi
@@ -41,6 +42,8 @@ def _resolve_type(type_name: str) -> type[Any] | None:
     return cls
   if hasattr(domain, type_name):
     return getattr(domain, type_name)
+  if hasattr(workload, type_name):
+    return getattr(workload, type_name)
   if hasattr(relational_domain, type_name):
     return getattr(relational_domain, type_name)
   if hasattr(reporting, type_name):
@@ -106,6 +109,14 @@ def _make_converter() -> cattrs.Converter:
   )
 
   # 2. Polymorphic structuring for abstract base classes and unions
+  conv.register_structure_hook(
+      workload.Workload,
+      lambda data, cl: (
+          cattrs.gen.make_dict_structure_fn(cl, conv)(data, cl)
+          if isinstance(data, Mapping)
+          else workload.Workload(data)
+      ),
+  )
   conv.register_structure_hook(
       api.MechanismConfig, lambda data, _: _structure_polymorphic(data, _, conv)
   )
