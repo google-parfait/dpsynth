@@ -29,6 +29,7 @@ import dataclasses
 from absl import logging
 import dp_accounting
 from dpsynth import api
+from dpsynth import workload as workload_lib
 from dpsynth.discrete_mechanisms import accounting
 from dpsynth.discrete_mechanisms import common
 from dpsynth.discrete_mechanisms import mst
@@ -59,13 +60,20 @@ class DiscreteConfig(api.MechanismConfig):
   use_jax_for_bincount: bool = False
   use_jax_for_generation: bool = False
 
-  def configure(self, _=None, *, budget, delta=0):
+  def configure(
+      self,
+      domain=None,
+      *,
+      budget: float,
+      delta: float = 0.0,
+      workload: workload_lib.WorkloadInput | None = None,
+  ) -> DiscreteMechanism:
     """Configures the synthesizer with a zCDP budget."""
+    workload = workload_lib.Workload.from_any(workload, domain)
     one_way_rho = budget * self.one_way_budget_fraction
     remaining_rho = budget * (1 - self.one_way_budget_fraction)
     inner = self.mechanism.configure(
-        budget=remaining_rho,
-        delta=delta,
+        domain, budget=remaining_rho, delta=delta, workload=workload
     )
     return DiscreteMechanism(
         config=self,
@@ -81,6 +89,12 @@ class DiscreteMechanism(api.CalibratedMechanism):
   config: DiscreteConfig
   base_mechanism: api.CalibratedMechanism
   one_way_gdp_budget: float
+
+  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
+    """Returns the cliques needed by the inner mechanism."""
+    if hasattr(self.base_mechanism, 'supporting_cliques'):
+      return self.base_mechanism.supporting_cliques(domain)
+    return [(a,) for a in domain.attributes]
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -155,9 +169,10 @@ class DiscreteMechanism(api.CalibratedMechanism):
       measurements = [m.compress(mappings, data.domain) for m in measurements]  # pyrefly: ignore[bad-argument-type]
     logging.info('[DPSynth]: Compressed discrete domain:\n%s', data.domain)
 
-    cfg = self.config.mechanism
-    if isinstance(data, mbi.Dataset) and hasattr(cfg, 'supporting_cliques'):
-      cliques = cfg.supporting_cliques(data.domain)
+    if isinstance(data, mbi.Dataset) and hasattr(
+        self.base_mechanism, 'supporting_cliques'
+    ):
+      cliques = self.base_mechanism.supporting_cliques(data.domain)
       data = common.precompute_marginals(
           data,
           cliques,  # pyrefly: ignore[bad-argument-type]

@@ -481,8 +481,8 @@ def _run_two_pass(
         column_measurements, synth.schema
     ).mbi_domain
 
-    assert hasattr(synth.config.discrete_mechanism, 'supporting_cliques')
-    workload = synth.config.discrete_mechanism.supporting_cliques(mbi_domain)
+    assert hasattr(synth.base_mechanism, 'supporting_cliques')
+    workload = synth.base_mechanism.supporting_cliques(mbi_domain)
 
     # Pass 2: compute the marginal workload.
     with beam.Pipeline(**pipeline_kwargs) as p:
@@ -558,20 +558,18 @@ class BeamTabularConfig(api.MechanismConfig):
   temp_location: str | None = None
   pipeline_options: beam.options.pipeline_options.PipelineOptions | None = None
 
-  def __post_init__(self):
-    if not hasattr(self.synthesizer.discrete_mechanism, 'supporting_cliques'):
-      raise ValueError(
-          'self.synthesizer.discrete_mechanism must have a supporting_cliques'
-          ' method.'
-      )
-
-  def configure(self, schema=None, *, budget, delta=0) -> BeamTabularMechanism:
+  def configure(
+      self, schema=None, *, budget, delta=0, workload=None
+  ) -> BeamTabularMechanism:
     """Returns a copy whose synthesizer is configured with the given budget."""
     synthesizer = self.synthesizer.configure(
         schema,
         budget=budget,
         delta=delta,
+        workload=workload,
     )
+    if not hasattr(synthesizer.base_mechanism, 'supporting_cliques'):
+      raise ValueError('base_mechanism must define supporting_cliques.')
     return BeamTabularMechanism(
         synthesizer=synthesizer,
         temp_location=self.temp_location,

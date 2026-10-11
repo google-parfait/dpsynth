@@ -188,7 +188,8 @@ class MSTConfig(api.MechanismConfig):
         self.maximum_marginal_size,
     )
 
-  def configure(self, _=None, *, budget, delta=0):
+  def configure(self, _=None, *, budget, delta=0, workload=None):
+    del delta, workload
     return MST(
         config=self,
         zcdp_rho=budget,
@@ -201,6 +202,10 @@ class MST(api.CalibratedMechanism):
 
   config: MSTConfig
   zcdp_rho: float
+
+  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
+    """Returns all pairwise marginals within the size limit."""
+    return self.config.supporting_cliques(domain)
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:

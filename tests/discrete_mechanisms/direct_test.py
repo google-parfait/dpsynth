@@ -25,11 +25,9 @@ class DirectTest(absltest.TestCase):
     data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
 
     prespecified_queries = [('a', 'b'), ('a', 'c'), ('b', 'c')]
-    config = direct.DirectConfig(
-        prespecified_marginal_queries=prespecified_queries,
-        pgm_iters=500,
-    )
-    result = config.configure(budget=10000)(np.random.default_rng(0), data)
+    config = direct.DirectConfig(pgm_iters=500)
+    calibrated = config.configure(budget=10000, workload=prespecified_queries)
+    result = calibrated(np.random.default_rng(0), data)
 
     self.assertIsInstance(result, common.DiscreteMechanismResult)
     self.assertLen(result.measurements, len(prespecified_queries))
@@ -46,11 +44,11 @@ class DirectTest(absltest.TestCase):
     data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
     prespecified_queries = [('a', 'b'), ('a', 'c'), ('b', 'c')]
     config = direct.DirectConfig(
-        prespecified_marginal_queries=prespecified_queries,
         estimator=mbi.estimation.InteriorGradient(),
         pgm_iters=500,
     )
-    result = config.configure(budget=10000)(np.random.default_rng(0), data)
+    calibrated = config.configure(budget=10000, workload=prespecified_queries)
+    result = calibrated(np.random.default_rng(0), data)
 
     for col in data.domain:
       expected = data.project([col]).datavector()
@@ -68,12 +66,12 @@ class DirectTest(absltest.TestCase):
       )
 
     config = direct.DirectConfig(
-        prespecified_marginal_queries=[('a', 'b')],
         estimator=mbi.estimation.InteriorGradient(),
         marginal_oracle=tracking_oracle,
         pgm_iters=10,
     )
-    config.configure(budget=100)(np.random.default_rng(0), data)
+    calibrated = config.configure(budget=100, workload=[('a', 'b')])
+    calibrated(np.random.default_rng(0), data)
     self.assertNotEmpty(calls)
 
 

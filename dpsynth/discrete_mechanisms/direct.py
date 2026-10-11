@@ -19,6 +19,7 @@ import dataclasses
 from absl import logging
 import dp_accounting
 from dpsynth import api
+from dpsynth import workload as workload_lib
 from dpsynth.discrete_mechanisms import accounting
 from dpsynth.discrete_mechanisms import common
 import mbi
@@ -29,23 +30,24 @@ import numpy as np
 class DirectConfig(api.MechanismConfig):
   """Config for the direct mechanism that measures prespecified marginals."""
 
-  def configure(self, _=None, *, budget, delta=0):
-    return Direct(
-        config=self,
-        gdp_budget=accounting.zcdp_to_gdp(budget),
-    )
-
   estimator: mbi.Estimator = mbi.estimation.MirrorDescent()
   marginal_oracle: mbi.MarginalOracle | None = None
   pgm_iters: int = 5000
-  prespecified_marginal_queries: list[tuple[str, ...]] = dataclasses.field(
-      default_factory=list
-  )
 
-  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
-    """Returns the prespecified marginal queries."""
-    del domain  # Unused.
-    return list(self.prespecified_marginal_queries)
+  def configure(
+      self,
+      domain=None,
+      *,
+      budget: float,
+      delta: float = 0.0,
+      workload: workload_lib.WorkloadInput | None = None,
+  ) -> 'Direct':
+    del delta
+    return Direct(
+        config=self,
+        gdp_budget=accounting.zcdp_to_gdp(budget),
+        workload=workload_lib.Workload.from_any(workload, domain),
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -54,6 +56,12 @@ class Direct(api.CalibratedMechanism):
 
   config: DirectConfig
   gdp_budget: float
+  workload: workload_lib.Workload | None = None
+
+  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
+    """Returns the prespecified marginal queries."""
+    del domain  # Unused.
+    return list(self.workload.cliques) if self.workload else []
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -73,7 +81,9 @@ class Direct(api.CalibratedMechanism):
     """Selects, measures, estimates, and generates in the compressed domain."""
     common.validate_initial_measurements(initial_measurements)
     phase_times = {}
-    selected = list(self.config.prespecified_marginal_queries)
+    w = self.workload
+    selected = list(w.cliques) if w else []
+    weights = np.array(w.weights) if w and w.weights is not None else None
     all_cliques = [m.clique for m in initial_measurements] + list(selected)
 
     summary = mbi.summarize(data.domain, all_cliques)
@@ -94,6 +104,7 @@ class Direct(api.CalibratedMechanism):
         data=data,  # pyrefly: ignore[bad-argument-type]
         marginal_queries=selected,
         gdp_sigma=accounting.gdp_gaussian_sigma(self.gdp_budget),
+        weights=weights,
     )
     measurements = list(initial_measurements) + new_measurements
 

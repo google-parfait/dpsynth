@@ -381,20 +381,19 @@ class BeamTabularConfigTest(parameterized.TestCase):
     self.assertCountEqual(result.synthetic_data.columns, ['age', 'grade'])
 
   @parameterized.named_parameters(
-      ('mst', discrete_mechanisms.MSTConfig(pgm_iters=250)),
+      ('mst', discrete_mechanisms.MSTConfig(pgm_iters=250), None),
       (
           'independent',
           discrete_mechanisms.IndependentConfig(),
+          None,
       ),
       (
           'direct',
-          discrete_mechanisms.DirectConfig(
-              prespecified_marginal_queries=[('a',), ('b',), ('a', 'b')],
-              pgm_iters=250,
-          ),
+          discrete_mechanisms.DirectConfig(pgm_iters=250),
+          [('a',), ('b',), ('a', 'b')],
       ),
   )
-  def test_runs_across_mechanisms(self, mechanism):
+  def test_runs_across_mechanisms(self, mechanism, workload):
     """The pipeline generalizes to any mechanism via supporting_cliques."""
     domains = {
         'a': domain.CategoricalAttribute(possible_values=['x', 'y']),
@@ -402,7 +401,7 @@ class BeamTabularConfigTest(parameterized.TestCase):
     }
     synth = data_generation_v3.TabularConfig(discrete_mechanism=mechanism)
     beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
-        domains, budget=100.0
+        domains, budget=100.0, workload=workload
     )
     rows = [
         {'a': 'x', 'b': 'p'},

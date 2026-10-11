@@ -73,7 +73,9 @@ def _discrete_workload_mechanism_baseline_errors(
   rng = np.random.default_rng(0)
   data = _make_discrete_data(rng)
 
-  mechanism_result = config.configure(budget=budget)(rng, data)
+  mechanism_result = config.configure(budget=budget, workload=workload)(
+      rng, data
+  )
   baseline_result = baseline_config.configure(budget=budget)(rng, data)
 
   mechanism_error = np.mean([
@@ -101,9 +103,9 @@ def _mixed_workload_mechanism_baseline_errors(
       numerical_bins=numerical_bins,
   )
 
-  mechanism_result = mechanism_synth.configure(domains, budget=budget)(
-      rng, data
-  )
+  mechanism_result = mechanism_synth.configure(
+      domains, budget=budget, workload=workload
+  )(rng, data)
   baseline_result = baseline_synth.configure(domains, budget=budget)(rng, data)
 
   mechanism_error = np.mean([
@@ -314,7 +316,7 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_discrete_workload_regression_with_aim(self):
     workload = [('a',), ('b',), ('c',), ('a', 'b'), ('a', 'c'), ('b', 'c')]
-    config = aim.AIMConfig(workload=workload, max_rounds=4, pgm_iters=500)
+    config = aim.AIMConfig(max_rounds=4, pgm_iters=500)
     baseline_config = IndependentConfig(pgm_iters=500)
     mechanism_error, baseline_error = (
         _discrete_workload_mechanism_baseline_errors(
@@ -325,12 +327,25 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_mixed_workload_regression_with_aim(self):
     workload = [('a',), ('b',), ('c',), ('a', 'b'), ('a', 'c'), ('b', 'c')]
-    config = aim.AIMConfig(workload=workload, max_rounds=4, pgm_iters=500)
+    config = aim.AIMConfig(max_rounds=4, pgm_iters=500)
     baseline_config = IndependentConfig(pgm_iters=500)
     mechanism_error, baseline_error = _mixed_workload_mechanism_baseline_errors(
         config, baseline_config, workload
     )
     self.assertLess(mechanism_error, 0.05 * baseline_error)
+
+  def test_configure_validates_workload_against_schema(self):
+    domains = {
+        'a': domain.CategoricalAttribute(possible_values=['x', 'y']),
+        'b': domain.CategoricalAttribute(possible_values=['p', 'q']),
+    }
+    config = TabularConfig(discrete_mechanism=aim.AIMConfig(pgm_iters=10))
+    with self.assertRaisesRegex(ValueError, 'Unknown workload attributes'):
+      config.configure(domains, budget=1.0, workload=[('a', 'missing')])
+    with self.assertLogs(level='WARNING') as logs:
+      config.configure(domains, budget=1.0, workload=[('a',)])
+    matched = ['Attributes not in workload' in m for m in logs.output]
+    self.assertTrue(any(matched))
 
   def test_empty_dataset(self):
     """Tests that DPSynth works without crashing on empty datasets, and outputs noisy rows."""
