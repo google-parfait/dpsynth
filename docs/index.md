@@ -107,6 +107,7 @@ see the
 :hidden:
 
 Overview <self>
+library_ecosystem
 api_reference
 ```
 
