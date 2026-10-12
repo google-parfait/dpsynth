@@ -26,6 +26,7 @@ from absl import logging
 from etils import epath
 from flax import nnx
 import jax
+from jax.experimental import mesh_utils
 import jax.numpy as jnp
 import numpy as np
 import optax
@@ -39,12 +40,16 @@ from tunix.models.gemma4 import params as gemma4_params
 ModelName = Literal[
     'gemma4_e2b_it',
     'gemma4_e4b_it',
+    'gemma4_31b_it',
 ]
 
 _DEFAULT_LORA_TARGETS = (
     r'.*q_einsum|.*k_einsum|.*kv_einsum|.*qkv_einsum|.*attn_vec_einsum'
     r'|.*gate_proj|.*up_proj|.*down_proj'
 )
+
+# gemma4_params only defines checkpoint constants for E2B and E4B variants.
+_GEMMA4_31B_IT = 'gs://gemma-data/checkpoints/gemma4-31b-it'
 
 _DEFAULTS: dict[str, tuple[Callable[..., Any], str]] = {
     'gemma4_e2b_it': (
@@ -55,7 +60,26 @@ _DEFAULTS: dict[str, tuple[Callable[..., Any], str]] = {
         gemma4_model.ModelConfig.gemma4_e4b,
         gemma4_params.GEMMA4_E4B_IT,
     ),
+    'gemma4_31b_it': (
+        gemma4_model.ModelConfig.gemma4_31b,
+        _GEMMA4_31B_IT,
+    ),
 }
+
+
+def make_mesh(tp: int = 1) -> jax.sharding.Mesh:
+  """Builds a 3D ('replica', 'fsdp'=1, 'tp'=tp) device mesh for Gemma 4."""
+  n = jax.device_count()
+  if n % tp != 0:
+    raise ValueError(f'device_count {n} must be divisible by tp={tp}.')
+  shape = (n // tp, 1, tp)
+  try:
+    devices = mesh_utils.create_device_mesh(
+        shape, allow_split_physical_axes=True
+    )
+  except (ValueError, NotImplementedError, RuntimeError, AssertionError):
+    devices = np.asarray(jax.devices()).reshape(shape)
+  return jax.sharding.Mesh(devices, axis_names=('replica', 'fsdp', 'tp'))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -104,10 +128,21 @@ def load_gemma(
   Returns:
     The LoRA-wrapped ``nnx.Module``.
   """
+  if mesh is None and not jax.sharding.get_mesh().empty:
+    mesh = jax.sharding.get_mesh()
   config_fn, _ = _DEFAULTS[model_variant.name]
+  # Work around a Tunix/Qwix limitation: RematConfig.BLOCK wraps blocks in
+  # nnx.remat(graph_updates=False) and jax.checkpoint, which masks qwix_rngs
+  # and discards LoRAParam attribute mutations during the init forward pass
+  # (see tunix/cli/utils/model.py). Enable RematConfig.BLOCK after _init_lora.
+  cfg = dataclasses.replace(
+      config_fn(),
+      dtype=jnp.bfloat16,
+      remat_config=gemma4_model.RematConfig.NONE,
+  )
   loaded = gemma4_params.create_model_from_checkpoint(
       model_variant.checkpoint_path,
-      dataclasses.replace(config_fn(), dtype=jnp.bfloat16),
+      cfg,
       mesh=mesh,
   )
   alpha = (
@@ -121,10 +156,33 @@ def load_gemma(
       alpha=alpha,
       weight_qtype=lora_config.weight_qtype,
   )
+  warm_tokens = jnp.ones((1, 1), dtype=jnp.int32)
+  warm_mask = jnp.ones((1, 1, 1), dtype=jnp.bool_)
+  # Skip eager init so multi-host shards are traced abstractly under nnx.jit.
   lora_model = qwix.apply_lora_to_model(
-      loaded, lora_provider, **loaded.get_model_input(), rngs=nnx.Rngs(0)
+      loaded,
+      lora_provider,
+      warm_tokens,
+      attention_mask=warm_mask,
+      rngs=nnx.Rngs(0),
+      skip_nnx_init=True,
   )
   assert isinstance(lora_model, nnx.Module)
+  lora_model.set_attributes(qwix_rngs=nnx.Rngs(0))
+
+  @nnx.jit
+  def _init_lora(m: nnx.Module, tok: jax.Array, msk: jax.Array) -> nnx.Module:
+    logits, _ = m(tok, attention_mask=msk)
+    _ = jnp.sum(logits)
+    if mesh is not None:
+      state = nnx.state(m, nnx.LoRAParam)
+      pspecs = nnx.get_partition_spec(state)
+      nnx.update(m, jax.lax.with_sharding_constraint(state, pspecs))
+    return m
+
+  lora_model = _init_lora(lora_model, warm_tokens, warm_mask)
+  lora_model.set_attributes(qwix_rngs=None)
+  lora_model.config.remat_config = gemma4_model.RematConfig.BLOCK
   if checkpoint_path is not None:
     load_lora_params(lora_model, checkpoint_path)
 
