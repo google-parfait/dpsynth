@@ -57,7 +57,7 @@ from absl import logging
 import dp_accounting
 from dpsynth import api
 from jax_privacy import execution_plan
-from jax_privacy.experimental import training
+from jax_privacy import training
 import optax
 
 

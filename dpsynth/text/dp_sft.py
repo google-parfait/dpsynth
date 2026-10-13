@@ -24,7 +24,7 @@ Example usage::
       num_bands=1, iterations=100, expected_participations=1.0,
   )
   fine_tuner = DPFineTuner(
-      model_variant=model.GemmaModel.default('gemma3_270m_it'),
+      model_variant=model.GemmaModel.default('gemma4_e2b_it'),
       mechanism_config=config,
   ).configure(budget=0.5)
 
@@ -45,10 +45,9 @@ import dp_accounting
 from dpsynth import api
 from dpsynth.text import dp_trainer
 from dpsynth.text import model
-from gemma import gm
-from gemma import peft
+from flax import nnx
+import jax.numpy as jnp
 from jax_privacy import execution_plan
-from jax_privacy import training
 import optax
 
 
@@ -60,12 +59,10 @@ class FineTuneResult:
   excluded.
 
   Attributes:
-    model: The LoRA-wrapped model architecture.
-    params: Pretrained and trained LoRA parameters merged into a single tree.
+    model: The LoRA-wrapped model with trained parameters merged in.
   """
 
-  model: gm.nn.LoRA
-  params: training.Params
+  model: nnx.Module
 
 
 @dataclasses.dataclass(frozen=True)
@@ -145,29 +142,33 @@ class DPFineTuner(api.DPMechanism):
     """
     dataset = model.tokenize_texts(
         data,
-        model_variant=self.model_variant,
         max_seq_length=self.max_seq_length,
     )
 
     lora_config = model.LoraConfig(rank=self.lora_rank)
-    module, frozen_params, trainable_params = model.load_gemma(
+    loaded_model = model.load_gemma(
         self.model_variant,
         lora_config,
     )
+    graphdef, trainable_params, frozen_params = nnx.split(
+        loaded_model, nnx.LoRAParam, ...
+    )
 
-    def loss_fn(trainable_params, batch, prng):
+    def loss_fn(params, data, prng):
       del prng  # Deterministic forward pass (no dropout during DP training).
-      full_params = peft.merge_params(frozen_params, trainable_params)
-      return model.sft_loss_fn(module, full_params, batch)
+      bf16_params = optax.tree.cast(params, jnp.bfloat16)
+      merged = nnx.merge(graphdef, bf16_params, frozen_params)
+      return model.sft_loss_fn(merged, data)
 
     trainer = dp_trainer.DPTrainer(
         mechanism_config=self.mechanism_config,
-        init_params=trainable_params,
-        loss_fn=loss_fn,  # pyrefly: ignore[bad-argument-type]
+        init_params=optax.tree.cast(trainable_params, jnp.float32),
+        loss_fn=loss_fn,
         optimizer=self.optimizer,
         performance_flags=self.performance_flags,
     )
     state = trainer(rng=rng, data=dataset)
 
-    merged = peft.merge_params(frozen_params, state.params)  # pyrefly: ignore[bad-argument-type]
-    return FineTuneResult(model=module, params=merged)
+    bf16_params = optax.tree.cast(state.params, jnp.bfloat16)
+    merged = nnx.merge(graphdef, bf16_params, frozen_params)
+    return FineTuneResult(model=merged)
