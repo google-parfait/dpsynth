@@ -51,40 +51,27 @@ class DPTrainerTest(absltest.TestCase):
 
   def test_default_creates_valid_config(self):
     params, loss_fn = _dummy_params_and_loss()
-    trainer = dp_trainer.DPTrainer(
+    config = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=self.dpsgd_config,
         optimizer=optax.adamw(1e-4),
     )
-    self.assertEqual(trainer.mechanism_config.iterations, 100)
-    self.assertIsNone(trainer.mechanism_config.noise_multiplier)
+    self.assertEqual(config.mechanism_config.iterations, 100)
+    self.assertIsNone(config.mechanism_config.noise_multiplier)
 
   def test_calibrate_sets_noise_multiplier(self):
     params, loss_fn = _dummy_params_and_loss()
-    trainer = dp_trainer.DPTrainer(
+    trainer = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=self.dpsgd_config,
         optimizer=optax.adamw(1e-4),
     ).configure(budget=0.5)
     # Single band: sigma = sqrt(T / (2 * rho)) = 10.
-    self.assertAlmostEqual(trainer.mechanism_config.noise_multiplier, 10.0)
+    sigma = trainer.config.mechanism_config.noise_multiplier
+    self.assertAlmostEqual(sigma, 10.0)
     self.assertIsNotNone(trainer.dp_event)
-
-  def test_raises_before_calibration(self):
-    params, loss_fn = _dummy_params_and_loss()
-    trainer = dp_trainer.DPTrainer(
-        init_params=params,
-        loss_fn=loss_fn,
-        mechanism_config=self.dpsgd_config,
-        optimizer=optax.adamw(1e-4),
-    )
-    with self.assertRaises(ValueError):
-      _ = trainer.dp_event
-
-    with self.assertRaises(ValueError):
-      trainer(rng=42, data={'x': jnp.ones((10, 4, 4))})
 
   def test_nnx_split_merge_round_trip(self):
     """Demonstrates the NNX split/merge pattern for LoRA fine-tuning."""
@@ -105,7 +92,7 @@ class DPTrainerTest(absltest.TestCase):
         expected_participations=5,
         l2_clip_norm=1.0,
     )
-    trainer = dp_trainer.DPTrainer(
+    trainer = dp_trainer.DPTrainerConfig(
         init_params=trainable,
         loss_fn=loss_fn,
         mechanism_config=full_batch_config,
@@ -121,7 +108,7 @@ class DPTrainerTest(absltest.TestCase):
         iterations=5,
         batch_size=2,
     )
-    trainer = dp_trainer.DPTrainer(
+    trainer = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=non_private_config,
@@ -138,7 +125,7 @@ class DPTrainerTest(absltest.TestCase):
         iterations=3,
         batch_size=2,
     )
-    trainer = dp_trainer.DPTrainer(
+    trainer = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=non_private_config,
@@ -159,13 +146,14 @@ class DPTrainerTest(absltest.TestCase):
         expected_participations=3,
         l2_clip_norm=1.0,
     )
-    base_trainer = dp_trainer.DPTrainer(
+    base_config = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=mech_config,
         optimizer=optax.adamw(1e-2),
         checkpoint_every=2,
-    ).configure(budget=1.0)
+    )
+    base_trainer = base_config.configure(budget=1.0)
 
     # Uninterrupted reference run without checkpointing.
     expected = base_trainer(rng=42, data=data)
@@ -180,8 +168,8 @@ class DPTrainerTest(absltest.TestCase):
         raise RuntimeError('Simulated preemption at step 4')
 
     interrupted_trainer = dataclasses.replace(
-        base_trainer, callback=interrupt_at_4
-    )
+        base_config, callback=interrupt_at_4
+    ).configure(budget=1.0)
     with self.assertRaises(RuntimeError):
       with dpsynth.checkpoint(ckpt_dir):
         interrupted_trainer(rng=42, data=data)
@@ -190,8 +178,8 @@ class DPTrainerTest(absltest.TestCase):
     # Second run: resumes from step 4 checkpoint and executes only steps 5..6.
     steps_run_2 = []
     resumed_trainer = dataclasses.replace(
-        base_trainer, callback=lambda step, s, a: steps_run_2.append(step)
-    )
+        base_config, callback=lambda step, s, a: steps_run_2.append(step)
+    ).configure(budget=1.0)
     with dpsynth.checkpoint(ckpt_dir):
       resumed = resumed_trainer(rng=42, data=data)
     self.assertEqual(steps_run_2, [5, 6])
@@ -202,8 +190,8 @@ class DPTrainerTest(absltest.TestCase):
     # Third run: restores final step 6 checkpoint and executes 0 steps.
     steps_run_3 = []
     cached_trainer = dataclasses.replace(
-        base_trainer, callback=lambda step, s, a: steps_run_3.append(step)
-    )
+        base_config, callback=lambda step, s, a: steps_run_3.append(step)
+    ).configure(budget=1.0)
     with dpsynth.checkpoint(ckpt_dir):
       cached = cached_trainer(rng=42, data=data)
     self.assertEqual(steps_run_3, [])
@@ -221,7 +209,7 @@ class DPTrainerTest(absltest.TestCase):
         expected_participations=3,
         l2_clip_norm=1.0,
     )
-    trainer = dp_trainer.DPTrainer(
+    trainer = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=mech_config,

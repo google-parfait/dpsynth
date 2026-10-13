@@ -117,7 +117,7 @@ def train() -> dp_sft.FineTuneResult:
   # Frame each abstract as a (fixed instruction prompt -> abstract) SFT pair.
   train_data = [(_INSTRUCTION, abstract) for abstract in abstracts]
 
-  fine_tuner = dp_sft.DPFineTuner(
+  fine_tuner = dp_sft.DPFineTunerConfig(
       model_variant=_model_variant(),
       mechanism_config=execution_plan.BandMFConfig.default(
           num_bands=8,

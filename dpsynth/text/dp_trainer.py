@@ -64,7 +64,7 @@ import optax
 
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
-class DPTrainer(api.DPMechanism):
+class DPTrainerConfig(api.MechanismConfig):
   """General-purpose differentially private training via DP-SGD.
 
   Wraps ``jax_privacy.DPTrainer`` in the ``DPMechanism`` protocol, providing
@@ -103,7 +103,7 @@ class DPTrainer(api.DPMechanism):
   callback: training.CallbackFn | None = None
   checkpoint_every: int = 100
 
-  def configure(self, _=None, *, budget, delta=0.0):
+  def configure(self, _=None, *, budget, delta=0.0) -> DPTrainer:
     """Returns a copy with noise calibrated to the zCDP budget.
 
     Uses a loose upper bound ignoring subsampling amplification:
@@ -118,7 +118,7 @@ class DPTrainer(api.DPMechanism):
       A new ``DPTrainer`` with calibrated ``config.noise_multiplier``.
     """
     if isinstance(self.mechanism_config, execution_plan.NonPrivateConfig):
-      return self
+      return DPTrainer(self)
     cfg = typing.cast(execution_plan.BandMFConfig, self.mechanism_config)
     num_bands = len(cfg.strategy)  # pyrefly: ignore[bad-argument-type]
     rounds = math.ceil(cfg.iterations / num_bands)
@@ -127,20 +127,20 @@ class DPTrainer(api.DPMechanism):
         cfg,
         noise_multiplier=noise_multiplier,
     )
-    return dataclasses.replace(self, mechanism_config=calibrated_config)
+    cfg = dataclasses.replace(self, mechanism_config=calibrated_config)
+    return DPTrainer(cfg)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class DPTrainer(api.CalibratedMechanism):
+  """Calibrated differentially private trainer via DP-SGD."""
+
+  config: DPTrainerConfig
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
     """The DpEvent characterizing the privacy cost of DP-SGD training."""
-    if (
-        hasattr(self.mechanism_config, 'noise_multiplier')
-        and self.mechanism_config.noise_multiplier is None
-    ):
-      raise ValueError('noise_multiplier is not set. Call calibrate() first.')
-    return self._make_plan().dp_event
-
-  def _make_plan(self) -> execution_plan.DPExecutionPlan:
-    return self.mechanism_config.make(performance_flags=self.performance_flags)
+    return self.config.mechanism_config.make().dp_event
 
   def __call__(
       self,
@@ -157,33 +157,27 @@ class DPTrainer(api.DPMechanism):
     Returns:
       Final ``TrainingState`` containing the trained parameters.
     """
-    if (
-        hasattr(self.mechanism_config, 'noise_multiplier')
-        and self.mechanism_config.noise_multiplier is None
-    ):
-      raise ValueError('noise_multiplier is not set. Call calibrate() first.')
-
-    cfg = typing.cast(typing.Any, self.mechanism_config)
+    cfg = typing.cast(typing.Any, self.config.mechanism_config)
     d = dataclasses.asdict(cfg)
-    if hasattr(self.mechanism_config, 'strategy') and cfg.strategy is not None:
+    if hasattr(cfg, 'strategy') and cfg.strategy is not None:
       d['strategy'] = [float(x) for x in cfg.strategy]
     logging.info('DPTrainer config:\n%s', json.dumps(d, indent=2))
 
-    perf = self.performance_flags or execution_plan.PerformanceFlags()
+    perf = self.config.performance_flags or execution_plan.PerformanceFlags()
     if perf.noise_seed is None:
       perf = dataclasses.replace(perf, noise_seed=rng)
 
     trainer = training.DPTrainer(
-        config=self.mechanism_config,
+        config=self.config.mechanism_config,
         performance_flags=perf,
-        loss_fn=self.loss_fn,
-        optimizer=self.optimizer,
+        loss_fn=self.config.loss_fn,
+        optimizer=self.config.optimizer,
     )
     with _checkpoint.orbax_session(
         trainer.init,
-        self.init_params,
-        checkpoint_every=self.checkpoint_every,
-        callback=self.callback,
+        self.config.init_params,
+        checkpoint_every=self.config.checkpoint_every,
+        callback=self.config.callback,
     ) as (initial_state, callback):
       return trainer.fit(
           data,
