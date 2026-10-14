@@ -127,9 +127,7 @@ def train() -> dp_sft.FineTuneResult:
       lora_rank=_LORA_RANK.value,
       max_seq_length=_MAX_SEQ_LENGTH.value,
       optimizer=optax.adamw(_LEARNING_RATE.value),
-      performance_flags=execution_plan.PerformanceFlags(
-          microbatch_size=_MICROBATCH_SIZE.value
-      ),
+      microbatch_size=_MICROBATCH_SIZE.value,
   ).calibrate(epsilon=_EPSILON.value, delta=_DELTA.value)
 
   logging.info('DP fine-tuning on %d abstracts...', len(train_data))

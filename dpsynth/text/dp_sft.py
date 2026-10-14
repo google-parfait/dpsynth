@@ -20,7 +20,7 @@ DP-SGD training via ``DPTrainer``.
 
 Example usage::
 
-  config = execution_plan.BandMFConfig.default(
+  config = jax_privacy.execution_plan.BandMFConfig.default(
       num_bands=1, iterations=100, expected_participations=1.0,
   )
   fine_tuner = DPFineTuner(
@@ -46,8 +46,10 @@ from dpsynth import api
 from dpsynth.text import dp_trainer
 from dpsynth.text import model
 from flax import nnx
+import jax
 import jax.numpy as jnp
 from jax_privacy import execution_plan
+from jax_privacy import noise_addition
 import optax
 
 
@@ -82,7 +84,7 @@ class DPFineTuner(api.DPMechanism):
   optimizer: optax.GradientTransformation = dataclasses.field(
       default_factory=lambda: optax.adamw(1e-4)
   )
-  performance_flags: execution_plan.PerformanceFlags | None = None
+  microbatch_size: int | None = None
 
   def configure(self, _=None, *, budget, delta=0.0):
     """Returns a copy with noise_multiplier calibrated to the zCDP budget.
@@ -121,9 +123,7 @@ class DPFineTuner(api.DPMechanism):
     """The DpEvent characterizing the privacy cost of DP-SGD training."""
     if self.mechanism_config.noise_multiplier is None:
       raise ValueError('noise_multiplier is not set. Call calibrate() first.')
-    return self.mechanism_config.make(
-        performance_flags=self.performance_flags
-    ).dp_event
+    return self.mechanism_config.make().dp_event
 
   def __call__(
       self,
@@ -160,12 +160,27 @@ class DPFineTuner(api.DPMechanism):
       merged = nnx.merge(graphdef, bf16_params, frozen_params)
       return model.sft_loss_fn(merged, data)
 
+    mesh = jax.sharding.get_mesh()
+    if not mesh.empty and 'replica' in mesh.axis_names:
+      perf = execution_plan.PerformanceFlags(
+          noise_seed=rng,
+          microbatch_size=self.microbatch_size,
+          batch_axis_name='replica',
+          intermediate_strategy=noise_addition.SupportedStrategies.ZERO,
+          param_specs=jax.tree.map(lambda x: x.sharding, trainable_params),
+      )
+    else:
+      perf = execution_plan.PerformanceFlags(
+          noise_seed=rng,
+          microbatch_size=self.microbatch_size,
+      )
+
     trainer = dp_trainer.DPTrainer(
         mechanism_config=self.mechanism_config,
         init_params=optax.tree.cast(trainable_params, jnp.float32),
         loss_fn=loss_fn,
         optimizer=self.optimizer,
-        performance_flags=self.performance_flags,
+        performance_flags=perf,
     )
     state = trainer(rng=rng, data=dataset)
 

@@ -116,6 +116,17 @@ class GemmaModelTest(absltest.TestCase):
     self.assertEqual(m.name, 'gemma4_e2b_it')
     self.assertIsNotNone(m.checkpoint_path)
 
+  def test_gemma4_31b_preset(self):
+    m = model.GemmaModel.default('gemma4_31b_it')
+    self.assertEqual(m.name, 'gemma4_31b_it')
+    self.assertIsNotNone(m.checkpoint_path)
+
+  def test_make_mesh(self):
+    mesh = model.make_mesh(tp=1)
+    self.assertEqual(mesh.axis_names, ('replica', 'fsdp', 'tp'))
+    self.assertEqual(mesh.shape['fsdp'], 1)
+    self.assertEqual(mesh.shape['tp'], 1)
+
   def test_custom_checkpoint_path(self):
     m = dataclasses.replace(
         model.GemmaModel.default('gemma4_e2b_it'),
