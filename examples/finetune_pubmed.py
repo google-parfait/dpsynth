@@ -34,6 +34,7 @@ from absl import flags
 from absl import logging
 import datasets
 from dpsynth.text import dp_sft
+from dpsynth.text import dp_trainer
 from dpsynth.text import model
 from etils import epath
 import jax
@@ -117,15 +118,17 @@ def train() -> dp_sft.FineTuneResult:
   # Frame each abstract as a (fixed instruction prompt -> abstract) SFT pair.
   train_data = [(_INSTRUCTION, abstract) for abstract in abstracts]
 
-  fine_tuner = dp_sft.DPFineTuner(
-      model_variant=_model_variant(),
+  fine_tuner = dp_trainer.DPTrainerConfig(
+      task=dp_sft.GemmaSFT(
+          model_variant=_model_variant(),
+          lora_rank=_LORA_RANK.value,
+          max_seq_length=_MAX_SEQ_LENGTH.value,
+      ),
       mechanism_config=execution_plan.BandMFConfig.default(
           num_bands=8,
           iterations=_ITERATIONS.value,
           expected_participations=8.0,
       ),
-      lora_rank=_LORA_RANK.value,
-      max_seq_length=_MAX_SEQ_LENGTH.value,
       optimizer=optax.adamw(_LEARNING_RATE.value),
       microbatch_size=_MICROBATCH_SIZE.value,
   ).calibrate(epsilon=_EPSILON.value, delta=_DELTA.value)

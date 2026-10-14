@@ -12,24 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Differentially private fine-tuning for Gemma language models.
+"""Supervised fine-tuning task for Gemma language models.
 
-``DPFineTuner`` is a ``DPMechanism`` that takes raw text strings and handles
-everything end-to-end: tokenization, model loading, LoRA application, and
-DP-SGD training via ``DPTrainer``.
+``GemmaSFT`` is a ``TrainingTask`` that pairs with ``DPTrainerConfig`` to run
+differentially private fine-tuning on raw ``(prompt, response)`` text pairs,
+handling per-record tokenization, lazy model loading, LoRA application, and
+parameter merging.
 
 Example usage::
 
   config = jax_privacy.execution_plan.BandMFConfig.default(
       num_bands=1, iterations=100, expected_participations=1.0,
   )
-  fine_tuner = DPFineTuner(
-      model_variant=model.GemmaModel.default('gemma4_e2b_it'),
+  fine_tuner = dp_trainer.DPTrainerConfig(
+      task=GemmaSFT(
+          model_variant=model.GemmaModel.default('gemma4_e2b_it'),
+      ),
       mechanism_config=config,
   ).configure(budget=0.5)
 
   data = [("What is 2+2?", "4"), ("Capital of France?", "Paris")]
-  final_state = fine_tuner(rng=42, data=data)
+  result = fine_tuner(rng=42, data=data)
 
 For the underlying DP-SGD implementation, see ``dp_trainer``.
 For model loading and loss construction, see ``model``.
@@ -37,25 +40,19 @@ For model loading and loss construction, see ``model``.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 import dataclasses
-import math
+import functools
 
-import dp_accounting
-from dpsynth import api
 from dpsynth.text import dp_trainer
 from dpsynth.text import model
 from flax import nnx
-import jax
 import jax.numpy as jnp
-from jax_privacy import execution_plan
-from jax_privacy import noise_addition
 import optax
 
 
 @dataclasses.dataclass(frozen=True)
 class FineTuneResult:
-  """Result of running ``DPFineTuner``.
+  """Result of running ``GemmaSFT`` with ``DPTrainer``.
 
   Private training state (noise state, optimizer state) is intentionally
   excluded.
@@ -67,123 +64,48 @@ class FineTuneResult:
   model: nnx.Module
 
 
-@dataclasses.dataclass(frozen=True)
-class DPFineTuner(api.DPMechanism):
-  """Differentially private fine-tuning of Gemma models via DP-SGD.
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class GemmaSFT(dp_trainer.TrainingTask):
+  """Supervised fine-tuning ``TrainingTask`` for Gemma models with LoRA.
 
-  A ``DPMechanism`` that wraps ``DPTrainer`` with tokenization, model loading,
-  and LoRA handling. All configuration is specified at construction time;
-  ``__call__`` takes ``(rng, data)`` where ``data`` is a sequence of text
-  strings.
+  Attributes:
+    model_variant: Which Gemma variant to load.
+    lora_rank: LoRA adapter rank.
+    max_seq_length: Maximum tokenized sequence length.
   """
 
   model_variant: model.GemmaModel
-  mechanism_config: execution_plan.BandMFConfig
   lora_rank: int = 16
   max_seq_length: int = 512
-  optimizer: optax.GradientTransformation = dataclasses.field(
-      default_factory=lambda: optax.adamw(1e-4)
-  )
-  microbatch_size: int | None = None
 
-  def configure(self, _=None, *, budget, delta=0.0):
-    """Returns a copy with noise_multiplier calibrated to the zCDP budget.
-
-    Sets the noise_multiplier to satisfy ``budget`` under a **loose upper
-    bound** that ignores Poisson subsampling amplification: the unamplified
-    composition of ``T`` Gaussian mechanisms with noise_multiplier ``sigma``
-    has zCDP cost ``T / (2 * sigma**2)``, so we set
-    ``sigma = sqrt(T / (2 * budget))``.
-
-    This is deliberately conservative. The ``dp_event`` property returns the
-    **full** event including subsampling amplification, so downstream callers
-    using ``dp_accounting`` (e.g. ``calibrate_dp_mechanism`` over a
-    heterogeneous composition) will get tight PLD-based accounting from the
-    raw events -- not from this loose zCDP bound.
-
-    Args:
-      budget: The privacy budget.
-      delta: Unused. Accepted for interface compatibility.
-
-    Returns:
-      A new ``DPFineTuner`` with calibrated
-      ``mechanism_config.noise_multiplier``.
-    """
-    num_bands = len(self.mechanism_config.strategy)  # pyrefly: ignore[bad-argument-type]
-    rounds = math.ceil(self.mechanism_config.iterations / num_bands)
-    noise_multiplier = math.sqrt(rounds / (2.0 * budget))
-    calibrated_config = dataclasses.replace(
-        self.mechanism_config,
-        noise_multiplier=noise_multiplier,
-    )
-    return dataclasses.replace(self, mechanism_config=calibrated_config)
-
-  @property
-  def dp_event(self) -> dp_accounting.DpEvent:
-    """The DpEvent characterizing the privacy cost of DP-SGD training."""
-    if self.mechanism_config.noise_multiplier is None:
-      raise ValueError('noise_multiplier is not set. Call calibrate() first.')
-    return self.mechanism_config.make().dp_event
-
-  def __call__(
-      self,
-      rng: int,
-      data: Sequence[tuple[str, str]],
-  ) -> FineTuneResult:
-    """Tokenizes text, loads the model, and runs DP-SGD fine-tuning.
-
-    Args:
-      rng: Random seed for batch selection and noise generation.
-      data: Sequence of ``(prompt, response)`` string pairs.
-
-    Returns:
-      A ``FineTuneResult`` with the trained model and merged LoRA parameters.
-      Private training state (noise, optimizer) is not exposed.
-    """
-    dataset = model.tokenize_texts(
-        data,
-        max_seq_length=self.max_seq_length,
-    )
-
+  # Lazily load and split the Gemma model on first access so constructing or
+  # calibrating DPTrainerConfig does not load checkpoint weights.
+  @functools.cached_property
+  def _split_model(self):
     lora_config = model.LoraConfig(rank=self.lora_rank)
-    loaded_model = model.load_gemma(
-        self.model_variant,
-        lora_config,
-    )
-    graphdef, trainable_params, frozen_params = nnx.split(
-        loaded_model, nnx.LoRAParam, ...
-    )
+    loaded_model = model.load_gemma(self.model_variant, lora_config)
+    return nnx.split(loaded_model, nnx.LoRAParam, ...)
 
-    def loss_fn(params, data, prng):
-      del prng  # Deterministic forward pass (no dropout during DP training).
-      bf16_params = optax.tree.cast(params, jnp.bfloat16)
-      merged = nnx.merge(graphdef, bf16_params, frozen_params)
-      return model.sft_loss_fn(merged, data)
+  def init_params(self):
+    """Returns initial trainable LoRA parameters cast to float32."""
+    _, trainable_params, _ = self._split_model
+    return optax.tree.cast(trainable_params, jnp.float32)
 
-    mesh = jax.sharding.get_mesh()
-    if not mesh.empty and 'replica' in mesh.axis_names:
-      perf = execution_plan.PerformanceFlags(
-          noise_seed=rng,
-          microbatch_size=self.microbatch_size,
-          batch_axis_name='replica',
-          intermediate_strategy=noise_addition.SupportedStrategies.ZERO,
-          param_specs=jax.tree.map(lambda x: x.sharding, trainable_params),
-      )
-    else:
-      perf = execution_plan.PerformanceFlags(
-          noise_seed=rng,
-          microbatch_size=self.microbatch_size,
-      )
+  def loss_fn(self, params, data, prng):
+    """Merges trainable LoRA parameters into the model and computes SFT loss."""
+    del prng  # Deterministic forward pass (no dropout during DP training).
+    graphdef, _, frozen_params = self._split_model
+    bf16_params = optax.tree.cast(params, jnp.bfloat16)
+    merged = nnx.merge(graphdef, bf16_params, frozen_params)
+    return model.sft_loss_fn(merged, data)
 
-    trainer = dp_trainer.DPTrainer(
-        mechanism_config=self.mechanism_config,
-        init_params=optax.tree.cast(trainable_params, jnp.float32),
-        loss_fn=loss_fn,
-        optimizer=self.optimizer,
-        performance_flags=perf,
-    )
-    state = trainer(rng=rng, data=dataset)
+  def preprocess_fn(self, record):
+    """Tokenizes a single ``(prompt, response)`` pair."""
+    return model.tokenize_example(record, max_seq_length=self.max_seq_length)
 
-    bf16_params = optax.tree.cast(state.params, jnp.bfloat16)
+  def postprocess_fn(self, params) -> FineTuneResult:
+    """Merges final trained LoRA parameters into the model."""
+    graphdef, _, frozen_params = self._split_model
+    bf16_params = optax.tree.cast(params, jnp.bfloat16)
     merged = nnx.merge(graphdef, bf16_params, frozen_params)
     return FineTuneResult(model=merged)
