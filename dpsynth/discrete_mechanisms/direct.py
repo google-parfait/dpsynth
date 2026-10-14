@@ -41,6 +41,8 @@ class DirectConfig(api.MechanismConfig):
   prespecified_marginal_queries: list[tuple[str, ...]] = dataclasses.field(
       default_factory=list
   )
+  # Note: Consider upstreaming soft constraint relaxation to mbi.Constraint.
+  soft_constraint_threshold: float | None = 5.0
 
   def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
     """Returns the prespecified marginal queries."""
@@ -99,6 +101,8 @@ class Direct(api.CalibratedMechanism):
 
     with common.timed(phase_times, 'estimation'):
       pgm_future.result()
+      thresh = self.config.soft_constraint_threshold
+      constraints = common.relax_constraints(constraints, measurements, thresh)
       model = estimator.estimate(
           data.domain,
           measurements,

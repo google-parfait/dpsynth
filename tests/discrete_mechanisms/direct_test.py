@@ -76,6 +76,33 @@ class DirectTest(absltest.TestCase):
     config.configure(budget=100)(np.random.default_rng(0), data)
     self.assertNotEmpty(calls)
 
+  def test_end_to_end_soft_vs_hard_constraint_in_direct(self):
+    dom = mbi.Domain(('a', 'b'), (2, 2))
+    # All 1000 rows are at (0, 1), which the constraint marks invalid.
+    df = {'a': np.zeros(1000, dtype=int), 'b': np.ones(1000, dtype=int)}
+    data = mbi.Dataset(df, dom)
+    c = mbi.Constraint(dom, invalid=np.array([[0, 1]]))
+
+    soft_cfg = direct.DirectConfig(
+        prespecified_marginal_queries=[('a', 'b')],
+        pgm_iters=200,
+        soft_constraint_threshold=5.0,
+    )
+    soft_res = soft_cfg.configure(budget=100)(
+        np.random.default_rng(0), data, constraints=[c]
+    )
+    self.assertGreater(soft_res.model.project(('a', 'b')).values[0, 1], 900.0)
+
+    hard_cfg = direct.DirectConfig(
+        prespecified_marginal_queries=[('a', 'b')],
+        pgm_iters=200,
+        soft_constraint_threshold=None,
+    )
+    hard_res = hard_cfg.configure(budget=100)(
+        np.random.default_rng(0), data, constraints=[c]
+    )
+    self.assertEqual(hard_res.model.project(('a', 'b')).values[0, 1], 0.0)
+
 
 if __name__ == '__main__':
   absltest.main()

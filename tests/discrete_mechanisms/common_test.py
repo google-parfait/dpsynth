@@ -16,6 +16,7 @@ import itertools
 import pickle
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from dpsynth import transformations
 from dpsynth.discrete_mechanisms import common
 import mbi
@@ -26,7 +27,7 @@ def assert_serializable(obj):
   pickle.dumps(obj)
 
 
-class CommonTest(absltest.TestCase):
+class CommonTest(parameterized.TestCase):
 
   def test_measure_marginals_with_noise(self):
     data = mbi.Dataset.synthetic(mbi.Domain(["a", "b", "c"], [3, 4, 5]), N=1000)
@@ -118,6 +119,80 @@ class CommonTest(absltest.TestCase):
       np.testing.assert_allclose(
           result_standard[cl].datavector(), result_jax[cl].datavector()
       )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="valid",
+          kwargs=dict(valid=np.array([[0, 0], [0, 1], [1, 1]])),
+      ),
+      dict(
+          testcase_name="invalid",
+          kwargs=dict(invalid=np.array([[0, 2], [1, 0], [1, 2]])),
+      ),
+      dict(
+          testcase_name="mapping",
+          kwargs=dict(mapping=np.array([0, 1])),
+      ),
+  )
+  def test_relax_constraints_relaxes_only_contradicted_cells(self, kwargs):
+    dom = mbi.Domain(("a", "b"), (2, 3))
+    c = mbi.Constraint(dom, **kwargs)
+    counts = np.zeros((2, 3))
+    counts[0, 2] = 11.0  # > 5.0 * 2.0 -> relaxed
+    counts[1, 0] = 9.0  # <= 5.0 * 2.0 -> stays forbidden
+    m = mbi.LinearMeasurement(counts.ravel(), clique=("a", "b"), stddev=2.0)
+
+    (relaxed_c,) = common.relax_constraints([c], [m], threshold=5.0)
+    vals = np.asarray(relaxed_c.potential.values)
+    self.assertEqual(vals[0, 2], 0.0)
+    self.assertEqual(vals[1, 0], -np.inf)
+    self.assertEqual(vals[1, 2], -np.inf)
+    self.assertFalse(relaxed_c.is_deterministic)
+
+  def test_relax_constraints_none_or_unmeasured_unchanged(self):
+    dom = mbi.Domain(("a", "b"), (2, 3))
+    c = mbi.Constraint(dom, invalid=np.array([[0, 2]]))
+    m_ab = mbi.LinearMeasurement(np.full(6, 100.0), ("a", "b"), stddev=1.0)
+    m_a = mbi.LinearMeasurement(np.full(2, 100.0), ("a",), stddev=1.0)
+
+    (res_none,) = common.relax_constraints([c], [m_ab], threshold=None)
+    self.assertIs(res_none, c)
+    (res_unmeasured,) = common.relax_constraints([c], [m_a], threshold=5.0)
+    self.assertIs(res_unmeasured, c)
+
+  def test_relax_constraints_transposed_clique_and_all_cells(self):
+    dom = mbi.Domain(("a", "b"), (2, 3))
+    c = mbi.Constraint(dom, invalid=np.array([[0, 2], [1, 0]]))
+    counts_ba = np.zeros((3, 2))
+    counts_ba[2, 0] = 10.0  # (0, 2) in ('a', 'b')
+    m1 = mbi.LinearMeasurement(counts_ba.ravel(), ("b", "a"), stddev=2.0)
+    (c1,) = common.relax_constraints([c], [m1], threshold=3.0)
+    np.testing.assert_array_equal(
+        np.isneginf(c1.potential.values),
+        [[False, False, False], [True, False, False]],
+    )
+
+    counts_ba[0, 1] = 10.0  # (1, 0) in ('a', 'b')
+    m2 = mbi.LinearMeasurement(counts_ba.ravel(), ("b", "a"), stddev=2.0)
+    (c2,) = common.relax_constraints([c1], [m2], threshold=3.0)
+    np.testing.assert_array_equal(c2.potential.values, np.zeros((2, 3)))
+
+  @parameterized.parameters(0, 1, 2)
+  def test_random_3way_relaxation(self, seed):
+    rng = np.random.default_rng(seed)
+    dom = mbi.Domain(("a", "b", "c"), (2, 3, 4))
+    mask = rng.random(dom.shape) < 0.4
+    c = mbi.Constraint(dom, invalid=np.argwhere(mask))
+
+    counts_cab = rng.normal(loc=5.0, scale=5.0, size=(4, 2, 3))
+    m = mbi.LinearMeasurement(counts_cab.ravel(), ("c", "a", "b"), stddev=1.5)
+
+    (relaxed_c,) = common.relax_constraints([c], [m], threshold=4.0)
+    counts_abc = np.moveaxis(counts_cab, (0, 1, 2), (2, 0, 1))
+    expected_invalid = mask & ~(counts_abc > 4.0 * 1.5)
+    np.testing.assert_array_equal(
+        np.isneginf(relaxed_c.potential.values), expected_invalid
+    )
 
 
 if __name__ == "__main__":

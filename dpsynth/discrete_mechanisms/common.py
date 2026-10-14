@@ -482,3 +482,29 @@ def compute_independence_errors(
     error = np.abs(total * estimate - actual).sum()
     errors[cl] = error
   return errors
+
+
+def relax_constraints(
+    constraints: Sequence[mbi.Constraint],
+    measurements: Sequence[mbi.LinearMeasurement],
+    threshold: float | None = 5.0,
+) -> tuple[mbi.Constraint, ...]:
+  """Relaxes forbidden cells when noisy counts exceed threshold * stddev."""
+  if threshold is None:
+    return tuple(constraints)
+  result = []
+  for c in constraints:
+    attrs = c.domain.attributes
+    invalid = np.isneginf(c.potential.values)
+    relaxed = np.zeros(c.domain.shape, dtype=bool)
+    for m in measurements:
+      if set(m.clique) == set(attrs):
+        m_shape = c.domain.project(m.clique).shape
+        vals = np.asarray(m.noisy_measurement).reshape(m_shape)
+        counts = np.moveaxis(vals, range(len(attrs)), c.domain.axes(m.clique))
+        relaxed |= invalid & (counts > threshold * m.stddev)
+    if np.any(relaxed):
+      logging.info('Relaxing %d cells in %s.', int(relaxed.sum()), attrs)
+      c = mbi.Constraint(c.domain, invalid=np.argwhere(invalid & ~relaxed))
+    result.append(c)
+  return tuple(result)
