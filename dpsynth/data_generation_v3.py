@@ -27,6 +27,7 @@ from dpsynth import api
 from dpsynth import constraints
 from dpsynth import discrete_mechanisms
 from dpsynth import domain
+from dpsynth import workload as workload_lib
 from dpsynth.discrete_mechanisms import common as dm_common
 from dpsynth.local_mode import initialization
 from dpsynth.local_mode import vectorized_transformations as vtx
@@ -323,9 +324,8 @@ class TabularMechanism(api.CalibratedMechanism):
         ]
       logging.info('[DPSynth]: Compressed discrete domain:\n%s', data.domain)
 
-      cfg = self.config.discrete_mechanism
-      if hasattr(cfg, 'supporting_cliques'):
-        cliques = cfg.supporting_cliques(data.domain)
+      if hasattr(self.base_mechanism, 'supporting_cliques'):
+        cliques = self.base_mechanism.supporting_cliques(data.domain)
         data = _checkpoint.get_or_compute(
             'precomputed_marginals',
             dm_common.precompute_marginals,
@@ -443,6 +443,7 @@ class TabularConfig(api.MechanismConfig):
       *,
       budget: float,
       delta: float = 0.0,
+      workload: workload_lib.WorkloadInput | None = None,
   ) -> TabularMechanism:
     """Returns a calibrated mechanism configured with the given privacy budget.
 
@@ -460,12 +461,17 @@ class TabularConfig(api.MechanismConfig):
       delta: Approximate DP delta allocated to partition selection for open-set
         columns (split evenly across open-set columns). Must be positive when
         open-set categorical attributes are present.
+      workload: Optional workload specification (e.g. a ``dpsynth.Workload``,
+        sequence of attribute tuples, or mapping from attribute tuples to
+        weights) validated against ``schema`` and forwarded to the discrete
+        mechanism.
 
     Returns:
       A calibrated TabularMechanism ready to be run on tabular data.
 
     Raises:
-      ValueError: If open-set attributes exist but delta is 0.
+      ValueError: If open-set attributes exist but delta is 0, or if the
+        workload contains attributes not present in ``schema``.
     """
     if schema is not None and isinstance(schema, domain.Schema):
       pass
@@ -483,6 +489,7 @@ class TabularConfig(api.MechanismConfig):
           ' construction time.'
       )
 
+    workload = workload_lib.Workload.from_any(workload, schema)
     per_col_deltas = self._compute_per_col_deltas(schema, delta)
 
     inits = create_initializers(
@@ -504,7 +511,7 @@ class TabularConfig(api.MechanismConfig):
     }
 
     calibrated_discrete = self.discrete_mechanism.configure(
-        budget=discrete_rho,
+        schema, budget=discrete_rho, workload=workload
     )
 
     return TabularMechanism(

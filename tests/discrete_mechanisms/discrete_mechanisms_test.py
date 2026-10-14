@@ -36,13 +36,11 @@ _ZCDP_RHO = 10000
 _WORKLOAD = [('a', 'b'), ('b', 'c'), ('a',), ('b',), ('c',)]
 
 _MECHANISMS = {
-    'AIM': aim.AIMConfig(workload=_WORKLOAD, max_rounds=4, pgm_iters=500),
+    'AIM': aim.AIMConfig(max_rounds=4, pgm_iters=500),
     'MST': mst.MSTConfig(pgm_iters=500),
-    'SWIFT': swift.SWIFTConfig(workload=_WORKLOAD, pgm_iters=500),
+    'SWIFT': swift.SWIFTConfig(pgm_iters=500),
     'Independent': independent.IndependentConfig(),
-    'Direct': direct.DirectConfig(
-        prespecified_marginal_queries=_WORKLOAD, pgm_iters=500
-    ),
+    'Direct': direct.DirectConfig(pgm_iters=500),
 }
 
 
@@ -63,8 +61,8 @@ class SupportingCliquesSufficiencyTest(parameterized.TestCase):
     data = mbi.Dataset.synthetic(domain, N=500)
     rng = np.random.default_rng(42)
 
-    calibrated = mechanism.configure(budget=_ZCDP_RHO)
-    cliques = mechanism.supporting_cliques(domain)
+    calibrated = mechanism.configure(budget=_ZCDP_RHO, workload=_WORKLOAD)
+    cliques = calibrated.supporting_cliques(domain)
 
     precomputed = common.precompute_marginals(data, cliques)
 
@@ -86,7 +84,9 @@ class CompressionPropertyTest(parameterized.TestCase):
     data = _make_skewed_dataset(rng)
     original_domain = data.domain
 
-    result = synth_config.configure(budget=_ZCDP_RHO)(rng, data)
+    result = synth_config.configure(budget=_ZCDP_RHO, workload=_WORKLOAD)(
+        rng, data
+    )
 
     self.assertEqual(result.synthetic_data.domain, original_domain)
 
@@ -103,7 +103,7 @@ class CompressionPropertyTest(parameterized.TestCase):
         rng, data, [('a',), ('b',)], gdp_sigma=1.0
     )
 
-    mechanism = synth_config.configure(budget=_ZCDP_RHO)
+    mechanism = synth_config.configure(budget=_ZCDP_RHO, workload=_WORKLOAD)
     result = mechanism(rng, data, initial_measurements=initial_measurements)
 
     self.assertEqual(result.synthetic_data.domain, original_domain)
@@ -119,7 +119,9 @@ class CalibrationTest(parameterized.TestCase):
       return
     rng = np.random.default_rng(0)
     data = _make_skewed_dataset(rng)
-    result = mechanism.calibrate(epsilon=1e-3, delta=1e-5)(rng, data)
+    result = mechanism.calibrate(epsilon=1e-3, delta=1e-5, workload=_WORKLOAD)(
+        rng, data
+    )
     self.assertIsInstance(result, common.DiscreteMechanismResult)
 
 

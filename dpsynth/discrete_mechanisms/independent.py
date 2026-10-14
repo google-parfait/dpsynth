@@ -29,7 +29,8 @@ class IndependentConfig(api.MechanismConfig):
 
   pgm_iters: int = 5000
 
-  def configure(self, _=None, *, budget, delta=0.0):
+  def configure(self, _=None, *, budget, delta=0.0, workload=None):
+    del budget, delta, workload
     return Independent(config=self)
 
   def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
@@ -42,6 +43,10 @@ class Independent(api.CalibratedMechanism):
   """Calibrated independent mechanism instance."""
 
   config: IndependentConfig
+
+  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
+    """Returns the one-way marginals this mechanism expects to process."""
+    return self.config.supporting_cliques(domain)
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:

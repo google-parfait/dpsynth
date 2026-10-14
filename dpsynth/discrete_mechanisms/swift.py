@@ -37,6 +37,7 @@ from absl import logging
 import dp_accounting
 from dpsynth import _checkpoint
 from dpsynth import api
+from dpsynth import workload as workload_lib
 from dpsynth.discrete_mechanisms import accounting
 from dpsynth.discrete_mechanisms import clique_tree
 from dpsynth.discrete_mechanisms import common
@@ -56,8 +57,6 @@ class SWIFTConfig(api.MechanismConfig):
   prevent long compilation times.
 
   Attributes:
-    workload: The set of marginals to consider for the mechanism. Can be a
-      mapping from cliques to their weights or just an iterable of cliques.
     max_clique_size: The maximum size (domain product) allowed for any clique in
       the junction tree. This is the main knob to tune to improve utility for a
       given compute cost.
@@ -70,7 +69,6 @@ class SWIFTConfig(api.MechanismConfig):
       marginals to measure.
   """
 
-  workload: Mapping[mbi.Clique, float] | Iterable[mbi.Clique] | None = None
   max_clique_size: float = 1e7
   max_marginal_size: float = 1e6
   pgm_iters: int = 10_000
@@ -80,16 +78,19 @@ class SWIFTConfig(api.MechanismConfig):
   use_jax_for_bincount: bool = True
   use_jax_for_generation: bool = True
 
-  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
-    """Returns the workload cliques filtered by max_marginal_size."""
-    return common.supporting_cliques(
-        domain, self.workload, self.max_marginal_size
-    )
-
-  def configure(self, _=None, *, budget, delta=0):
+  def configure(
+      self,
+      domain=None,
+      *,
+      budget: float,
+      delta: float = 0.0,
+      workload: workload_lib.WorkloadInput | None = None,
+  ) -> SWIFT:
+    del delta
     return SWIFT(
         config=self,
         gdp_budget=accounting.zcdp_to_gdp(budget),
+        workload=workload_lib.Workload.from_any(workload, domain),
     )
 
 
@@ -99,6 +100,14 @@ class SWIFT(api.CalibratedMechanism):
 
   config: SWIFTConfig
   gdp_budget: float
+  workload: workload_lib.Workload | None = None
+
+  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
+    """Returns the workload cliques filtered by max_marginal_size."""
+    workload_dict = self.workload.as_dict() if self.workload else None
+    return common.supporting_cliques(
+        domain, workload_dict, self.config.max_marginal_size
+    )
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -124,9 +133,10 @@ class SWIFT(api.CalibratedMechanism):
     measure_gdp_budget = self.gdp_budget - select_gdp_budget
 
     with common.timed(phase_times, 'compiled_workload'):
+      workload_dict = self.workload.as_dict() if self.workload else None
       candidates = common.compiled_workload(
           data.domain,
-          self.config.workload,
+          workload_dict,
           self.config.max_marginal_size,
       )
     logging.info('[SWIFT] %d candidates.', len(candidates))

@@ -25,6 +25,7 @@ from dpsynth import local_mode
 from dpsynth import relational
 from dpsynth import reporting
 from dpsynth import serialize
+from dpsynth import workload
 from dpsynth._calibration import calibrate
 from dpsynth._calibration import with_group_size
 from dpsynth._checkpoint import checkpoint
@@ -41,6 +42,7 @@ from dpsynth.domain import Schema
 from dpsynth.reporting import PrivacyReport
 from dpsynth.serialize import from_yaml
 from dpsynth.serialize import to_yaml
+from dpsynth.workload import Workload
 import mbi
 
 # Route MBI callback logs (which use print-style formatting) to
@@ -70,6 +72,7 @@ __all__ = [
     'TabularConfig',
     'TabularMechanism',
     'TabularSynthesizer',
+    'Workload',
     'api',
     'calibrate',
     'checkpoint',
@@ -82,4 +85,5 @@ __all__ = [
     'serialize',
     'to_yaml',
     'with_group_size',
+    'workload',
 ]

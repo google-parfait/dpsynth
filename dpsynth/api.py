@@ -140,7 +140,9 @@ class MechanismConfig(abc.ABC):
     return cls._registry.get(name)
 
   @abc.abstractmethod
-  def configure(self, domain=None, *, budget, delta=0) -> CalibratedMechanism:
+  def configure(
+      self, domain=None, *, budget, delta=0, workload=None
+  ) -> CalibratedMechanism:
     """Returns a calibrated mechanism for the given dummy budget.
 
     Converts the budget into the mechanism's natural privacy parameter
@@ -166,6 +168,9 @@ class MechanismConfig(abc.ABC):
       delta: Approximate DP delta consumed by the mechanism itself (e.g., for
         thresholding). Defaults to 0 (pure zCDP). Mechanisms that need delta
         should raise if it is 0.
+      workload: Optional workload specification (e.g., a ``dpsynth.Workload``,
+        sequence of attribute tuples, or mapping from attribute tuples to
+        weights). Mechanisms that do not use a workload ignore this argument.
 
     Returns:
       A calibrated, runnable mechanism.
@@ -178,6 +183,7 @@ class MechanismConfig(abc.ABC):
       *,
       epsilon: float,
       delta: float,
+      workload: Any = None,
       delta_split: float = 0.5,
       poisson_sampling_prob: float = 1.0,
       group_size: int = 1,
@@ -197,6 +203,7 @@ class MechanismConfig(abc.ABC):
         domain,
         epsilon=epsilon,
         delta=delta,
+        workload=workload,
         delta_split=delta_split,
         poisson_sampling_prob=poisson_sampling_prob,
         group_size=group_size,

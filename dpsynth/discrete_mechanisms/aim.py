@@ -14,12 +14,13 @@
 
 """Implementation of the Adaptive+Iterative Mechanism (AIM)."""
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from collections.abc import Sequence
 import dataclasses
 from absl import logging
 import dp_accounting
 from dpsynth import api
+from dpsynth import workload as workload_lib
 from dpsynth.discrete_mechanisms import accounting
 from dpsynth.discrete_mechanisms import common
 from dpsynth.local_mode import primitives
@@ -104,8 +105,6 @@ class AIMConfig(api.MechanismConfig):
   max_model_size >= 80.
 
   Attributes:
-    workload: A collection of marginal queries (and weights) the synthetic data
-      should be tailored to.
     max_rounds: The maximum number of rounds to run the mechanism.
     max_model_size: The maximum size of the graphical model in megabytes.
       Controls the utility/runtime trade-off.
@@ -115,7 +114,6 @@ class AIMConfig(api.MechanismConfig):
       selecting two-way marginal queries.
   """
 
-  workload: Mapping[mbi.Clique, float] | Iterable[mbi.Clique] | None = None
   max_rounds: int | None = None
   max_model_size: int = 80
   max_marginal_size: float = 1e6
@@ -124,16 +122,19 @@ class AIMConfig(api.MechanismConfig):
   pgm_iters: int = 1000
   marginal_oracle: mbi.MarginalOracle | None = None
 
-  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
-    """Returns the workload cliques filtered by max_marginal_size."""
-    return common.supporting_cliques(
-        domain, self.workload, self.max_marginal_size
-    )
-
-  def configure(self, _=None, *, budget, delta=0):
+  def configure(
+      self,
+      domain=None,
+      *,
+      budget: float,
+      delta: float = 0.0,
+      workload: workload_lib.WorkloadInput | None = None,
+  ) -> 'AIM':
+    del delta
     return AIM(
         config=self,
         zcdp_rho=budget,
+        workload=workload_lib.Workload.from_any(workload, domain),
     )
 
 
@@ -143,6 +144,14 @@ class AIM(api.CalibratedMechanism):
 
   config: AIMConfig
   zcdp_rho: float
+  workload: workload_lib.Workload | None = None
+
+  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
+    """Returns the workload cliques filtered by max_marginal_size."""
+    workload_dict = self.workload.as_dict() if self.workload else None
+    return common.supporting_cliques(
+        domain, workload_dict, self.config.max_marginal_size
+    )
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -170,8 +179,9 @@ class AIM(api.CalibratedMechanism):
     #########################################################################
     # Compile workload into candidate measurements.                         #
     #########################################################################
+    workload_dict = self.workload.as_dict() if self.workload else None
     candidates = common.compiled_workload(
-        data.domain, self.config.workload, self.config.max_marginal_size
+        data.domain, workload_dict, self.config.max_marginal_size
     )
 
     estimator = mbi.estimation.MirrorDescent(self.config.marginal_oracle)

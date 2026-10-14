@@ -72,6 +72,7 @@ def calibrate(
     *,
     epsilon: float,
     delta: float,
+    workload: Any = None,
     delta_split: float = 0.5,
     poisson_sampling_prob: float = 1.0,
     group_size: int = 1,
@@ -89,6 +90,8 @@ def calibrate(
     domain: Optional domain specification, forwarded to ``config.configure()``.
     epsilon: Target epsilon for (epsilon, delta)-DP.
     delta: Target delta for (epsilon, delta)-DP.
+    workload: Optional workload specification, forwarded to
+      ``config.configure()``.
     delta_split: Fraction of ``delta`` passed to ``config.configure()`` for
       sub-mechanisms that consume approximate DP budget directly (e.g. open-set
       partition selection). Defaults to 0.5.
@@ -123,12 +126,12 @@ def calibrate(
   if group_size < 1:
     raise ValueError(f'group_size < 1: {group_size}.')
 
+  configure_kwargs: dict[str, Any] = {'delta': delta * delta_split}
+  if workload is not None:
+    configure_kwargs['workload'] = workload
+
   def make_event_fn(rho: float) -> dp_accounting.DpEvent:
-    base = config.configure(
-        domain,
-        budget=rho,
-        delta=delta * delta_split,
-    ).dp_event
+    base = config.configure(domain, budget=rho, **configure_kwargs).dp_event
     base = with_group_size(base, group_size)
     sampled = dp_accounting.PoissonSampledDpEvent(poisson_sampling_prob, base)
     return base if poisson_sampling_prob == 1.0 else sampled
@@ -169,8 +172,4 @@ def calibrate(
     )
 
   optimal_rho = max(rhos.values())
-  return config.configure(
-      domain,
-      budget=optimal_rho,
-      delta=delta * delta_split,
-  )
+  return config.configure(domain, budget=optimal_rho, **configure_kwargs)

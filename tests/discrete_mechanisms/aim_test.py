@@ -59,9 +59,9 @@ class AIMTest(absltest.TestCase):
   def test_fits_one_way_marginals_with_aim(self):
     data = mbi.Dataset.synthetic(mbi.Domain(["a", "b", "c"], [3, 4, 5]), N=1000)
     workload = [("a",), ("b",), ("c",)]
-    config = aim.AIMConfig(workload=workload, max_rounds=4, pgm_iters=500)
+    config = aim.AIMConfig(max_rounds=4, pgm_iters=500)
 
-    calibrated = config.configure(budget=10000)
+    calibrated = config.configure(budget=10000, workload=workload)
     result = calibrated(np.random.default_rng(0), data)
 
     self.assertIsInstance(result, common.DiscreteMechanismResult)
