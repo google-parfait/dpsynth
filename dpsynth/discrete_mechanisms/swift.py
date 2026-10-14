@@ -80,12 +80,6 @@ class SWIFTConfig(api.MechanismConfig):
   use_jax_for_bincount: bool = True
   use_jax_for_generation: bool = True
 
-  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
-    """Returns the workload cliques filtered by max_marginal_size."""
-    return common.supporting_cliques(
-        domain, self.workload, self.max_marginal_size
-    )
-
   def configure(self, _=None, *, budget, delta=0):
     return SWIFT(
         config=self,
@@ -99,6 +93,12 @@ class SWIFT(api.CalibratedMechanism):
 
   config: SWIFTConfig
   gdp_budget: float
+
+  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
+    """Returns the workload cliques filtered by max_marginal_size."""
+    return common.supporting_cliques(
+        domain, self.config.workload, self.config.max_marginal_size
+    )
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:

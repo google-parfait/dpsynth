@@ -323,9 +323,8 @@ class TabularMechanism(api.CalibratedMechanism):
         ]
       logging.info('[DPSynth]: Compressed discrete domain:\n%s', data.domain)
 
-      cfg = self.config.discrete_mechanism
-      if hasattr(cfg, 'supporting_cliques'):
-        cliques = cfg.supporting_cliques(data.domain)
+      if hasattr(self.base_mechanism, 'supporting_cliques'):
+        cliques = self.base_mechanism.supporting_cliques(data.domain)
         data = _checkpoint.get_or_compute(
             'precomputed_marginals',
             dm_common.precompute_marginals,

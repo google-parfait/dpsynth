@@ -42,11 +42,6 @@ class DirectConfig(api.MechanismConfig):
       default_factory=list
   )
 
-  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
-    """Returns the prespecified marginal queries."""
-    del domain  # Unused.
-    return list(self.prespecified_marginal_queries)
-
 
 @dataclasses.dataclass(frozen=True)
 class Direct(api.CalibratedMechanism):
@@ -54,6 +49,11 @@ class Direct(api.CalibratedMechanism):
 
   config: DirectConfig
   gdp_budget: float
+
+  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
+    """Returns the prespecified marginal queries."""
+    del domain  # Unused.
+    return list(self.config.prespecified_marginal_queries)
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:

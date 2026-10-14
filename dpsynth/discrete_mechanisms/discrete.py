@@ -82,6 +82,12 @@ class DiscreteMechanism(api.CalibratedMechanism):
   base_mechanism: api.CalibratedMechanism
   one_way_gdp_budget: float
 
+  def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
+    """Returns the supporting cliques of the inner calibrated mechanism."""
+    if hasattr(self.base_mechanism, 'supporting_cliques'):
+      return self.base_mechanism.supporting_cliques(domain)
+    return []
+
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
     """Composes one-way measurement event with the inner mechanism's event."""
@@ -155,9 +161,10 @@ class DiscreteMechanism(api.CalibratedMechanism):
       measurements = [m.compress(mappings, data.domain) for m in measurements]  # pyrefly: ignore[bad-argument-type]
     logging.info('[DPSynth]: Compressed discrete domain:\n%s', data.domain)
 
-    cfg = self.config.mechanism
-    if isinstance(data, mbi.Dataset) and hasattr(cfg, 'supporting_cliques'):
-      cliques = cfg.supporting_cliques(data.domain)
+    if isinstance(data, mbi.Dataset) and hasattr(
+        self.base_mechanism, 'supporting_cliques'
+    ):
+      cliques = self.base_mechanism.supporting_cliques(data.domain)
       data = common.precompute_marginals(
           data,
           cliques,  # pyrefly: ignore[bad-argument-type]
