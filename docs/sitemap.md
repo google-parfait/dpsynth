@@ -151,3 +151,22 @@
 *   [`zcdp_rho` vs. Natural Privacy Parameters](mechanism_api.md#natural-parameters)
 
 </details>
+
+--------------------------------------------------------------------------------
+
+<!-- disableFinding(LINE_OVER_80) -->
+
+<details>
+<summary>📁 <a href="accounting_philosophy.md">Privacy Accounting Philosophy & Architecture</a></summary>
+
+*   [Interfaces vs. Primitives](accounting_philosophy.md#interfaces-vs-flat-functions)
+    *   [Self-Contained Mechanisms](accounting_philosophy.md#self-contained-mechanisms)
+*   [Adaptivity and Composition](accounting_philosophy.md#adaptivity)
+*   [Neighboring Relation and Group Privacy](accounting_philosophy.md#record-vs-user-dp)
+*   [Privacy Profiles (`PrivacyReport`)](accounting_philosophy.md#privacy-report)
+*   [Public vs. Private Boundaries](accounting_philosophy.md#public-vs-private)
+*   [Validation and Floating-Point Caveats](accounting_philosophy.md#inputs-and-floating-point)
+
+</details>
+
+<!-- enableFinding(LINE_OVER_80) -->

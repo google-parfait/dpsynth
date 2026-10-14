@@ -303,6 +303,12 @@ directory:
     Detailed guide to using the Pandas-based API and local CLI.
 *   **Scalable Pipeline API Guide** (`docs/scalable_beam_api.md`):
     Guide for distributed data generation.
+*   **Mechanism API Architecture** (`docs/mechanism_api.md`):
+    Two-stage configure-vs-calibrate pattern and composable mechanism contract.
+*   **Privacy Accounting Philosophy & Architecture**
+    (`docs/accounting_philosophy.md`): Neighboring relations, group
+    privacy, adaptivity, privacy profiles (`PrivacyReport`), ill-formed input
+    handling, and floating-point caveats.
 *   **Data Model & Terminology** (`docs/data_and_terminology.md`):
     Attributes, schema specifications, and `domain.yaml` format.
 *   **Processing Lifecycle** (`docs/processing_lifecycle.md`):

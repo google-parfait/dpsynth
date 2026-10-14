@@ -88,6 +88,30 @@ protocol shared by all DPSynth mechanisms.
 
 ----
 
+Privacy Calibration & Reporting (``dpsynth``)
+=============================================
+
+.. currentmodule:: dpsynth
+
+Top-level utilities for calibrating a :class:`~dpsynth.api.MechanismConfig` to
+a target ``(epsilon, delta)``-DP guarantee and summarizing the resulting
+privacy profile across evaluation points.
+
+.. autosummary::
+   :toctree: _autosummary
+   :nosignatures:
+
+   calibrate
+
+.. autosummary::
+   :toctree: _autosummary
+   :nosignatures:
+   :template: autosummary/class.rst
+
+   PrivacyReport
+
+----
+
 Tabular Synthesis (``dpsynth``)
 ===============================
 
