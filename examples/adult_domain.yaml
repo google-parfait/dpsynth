@@ -1,20 +1,20 @@
 age:
-  clip_to_range: true
-  dtype: int
-  max_value: 90.0
+  type: NumericalAttribute
   min_value: 17.0
+  max_value: 90.0
+  dtype: int
 capital-gain:
-  clip_to_range: true
-  dtype: int
+  type: NumericalAttribute
+  min_value: 0.0
   max_value: 99999.0
-  min_value: 0.0
-capital-loss:
-  clip_to_range: true
   dtype: int
-  max_value: 4356.0
+capital-loss:
+  type: NumericalAttribute
   min_value: 0.0
+  max_value: 4356.0
+  dtype: int
 education:
-  out_of_domain_index: 0
+  type: CategoricalAttribute
   possible_values:
   - 10th
   - 11th
@@ -33,27 +33,27 @@ education:
   - Prof-school
   - Some-college
 education-num:
-  clip_to_range: true
-  dtype: int
+  type: NumericalAttribute
+  min_value: 1.0
   max_value: 16.0
-  min_value: 1.0
+  dtype: int
 fnlwgt:
-  clip_to_range: true
-  dtype: int
-  max_value: 1490400.0
+  type: NumericalAttribute
   min_value: 12285.0
-hours-per-week:
-  clip_to_range: true
+  max_value: 1490400.0
   dtype: int
-  max_value: 99.0
+hours-per-week:
+  type: NumericalAttribute
   min_value: 1.0
+  max_value: 99.0
+  dtype: int
 income>50K:
-  out_of_domain_index: 0
+  type: CategoricalAttribute
   possible_values:
   - <=50K
   - '>50K'
 marital-status:
-  out_of_domain_index: 0
+  type: CategoricalAttribute
   possible_values:
   - Divorced
   - Married-AF-spouse
@@ -63,7 +63,7 @@ marital-status:
   - Separated
   - Widowed
 native-country:
-  out_of_domain_index: 0
+  type: CategoricalAttribute
   possible_values:
   - '?'
   - Cambodia
@@ -108,7 +108,7 @@ native-country:
   - Vietnam
   - Yugoslavia
 occupation:
-  out_of_domain_index: 0
+  type: CategoricalAttribute
   possible_values:
   - '?'
   - Adm-clerical
@@ -126,7 +126,7 @@ occupation:
   - Tech-support
   - Transport-moving
 race:
-  out_of_domain_index: 0
+  type: CategoricalAttribute
   possible_values:
   - Amer-Indian-Eskimo
   - Asian-Pac-Islander
@@ -134,7 +134,7 @@ race:
   - Other
   - White
 relationship:
-  out_of_domain_index: 0
+  type: CategoricalAttribute
   possible_values:
   - Husband
   - Not-in-family
@@ -143,12 +143,12 @@ relationship:
   - Unmarried
   - Wife
 sex:
-  out_of_domain_index: 0
+  type: CategoricalAttribute
   possible_values:
   - Female
   - Male
 workclass:
-  out_of_domain_index: 0
+  type: CategoricalAttribute
   possible_values:
   - '?'
   - Federal-gov

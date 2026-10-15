@@ -12,7 +12,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. -->
 
-# Mechanism API Architecture: Design, Lifecycle, & Accounting
+# Mechanism API
 
 This document covers the architectural foundations and design decisions
 underlying the DPSynth Mechanism API ({mod}`dpsynth.api`). It is written for

@@ -299,20 +299,23 @@ Both code paths support the following DP mechanisms:
 Detailed guides are available in the [`docs/`](docs/)
 directory:
 
-*   **In-Memory DataFrame API Guide** (`docs/in_memory_api.md`):
-    Detailed guide to using the Pandas-based API and local CLI.
+*   **Overview & Quickstart** (`docs/index.md`):
+    High-level overview and end-to-end Pandas DataFrame usage example.
+*   **API Reference** (`docs/api_reference.rst`):
+    Reference documentation for the public DPSynth Python API.
+*   **Specifying Attribute Domains** (`docs/specifying_domains.md`):
+    Upfront domain requirements, supported attribute types, the DPSynth domain
+    language, and inferring domains from Pydantic, Protobuf, and Pandas schemas.
+*   **Tabular Processing Lifecycle** (`docs/processing_lifecycle.md`):
+    The 5-stage mathematical lifecycle shared by both tabular code paths.
 *   **Scalable Pipeline API Guide** (`docs/scalable_beam_api.md`):
     Guide for distributed data generation.
-*   **Mechanism API Architecture** (`docs/mechanism_api.md`):
+*   **Mechanism API** (`docs/mechanism_api.md`):
     Two-stage configure-vs-calibrate pattern and composable mechanism contract.
-*   **Privacy Accounting Philosophy & Architecture**
+*   **Privacy Accounting Philosophy**
     (`docs/accounting_philosophy.md`): Neighboring relations, group
     privacy, adaptivity, privacy profiles (`PrivacyReport`), ill-formed input
     handling, and floating-point caveats.
-*   **Data Model & Terminology** (`docs/data_and_terminology.md`):
-    Attributes, schema specifications, and `domain.yaml` format.
-*   **Processing Lifecycle** (`docs/processing_lifecycle.md`):
-    The 5-stage mathematical lifecycle shared by both code paths.
 *   **Contributor Guide** (`docs/contributors_guide.md`):
     Architecture, PipelineBackend programming rules, and evaluation framework.
 

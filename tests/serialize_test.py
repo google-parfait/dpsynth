@@ -201,6 +201,18 @@ class SerializeTest(parameterized.TestCase):
     loaded = serialize.from_yaml(yaml_str)
     self.assertEqual(loaded, schema)
 
+  def test_domain_dict_roundtrip(self):
+    domains = {
+        'age': domain.NumericalAttribute(
+            min_value=17, max_value=90, dtype='int'
+        ),
+        'cat': domain.CategoricalAttribute(possible_values=['A', 'B']),
+        'city': domain.OpenSetCategoricalAttribute(),
+    }
+    yaml_str = serialize.to_yaml(domains)
+    loaded = serialize.from_yaml(yaml_str)
+    self.assertEqual(loaded, domains)
+
   def test_file_io_roundtrip(self):
     config = data_generation_v3.TabularConfig(
         discrete_mechanism=mst.MSTConfig(pgm_iters=1000),

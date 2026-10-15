@@ -1,235 +1,142 @@
-# Processing and Synthesis Lifecycle
+<!-- Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License. -->
+
+# Tabular Processing Lifecycle
 
 <!-- disableFinding(LINK_RELATIVE_G3DOC) -->
 
-[TOC]
+Generating differentially private synthetic data for heterogeneous tabular
+schemas requires estimating a joint distribution over mixed numerical,
+closed-set categorical, and open-set string attributes. Representing the full
+contingency table over $d$ attributes with domain sizes $k_1, \dots, k_d$
+requires $\prod_i k_i$ entries (for example, $10^{20}$ cells for a
+20-column dataset with 10 categories per column), which is both computationally
+intractable to store and statistically impossible to measure accurately under
+differential privacy. Furthermore, continuous numerical attributes and unbounded
+string attributes have infinite support and cannot be represented directly in a
+discrete graphical model.
 
-At the core of **DPSynth** is a robust mathematical transformation engine.
-Transforming sensitive, multi-dimensional tabular records into differentially
-private synthetic data requires navigating complex challenges: continuous
-floating-point ranges, unbounded string categories, high-dimensional state
-spaces, and strict privacy budget accounting.
+DPSynth overcomes these bottlenecks by decomposing tabular synthesis into a
+four-stage pipeline shared across the [In-Memory](index.md#quickstart) and
+[Scalable Beam](scalable_beam_api.md)
+APIs. This pipeline reduces mixed-type tabular records to a finite discrete
+domain, measures low-order noisy marginals, estimates an undirected graphical
+model via Private-PGM ([McKenna et al., 2019](https://arxiv.org/abs/1901.09136)),
+and decodes synthetic discrete samples back into the original schema.
 
-This page details the 5-stage mathematical lifecycle executed across both the
-[In-Memory](in_memory_api.md) and [Scalable Pipeline](scalable_beam_api.md)
-APIs.
+![Tabular Processing Lifecycle](_static/processing_lifecycle.svg)
 
+## Graphical Models and Discretization
+
+DPSynth models the joint distribution of a tabular dataset as a Markov Random
+Field (MRF), an undirected probabilistic graphical model that factorizes the
+joint probability mass function into a product of low-order clique potentials.
+Rather than materializing the full $\prod_i k_i$ contingency table, the
+model maintains parameters only over a collection of low-dimensional marginals
+(typically pairwise or three-way attribute subsets), allowing inference and
+sampling to scale to high-dimensional schemas whenever the underlying clique
+graph has bounded treewidth.
+
+```{important}
+**Markov Random Fields are defined strictly over finite, discrete spaces.**
+
+Each variable $i$ in the graphical model must take values in a finite integer
+set $\{0, 1, \dots, k_i - 1\}$. Continuous numerical ranges and unbounded
+open-set strings cannot be represented directly as discrete nodes in a junction
+tree. Consequently, every raw attribute must be mapped to a finite vocabulary of
+integer indices before marginal measurement and graphical model estimation can
+proceed.
 ```
-┌────────────────────────────────────────────────────────┐
-│ 1. Initialization                                      │
-│    • DP Quantiles for continuous numericals            │
-│    • DP Partition Selection for open categorical values│
-└───────────────────────────┬────────────────────────────┘
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│ 2. Integer Encoding                                    │
-│    • Raw tuples -> Dense integer indices [0, K-1]      │
-└───────────────────────────┬────────────────────────────┘
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│ 3. Domain Compression                                  │
-│    • Measure 1-way marginals with DP noise             │
-│    • Merge rare values & bins into "Other" bucket      │
-└───────────────────────────┬────────────────────────────┘
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│ 4. Graphical Model Inference (Private-PGM)             │
-│    • Select & measure low-dimensional marginals        │
-│    • Fit Markov Random Field via mirror descent        │
-└───────────────────────────┬────────────────────────────┘
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│ 5. Sampling, Uncompression, & Decoding                 │
-│    • Sample synthetic integer records from model       │
-│    • Unpack "Other" bins probabilistically             │
-│    • Decode integers -> Native strings, floats, & ints │
-└────────────────────────────────────────────────────────┘
-```
 
---------------------------------------------------------------------------------
+## Stage 1: Per-Column Initialization and Encoding
 
-## Mathematical Modeling & Discretization
+In Stage 1, DPSynth allocates an initialization fraction of the privacy budget
+(controlled by `init_budget_fraction`, defaulting to $0.1$) across the columns
+to run a calibrated per-column initializer on each attribute. Every initializer
+returns a `ColumnMeasurement` containing **both** a finalized discrete domain
+(`CategoricalAttribute`, which defines the column's encoding and decoding codec)
+**and** the column's noisy one-way marginal counts (`noisy_counts` and noise
+standard deviation $\sigma$, wrapped as an `mbi.LinearMeasurement`).
 
-To understand why DPSynth processes data in distinct encoding and discretization
-stages, it is important to understand the underlying mathematical
-representation:
+| Attribute Type | Initialization Mechanism | Returned `ColumnMeasurement` |
+| :--- | :--- | :--- |
+| `CategoricalAttribute` | Gaussian mechanism on one-way counts | Fixed vocabulary and noisy one-way marginal $y_i$ |
+| `NumericalAttribute` | Recursive DP quantile bisection ([Kaplan et al., 2022](https://arxiv.org/abs/2110.05429)) + Gaussian counts | Discretization `bin_edges` and noisy one-way marginal $y_i$ |
+| `OpenSetCategoricalAttribute` | Gaussian partition selection + one-way counts | Thresholded vocabulary and noisy one-way marginal $y_i$ |
 
-### Markov Random Field (MRF) Representation
+For numerical attributes without pre-specified `bin_edges`, DPSynth partitions
+the declared range $[\text{min\_value}, \text{max\_value}]$ into approximately
+equal-frequency intervals (32 bins by default) using a hierarchical tree of
+exponential mechanisms, concentrating bin resolution where data density is high.
+For open-set string attributes, DPSynth adds Gaussian noise to observed category
+counts and retains only categories that exceed a private selection threshold,
+routing all remaining rare strings to a designated out-of-domain bin.
 
-DPSynth models the joint probability distribution of your multi-dimensional
-tabular dataset as a
-[Markov Random Field (MRF)](https://en.wikipedia.org/wiki/Markov_random_field),
-also referred to as an undirected probabilistic graphical model (PGM).
+Once per-column initialization completes, each attribute $i$ has a fixed,
+concrete domain of size $k_i$ encapsulated in a `TabularCodec`. The encoding
+layer then maps every raw record deterministically into a dense vector of
+zero-indexed integers in $\{0, 1, \dots, k_i - 1\}$, producing an encoded
+`mbi.Dataset`. Because this row-wise encoding step applies the codecs fixed
+during initialization without computing new data-dependent statistics, it
+consumes zero additional privacy budget.
 
-*   Instead of storing the massive, joint probability table of all columns
-    combined, the MRF factorizes the joint distribution into a product of
-    low-dimensional factors (or cliques) representing the correlations between
-    small subsets of columns (e.g., pairwise relationships).
-*   This factorization allows the mathematical engine (`mbi` and Private-PGM) to
-    optimize and store the distribution efficiently, scaling to datasets with
-    high dimensionalities.
+## Stage 2: Marginal Selection and Measurement
 
-### The Strict Discretization Requirement
+With the dataset encoded over $\{0, \dots, k_i - 1\}$, the remaining privacy
+budget is passed to a discrete synthesis mechanism. The noisy one-way marginals
+$y_i$ from Stage 1 are supplied as `initial_measurements` so the discrete
+mechanism does not re-measure them and can dedicate its budget to selecting and
+measuring higher-order cliques:
 
-> [!IMPORTANT] **Markov Random Fields are defined strictly over finite, discrete
-> spaces.**
->
-> In graphical models, variables must represent a countable set of discrete
-> categories. * Continuous values (like continuous floating-point numbers)
-> cannot be represented as discrete nodes without infinite dimensions. *
-> Unbounded, open-set strings cannot be mapped to consistent indices without
-> defining a finite, fixed vocabulary.
->
-> **Therefore, all continuous numerical columns and open-set string columns must
-> be discretized.** Continuous continuous features are partitioned into finite
-> quantile buckets, and unbounded string lists are selection-filtered and mapped
-> to standard zero-indexed integers `[0, K-1]`.
->
-> Every raw input record must become a vector of discrete integer tokens before
-> it is ingested by the measurement and modeling engine. Stage 1 and Stage 2
-> below detail how DPSynth manages this discretization privately and
-> mathematically.
+*   **MST ([McKenna et al., 2021](https://arxiv.org/abs/2108.04978))**: Uses the
+    exponential mechanism (or permute-and-flip) to privately select a maximum
+    spanning tree of pairwise attribute correlations, and measures the selected
+    two-way marginals with Gaussian noise.
+*   **AIM ([McKenna et al., 2022](https://arxiv.org/abs/2201.12677))**:
+    Iteratively selects and measures workload-informed marginals in an adaptive
+    loop, balancing expected error reduction against marginal size and remaining
+    privacy budget.
+*   **SWIFT**: Selects a bounded-treewidth factor graph over high-utility
+    cliques to capture denser multi-attribute dependencies.
+*   **Direct / Independent**: Measures a prespecified workload of marginals (or
+    relies on the one-way marginals alone) in a single non-adaptive batch.
 
---------------------------------------------------------------------------------
+## Stage 3: Graphical Model Fit and Sampling
 
-## Stage 1: Derivation and Initialization
+All noisy marginal measurements (`mbi.LinearMeasurement`), combining the one-way
+measurements $y_i$ from Stage 1 with the higher-order clique marginals measured
+in Stage 2, cross the differential privacy barrier into the Private-PGM solver
+(`mbi`). Sensitive data is never accessed again beyond this point.
 
-When raw datasets are ingested without an exhaustive, explicit schema, DPSynth
-must privately deduce domain boundaries before any modeling can begin.
+Using mirror descent over the marginal polytope, Private-PGM estimates the
+parameters $\theta$ of an `mbi.MarkovRandomField` whose induced marginals best
+match the noisy measurements in $L_2$ loss while guaranteeing a valid,
+non-negative, and globally consistent joint distribution. Synthetic discrete
+records over $\{0, \dots, k_i - 1\}$ are then drawn from the fitted graphical
+model via junction-tree variable elimination, producing a synthetic
+`mbi.Dataset`.
 
-*   **Numerical
-    Derivation**: [`numerical_values_derivation.py`](../pipeline_transformations/numerical_values_derivation.py)
-*   **Categorical
-    Derivation**: [`categorical_values_derivation.py`](../pipeline_transformations/categorical_values_derivation.py)
+## Stage 4: Native Schema Decoding
 
-### Continuous Numerical Discretization
+Finally, the `TabularCodec` constructed in Stage 1 inverts the synthetic integer
+indices back into their native column representations as pure post-processing:
 
-Continuous floating-point columns (like transaction amounts or timestamps)
-cannot be modeled directly by discrete graphical models.
-
-1.  DPSynth runs distributed Differentially Private Quantile algorithms over the
-    data distribution.
-2.  The continuous range is split into equal-frequency buckets (e.g., `K = 32`
-    bins by default). Bins are clustered where data is dense and expanded where
-    data is sparse.
-
-### Open-Set Categorical Discovery
-
-For unbounded string columns (like occupation or city), the total set of unique
-categories is unknown.
-
-1.  DPSynth runs Differentially Private Partition Selection over the column
-    entries.
-2.  String categories whose appearance count exceeds the private threshold are
-    added to the allowed schema domain. All rare strings failing the threshold
-    are mapped to a fallback `"Unknown"` category.
-
---------------------------------------------------------------------------------
-
-## Stage 2: Integer Encoding
-
-Once domain metadata is fully populated in the `DatasetDescriptor`, raw record
-tuples are mapped into standardized mathematical tensors.
-
-*   **Distributed
-    Encoding**: [`dataset_encoding.py`](../pipeline_transformations/dataset_encoding.py)
-*   **Discrete
-    Encoders**: [`transformations.py`](../transformations.py)
-
-Every column is assigned a discrete encoder that maps native values to dense
-zero-indexed integers `0 ... K-1`. * A boolean column maps to `[0, 1]`. * A
-50-state categorical column maps to `[0 ... 49]`. * A 32-bucket numerical column
-maps to `[0 ... 31]`.
-
-Raw records become uniform integer vectors: e.g., `("Private", 45.2, True) ->
-(1, 18, 1)`.
-
---------------------------------------------------------------------------------
-
-## Stage 3: Domain Compression
-
-A major hurdle in generating synthetic data is high-dimensional state space
-explosion. If a dataset has 20 columns, each with 1,000 categories, the joint
-probability space has `10^60` cells—making direct measurement impossible under
-strict `(epsilon, delta)` budgets.
-
-*   **Distributed
-    Compression**: [`dataset_compression.py`](../pipeline_transformations/dataset_compression.py)
-*   **Mathematical Compression
-    Utilities**: [`common.py`](../discrete_mechanisms/common.py)
-
-DPSynth solves this through **Domain Compression**:
-
-1.  The library allocates a fraction of the privacy budget (typically 10%) to
-    measure 1-way marginals (univariate counts) for every column with Gaussian
-    or Exponential noise.
-2.  For each column, categories or bins whose noisy frequency falls below a
-    calculated significance threshold are merged together into a single
-    composite `"Other"` category index.
-3.  **Result**: A string column that originally had 10,000 unique categories
-    might be compressed down to the top 40 most frequent categories plus 1
-    `"Other"` index (`K = 41`). This drastically reduces the state space,
-    allowing downstream mechanisms to measure complex multi-column correlations
-    with high precision.
-
---------------------------------------------------------------------------------
-
-## Stage 4: Graphical Model Inference (Private-PGM)
-
-With the data encoded and compressed into a compact discrete domain
-(`mbi.Dataset`), DPSynth executes the core synthesis mechanism (`AIM`, `MST`,
-`SWIFT`, or `INDEPENDENT`).
-
-*   **Discrete
-    Mechanisms**: [`discrete_mechanisms/`](../discrete_mechanisms/README.md)
-*   **Distributed
-    Modeling**: [`model.py`](../pipeline_transformations/model.py)
-
-### 1. Workload Measurement
-
-Rather than attempting to measure the massive joint distribution directly,
-mechanisms select and measure specific low-dimensional marginal queries (e.g.,
-2-way or 3-way cross-tabulations between correlated attributes).
-
-*   **MST ([Maximum Spanning Tree](https://arxiv.org/abs/2108.04978))**: Uses
-    the exponential mechanism to privately select attribute pairs exhibiting
-    high mutual information, forming a spanning tree of pairwise dependencies.
-    It then measures 2-way marginals across these pairs.
-*   **AIM ([Adaptive Iterative Mechanism](https://arxiv.org/abs/2201.12677))**:
-    Iteratively selects the most informative low-dimensional marginals to
-    measure based on current model errors and remaining privacy budget.
-
-### 2. Private-PGM Inference
-
-All noisy low-dimensional measurements (`mbi.LinearMeasurement` objects) are
-passed into the **Private-PGM** inference engine (`mbi`).
-
-*   Private-PGM uses mirror descent optimization to construct a high-dimensional
-    Markov Random Field (`mbi.MarkovRandomField`) / Graphical Model.
-*   This graphical model represents a joint probability distribution over all
-    attributes that closely approximates all measured noisy marginals
-    simultaneously, while rigorously enforcing non-negativity and consistency
-    across overlapping measurements.
-
---------------------------------------------------------------------------------
-
-## Stage 5: Sampling, Uncompression, & Decoding
-
-Once the graphical model is fitted, the synthesis pipeline transitions to
-generating output data.
-
-*   **Decoding
-    Pipeline**: [`data_generation.py`](../data_generation.py)
-
-1.  **Exact Sampling**: Synthetic integer records are sampled in parallel
-    batches directly from the Markov Random Field.
-2.  **Uncompression**: For any synthetic record where a column value was sampled
-    into the composite `"Other"` index, the uncompression layer
-    probabilistically unpacks it back into one of the original rare integer
-    indices. The assignment is weighted proportionally to prior one-way marginal
-    distributions or uniform priors.
-3.  **Decoding**: Finally, the uncompressed integer indices are passed through
-    the `DatasetDescriptor.decode()` layer. Integers are mapped back to native
-    strings, un-bucketed back to continuous floating-point numbers (sampled
-    uniformly within the specific quantile bucket bounds), and formatted into
-    the destination format (CSV rows, Protobuf messages, or TFRecord tensors).
+*   **Categorical attributes**: Integer indices map back to their original
+    domain values via vocabulary lookup.
+*   **Numerical attributes**: Each bin index $k$ is mapped back to a number in
+    $[\text{min\_value}, \text{max\_value}]$ by sampling uniformly within the
+    bin interval $[b_k, b_{k+1})$ (or taking the interval midpoint).
+*   **Open-set attributes**: Discovered vocabulary indices map back to their
+    corresponding strings, while index $0$ maps to the configured out-of-domain
+    placeholder (such as `<OTHER>`).
