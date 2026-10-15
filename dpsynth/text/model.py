@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 import dataclasses
+import functools
 import itertools
 import time
 from typing import Any, Literal
@@ -261,6 +262,50 @@ def format_response(response: str) -> str:
   return f'{response}<end_of_turn>'
 
 
+@functools.cache
+def _get_tokenizer() -> Any:
+  return gemma4_params.create_tokenizer()
+
+
+def tokenize_example(
+    example: tuple[str, str],
+    max_seq_length: int,
+) -> dict[str, np.ndarray]:
+  """Tokenizes a single (prompt, response) pair for supervised fine-tuning.
+
+  Prompt tokens are masked out (``loss_mask=0``) so only the response
+  contributes to the training loss. Turn formatting follows the Gemma
+  dialog template (forked from ``gemma/gm/data/_tasks.py``).
+
+  Args:
+    example: A ``(prompt, response)`` string pair.
+    max_seq_length: Maximum sequence length (including special tokens).
+
+  Returns:
+    Dict with ``'input_tokens'`` and ``'loss_mask'`` (int32 ``[L]``).
+  """
+  tokenizer = _get_tokenizer()
+  prompt, response = example
+  tokens = np.zeros((max_seq_length,), dtype=np.int32)
+  mask = np.zeros((max_seq_length,), dtype=np.int32)
+
+  # Embed turn tags as strings so SentencePiece handles tokenization
+  # boundaries correctly (encoding pieces separately can shift BPE merges).
+  prompt_str = format_prompt(prompt)
+  response_str = format_response(response)
+  prompt_ids = [tokenizer.bos_id()] + tokenizer.EncodeAsIds(prompt_str)
+  response_ids = tokenizer.EncodeAsIds(response_str) + [tokenizer.eos_id()]
+
+  ids = prompt_ids + response_ids
+  length = min(len(ids), max_seq_length)
+  tokens[:length] = ids[:length]
+  # Mask: 0 for prompt, 1 for response.
+  resp_start = min(len(prompt_ids), length)
+  mask[resp_start:length] = 1
+
+  return {'input_tokens': tokens, 'loss_mask': mask}
+
+
 def tokenize_texts(
     examples: Sequence[tuple[str, str]],
     max_seq_length: int,
@@ -278,33 +323,13 @@ def tokenize_texts(
   Returns:
     Dict with ``'input_tokens'`` and ``'loss_mask'`` (int32 ``[N, L]``).
   """
-  tokenizer = gemma4_params.create_tokenizer()
-
-  tokens = np.zeros((len(examples), max_seq_length), dtype=np.int32)
-  mask = np.zeros((len(examples), max_seq_length), dtype=np.int32)
-
-  for i, (prompt, response) in enumerate(examples):
-    # Embed turn tags as strings so SentencePiece handles tokenization
-    # boundaries correctly (encoding pieces separately can shift BPE merges).
-    prompt_str = format_prompt(prompt)
-    response_str = format_response(response)
-    prompt_ids = [tokenizer.bos_id()] + tokenizer.EncodeAsIds(prompt_str)
-    response_ids = tokenizer.EncodeAsIds(response_str) + [tokenizer.eos_id()]
-
-    ids = prompt_ids + response_ids
-    length = min(len(ids), max_seq_length)
-    tokens[i, :length] = ids[:length]
-    # Mask: 0 for prompt, 1 for response.
-    resp_start = min(len(prompt_ids), length)
-    mask[i, resp_start:length] = 1
-
+  records = [tokenize_example(ex, max_seq_length) for ex in examples]
   logging.info(
       'Tokenized %d examples (max_seq_length=%d)',
       len(examples),
       max_seq_length,
   )
-
-  return {'input_tokens': tokens, 'loss_mask': mask}
+  return jax.tree.map(lambda *xs: np.stack(xs), *records)
 
 
 class GemmaSampler:

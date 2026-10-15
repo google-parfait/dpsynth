@@ -19,23 +19,16 @@ without loading any real model checkpoints.
 """
 
 import dataclasses
-import math
+from unittest import mock
 
 from absl.testing import absltest
 from dpsynth.text import dp_sft
+from dpsynth.text import dp_trainer
 from dpsynth.text import model
 from flax import nnx
 import jax
 import jax.numpy as jnp
 from jax_privacy import execution_plan
-
-
-def _default_config():
-  return execution_plan.BandMFConfig.default(
-      num_bands=1,
-      iterations=100,
-      expected_participations=1.0,
-  )
 
 
 def _make_tiny_model(vocab_size=8, embed_dim=4):
@@ -154,50 +147,62 @@ class LoraConfigTest(absltest.TestCase):
     self.assertEqual(cfg.targets, '.*q_einsum')
 
 
-class DPFineTunerTest(absltest.TestCase):
+class _TinyLoraModel(nnx.Module):
 
-  def test_creates_valid_mechanism_config(self):
-    mechanism = dp_sft.DPFineTuner(
-        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
-        mechanism_config=_default_config(),
-    )
-    self.assertEqual(mechanism.mechanism_config.iterations, 100)
-    self.assertIsNone(mechanism.mechanism_config.noise_multiplier)
-
-  def test_calibrate_sets_noise_multiplier(self):
-    mechanism = dp_sft.DPFineTuner(
-        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
-        mechanism_config=_default_config(),
-    ).configure(budget=0.5)
-    self.assertIsNotNone(mechanism.mechanism_config.noise_multiplier)
-    self.assertGreater(mechanism.mechanism_config.noise_multiplier, 0.0)
-
-  def test_calibrate_noise_formula(self):
-    mechanism = dp_sft.DPFineTuner(
-        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
-        mechanism_config=_default_config(),
-    ).configure(budget=0.5)
-    # Single band: rounds = iterations, sigma = sqrt(T / (2*rho)).
-    expected = math.sqrt(100 / (2.0 * 0.5))
-    self.assertAlmostEqual(
-        mechanism.mechanism_config.noise_multiplier, expected
+  def __init__(self, rngs: nnx.Rngs):
+    self.embed = nnx.Embed(8, 4, rngs=rngs)
+    self.lora = nnx.LoRA(
+        4, 2, 8, base_module=nnx.Linear(4, 8, rngs=rngs), rngs=rngs
     )
 
-  def test_dp_event_before_calibration_raises(self):
-    mechanism = dp_sft.DPFineTuner(
-        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
-        mechanism_config=_default_config(),
-    )
-    with self.assertRaises(ValueError):
-      _ = mechanism.dp_event
+  def __call__(self, tokens, *args):
+    del args
+    return self.lora(self.embed(tokens)), None
 
-  def test_dp_event_after_calibration(self):
-    mechanism = dp_sft.DPFineTuner(
+
+class GemmaSFTTest(absltest.TestCase):
+
+  def test_defaults(self):
+    task = dp_sft.GemmaSFT(
         model_variant=model.GemmaModel.default('gemma4_e2b_it'),
-        mechanism_config=_default_config(),
-    ).configure(budget=0.5)
-    event = mechanism.dp_event
-    self.assertIsNotNone(event)
+    )
+    self.assertIsInstance(task, dp_trainer.TrainingTask)
+    self.assertEqual(task.lora_rank, 16)
+    self.assertEqual(task.max_seq_length, 512)
+
+  def test_composes_with_dp_trainer_end_to_end(self):
+    tiny_model = _TinyLoraModel(nnx.Rngs(0))
+    fake_example = {
+        'input_tokens': jnp.array([1, 2, 3, 4], dtype=jnp.int32),
+        'loss_mask': jnp.array([0, 1, 1, 1], dtype=jnp.int32),
+    }
+    config = execution_plan.BandMFConfig.default(
+        num_bands=1,
+        iterations=2,
+        expected_participations=1.0,
+    )
+    trainer = dp_trainer.DPTrainerConfig(
+        task=dp_sft.GemmaSFT(
+            model_variant=model.GemmaModel.default('gemma4_e2b_it'),
+        ),
+        mechanism_config=config,
+    ).configure(budget=1.0)
+    self.assertIsInstance(trainer, dp_trainer.DPTrainer)
+
+    with (
+        mock.patch.object(
+            model, 'load_gemma', return_value=tiny_model
+        ) as mock_load,
+        mock.patch.object(
+            model, 'tokenize_example', return_value=fake_example
+        ) as mock_tok,
+    ):
+      result = trainer(rng=0, data=[('p1', 'r1'), ('p2', 'r2')])
+
+    mock_load.assert_called_once()
+    self.assertEqual(mock_tok.call_count, 2)
+    self.assertIsInstance(result, dp_sft.FineTuneResult)
+    self.assertIsInstance(result.model, _TinyLoraModel)
 
 
 if __name__ == '__main__':

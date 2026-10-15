@@ -19,6 +19,7 @@ models on tabular data using Flax NNX.
 """
 
 import dataclasses
+import functools
 import pickle
 import typing
 
@@ -59,6 +60,46 @@ class TabularTransformerConfig(api.MechanismConfig):
 
 
 # --- Stateful Model Interface ---
+
+
+@dataclasses.dataclass(frozen=True)
+class _TabularTask(dp_trainer.TrainingTask):
+  """TrainingTask for TabularTransformerModel."""
+
+  model: transformer_model.TransformerModel
+
+  @functools.cached_property
+  def _split_model(self):
+    return nnx.split(self.model, nnx.Param, ...)
+
+  def init_params(self):
+    _, trainable, _ = self._split_model
+    return typing.cast(typing.Any, trainable)
+
+  # Per-example loss function (no manual vmap, keep_batch_dim=False)
+  def loss_fn(self, params, data, prng):
+    graphdef, _, frozen = self._split_model
+    merged_model = nnx.merge(graphdef, params, frozen)
+    loss = merged_model.compute_loss_single(data["x"], train=True, key=prng)
+    return loss, {}
+
+  def preprocess_fn(self, record):
+    return {"x": record}
+
+  def postprocess_fn(self, params):
+    graphdef, _, frozen = self._split_model
+    return nnx.merge(graphdef, params, frozen)
+
+
+class _DummyTask(dp_trainer.TrainingTask):
+  """No-op TrainingTask for privacy accounting calibration."""
+
+  def init_params(self):
+    return {}
+
+  def loss_fn(self, params, data, prng):
+    del params, data, prng
+    return jnp.array(0.0), {}
 
 
 class TabularTransformerModel:
@@ -127,13 +168,7 @@ class TabularTransformerModel:
 
     use_dp_sgd = zcdp_rho is not None and zcdp_rho != float("inf")
 
-    graphdef, trainable, frozen = nnx.split(self.model, nnx.Param, ...)
-
-    # Per-example loss function (no manual vmap, keep_batch_dim=False)
-    def dp_loss_fn(params, data, prng):
-      merged_model = nnx.merge(graphdef, params, frozen)
-      loss = merged_model.compute_loss_single(data["x"], train=True, key=prng)
-      return loss, {}
+    task = _TabularTask(self.model)
 
     self._key, training_key = jax.random.split(self._key)
     seed = int(jax.random.randint(training_key, (), 0, 2**31 - 1))
@@ -164,17 +199,14 @@ class TabularTransformerModel:
           batch_size=batch_size,
       )
 
-    trainer = dp_trainer.DPTrainer(
-        init_params=typing.cast(typing.Any, trainable),
-        loss_fn=dp_loss_fn,
+    trainer = dp_trainer.DPTrainerConfig(
+        task=task,
         mechanism_config=mechanism_config,
         optimizer=optax.adam(learning_rate),
         performance_flags=performance_flags,
     ).configure(budget=zcdp_rho if use_dp_sgd else float("inf"))
 
-    final_state = trainer(rng=seed, data={"x": x_batch})
-
-    self.model = nnx.merge(graphdef, final_state.params, frozen)
+    self.model = trainer(rng=seed, data=list(x_batch))
     self._is_initialized = True
 
   def sample(
@@ -326,13 +358,8 @@ class TabularTransformer(api.CalibratedMechanism):
         l2_clip_norm=self.clipping_norm,
     )
 
-    def dummy_loss_fn(params, data, prng):
-      del params, data, prng
-      return 0.0, {}
-
-    trainer = dp_trainer.DPTrainer(
-        init_params={},
-        loss_fn=dummy_loss_fn,
+    trainer = dp_trainer.DPTrainerConfig(
+        task=_DummyTask(),
         mechanism_config=mechanism_config,
         optimizer=optax.identity(),
     ).configure(budget=budget)

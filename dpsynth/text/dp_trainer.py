@@ -32,37 +32,56 @@ and passes the trainable pytree to ``DPTrainer``. The higher-level
 ``DPTextTrainer`` handles this NNX plumbing, along with Gemma model loading,
 LoRA application, tokenization, and checkpoint management — keeping this module
 focused on the DP-SGD training loop itself.
-
-Usage::
-
-  trainer = DPTrainer.default(
-      init_params=my_params,
-      loss_fn=my_loss,
-      iterations=100,
-      batch_size=8,
-      num_examples=1000,
-  ).configure(budget=0.5)
-
-  final_state = trainer(rng=42, data=dataset)
 """
 
 from __future__ import annotations
 
+import abc
+from collections.abc import Sequence
 import dataclasses
 import json
 import math
 import typing
+from typing import Any
 
 from absl import logging
 import dp_accounting
 from dpsynth import api
+import jax
 from jax_privacy import execution_plan
+from jax_privacy import noise_addition
 from jax_privacy import training
+import numpy as np
 import optax
 
 
+class TrainingTask(abc.ABC):
+  """Non-private specification of model parameter initialization and loss."""
+
+  @abc.abstractmethod
+  def init_params(self) -> training.Params:
+    """Returns the initial trainable parameter pytree."""
+
+  @abc.abstractmethod
+  def loss_fn(
+      self,
+      params: training.Params,
+      data: training.Batch,
+      prng: jax.Array,
+  ) -> tuple[jax.Array, Any]:
+    """Computes ``(loss, aux)`` for a batch."""
+
+  def preprocess_fn(self, record: Any) -> training.Batch:
+    """Transforms a single input record into an example pytree."""
+    return record
+
+  def postprocess_fn(self, params: training.Params) -> Any:
+    """Transforms the final trained ``Params`` pytree into the output result."""
+    return params
+
+
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
-class DPTrainer(api.DPMechanism):
+class DPTrainerConfig(api.MechanismConfig):
   """General-purpose differentially private training via DP-SGD.
 
   Wraps ``jax_privacy.DPTrainer`` in the ``DPMechanism`` protocol, providing
@@ -81,24 +100,25 @@ class DPTrainer(api.DPMechanism):
     ... )
 
   Attributes:
+    task: ``TrainingTask`` specifying parameter initialization and loss.
     mechanism_config: ``BandMFConfig`` specifying the DP-SGD mechanism.
-    init_params: Initial trainable parameter pytree.
-    loss_fn: ``(params, batch, prng) -> scalar`` loss function. Must be
-      compatible with ``jax.grad`` w.r.t. the first argument.
     optimizer: Optax gradient transformation.
+    microbatch_size: Optional microbatch size for per-example gradient clipping.
     performance_flags: Optional ``PerformanceFlags`` for microbatching, SPMD,
       compute dtype, and noise generation.
     callback: Optional ``(step, state, aux) -> None`` called after each step.
   """
 
-  init_params: training.Params
-  loss_fn: training.LossFn
+  task: TrainingTask
   mechanism_config: execution_plan.ExecutionPlanConfig
-  optimizer: optax.GradientTransformation
+  optimizer: optax.GradientTransformation = dataclasses.field(
+      default_factory=lambda: optax.adamw(1e-4)
+  )
+  microbatch_size: int | None = None
   performance_flags: execution_plan.PerformanceFlags | None = None
   callback: training.CallbackFn | None = None
 
-  def configure(self, _=None, *, budget, delta=0.0):
+  def configure(self, _=None, *, budget, delta=0.0) -> DPTrainer:
     """Returns a copy with noise calibrated to the zCDP budget.
 
     Uses a loose upper bound ignoring subsampling amplification:
@@ -113,7 +133,7 @@ class DPTrainer(api.DPMechanism):
       A new ``DPTrainer`` with calibrated ``config.noise_multiplier``.
     """
     if isinstance(self.mechanism_config, execution_plan.NonPrivateConfig):
-      return self
+      return DPTrainer(config=self)
     cfg = typing.cast(execution_plan.BandMFConfig, self.mechanism_config)
     num_bands = len(cfg.strategy)  # pyrefly: ignore[bad-argument-type]
     rounds = math.ceil(cfg.iterations / num_bands)
@@ -122,55 +142,75 @@ class DPTrainer(api.DPMechanism):
         cfg,
         noise_multiplier=noise_multiplier,
     )
-    return dataclasses.replace(self, mechanism_config=calibrated_config)
+    return DPTrainer(
+        config=dataclasses.replace(self, mechanism_config=calibrated_config)
+    )
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class DPTrainer(api.CalibratedMechanism):
+  """Calibrated differentially private trainer via DP-SGD."""
+
+  config: DPTrainerConfig
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
     """The DpEvent characterizing the privacy cost of DP-SGD training."""
-    if (
-        hasattr(self.mechanism_config, 'noise_multiplier')
-        and self.mechanism_config.noise_multiplier is None
-    ):
-      raise ValueError('noise_multiplier is not set. Call calibrate() first.')
     return self._make_plan().dp_event
 
   def _make_plan(self) -> execution_plan.DPExecutionPlan:
-    return self.mechanism_config.make(performance_flags=self.performance_flags)
+    return self.config.mechanism_config.make(
+        performance_flags=self.config.performance_flags
+    )
 
-  def __call__(self, rng: int, data: training.Batch) -> training.TrainingState:
-    """Runs DP-SGD training on the given dataset.
+  def __call__(self, rng: int, data: Sequence[Any]) -> Any:
+    """Runs DP-SGD training on a sequence of records.
 
     Args:
       rng: Random seed for batch selection and noise generation.
-      data: Training data as a dict of JAX arrays. The first axis of each array
-        is the example axis.
+      data: Sequence of input records. ``config.task.preprocess_fn`` is applied
+        to each record independently and stacked into an array tree along axis
+        0.
 
     Returns:
-      Final ``TrainingState`` containing the trained parameters.
+      The result of ``config.task.postprocess_fn(state.params)``.
     """
-    if (
-        hasattr(self.mechanism_config, 'noise_multiplier')
-        and self.mechanism_config.noise_multiplier is None
-    ):
-      raise ValueError('noise_multiplier is not set. Call calibrate() first.')
-
-    cfg = typing.cast(typing.Any, self.mechanism_config)
+    cfg = typing.cast(typing.Any, self.config.mechanism_config)
     d = dataclasses.asdict(cfg)
-    if hasattr(self.mechanism_config, 'strategy') and cfg.strategy is not None:
+    if hasattr(cfg, 'strategy') and cfg.strategy is not None:
       d['strategy'] = cfg.strategy.tolist()  # JSON/numpy hack.
     logging.info('DPTrainer config:\n%s', json.dumps(d, indent=2))
 
-    dp_trainer = training.DPTrainer(
-        config=self.mechanism_config,
-        performance_flags=(
-            self.performance_flags or execution_plan.PerformanceFlags()
-        ),
-        loss_fn=self.loss_fn,
-        optimizer=self.optimizer,
+    task = self.config.task
+    examples = [task.preprocess_fn(record) for record in data]
+    batch_data = jax.tree.map(lambda *xs: np.stack(xs), *examples)
+
+    init_params = task.init_params()
+    perf = self.config.performance_flags or execution_plan.PerformanceFlags()
+    perf = dataclasses.replace(
+        perf,
+        noise_seed=rng,
+        microbatch_size=self.config.microbatch_size or perf.microbatch_size,
     )
-    return dp_trainer.fit(
-        data,
-        self.init_params,
-        callback=self.callback,
+    mesh = jax.sharding.get_mesh()
+    if not mesh.empty and 'replica' in mesh.axis_names:
+      perf = dataclasses.replace(
+          perf,
+          batch_axis_name='replica',
+          intermediate_strategy=noise_addition.SupportedStrategies.ZERO,
+          param_specs=jax.tree.map(lambda x: x.sharding, init_params),
+      )
+
+    dp_trainer = training.DPTrainer(
+        config=self.config.mechanism_config,
+        performance_flags=perf,
+        loss_fn=task.loss_fn,
+        optimizer=self.config.optimizer,
+    )
+    state = dp_trainer.fit(
+        batch_data,
+        init_params,
+        callback=self.config.callback,
         rng_or_seed=rng,
     )
+    return task.postprocess_fn(state.params)
