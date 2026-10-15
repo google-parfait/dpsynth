@@ -68,6 +68,11 @@ class CommonTest(absltest.TestCase):
     two_column_domain = mbi.Domain(["a", "b"], [3, 3])
     cliques = common.supporting_cliques(two_column_domain, workload=None)
     self.assertCountEqual(cliques, [("a", "b")])
+    # Configurable workload degree.
+    cliques = common.supporting_cliques(domain, workload=None, degree=2)
+    self.assertCountEqual(
+        cliques, list(itertools.combinations(domain.attributes, 2))
+    )
     # List workload.
     cliques = common.supporting_cliques(domain, [("a", "b"), ("c", "d")])
     self.assertCountEqual(cliques, [("a", "b"), ("c", "d")])
@@ -85,6 +90,14 @@ class CommonTest(absltest.TestCase):
     self.assertCountEqual(cliques, [("a", "b"), ("c", "d")])
     for cl in cliques:
       self.assertIsInstance(cl, tuple)
+
+  def test_compiled_workload_degree(self):
+    domain = mbi.Domain(["a", "b", "c"], [3, 3, 3])
+    workload = common.compiled_workload(domain, None, degree=2)
+    self.assertCountEqual(
+        workload,
+        [("a",), ("b",), ("c",), ("a", "b"), ("a", "c"), ("b", "c")],
+    )
 
   def test_compiled_workload_with_lists(self):
     domain = mbi.Domain(["a", "b"], [3, 3])

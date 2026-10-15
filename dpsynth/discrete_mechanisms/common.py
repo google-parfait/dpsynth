@@ -381,6 +381,7 @@ def supporting_cliques(
     domain: mbi.Domain,
     workload: Workload | Workload2 | None,
     max_marginal_size: float = float('inf'),
+    degree: int = 3,
 ) -> list[mbi.Clique]:
   """Returns the maximal workload cliques filtered by domain size.
 
@@ -395,12 +396,14 @@ def supporting_cliques(
     workload: A workload specification. Defaults to all three-way marginals, or
       the maximum possible degree for fewer than three columns.
     max_marginal_size: The maximum domain size of a clique to include.
+    degree: The maximum degree of the automatically constructed workload.
+      Ignored when an explicit workload is provided.
 
   Returns:
     A list of cliques from the workload whose domain size is within the limit.
   """
   if workload is None:
-    degree = min(3, len(domain.attributes))
+    degree = min(degree, len(domain.attributes))
     cliques = list(itertools.combinations(domain.attributes, degree))
   elif isinstance(workload, Mapping):
     cliques = [tuple(cl) for cl in workload.keys()]
@@ -424,6 +427,7 @@ def compiled_workload(
     domain: mbi.Domain,
     workload: Workload | Workload2 | None,
     max_marginal_size: float = float('inf'),
+    degree: int = 3,
 ) -> Workload:
   """Compiles an input workload into a set of candidate measurements for AIM.
 
@@ -432,6 +436,8 @@ def compiled_workload(
     workload: A dictionary mapping marginal queries to weights representing the
       importance of each marginal query.
     max_marginal_size: The maximum size of a marginal query to consider.
+    degree: The maximum degree of the automatically constructed workload.
+      Ignored when an explicit workload is provided.
 
   Returns:
     A dictionary mapping marginal queries in the downward closure of the
@@ -439,7 +445,7 @@ def compiled_workload(
   """
 
   if workload is None:
-    degree = min(3, len(domain.attributes))
+    degree = min(degree, len(domain.attributes))
     workload = list(itertools.combinations(domain.attributes, degree))
 
   if not isinstance(workload, Mapping):

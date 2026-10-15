@@ -75,6 +75,14 @@ class AIMTest(absltest.TestCase):
     config = aim.AIMConfig()
     self.assertEqual(config.pgm_iters, 1000)
 
+  def test_workload_degree(self):
+    domain = mbi.Domain(["a", "b", "c"], [3, 3, 3])
+    config = aim.AIMConfig(degree=2)
+    self.assertCountEqual(
+        config.supporting_cliques(domain),
+        [("a", "b"), ("a", "c"), ("b", "c")],
+    )
+
 
 if __name__ == "__main__":
   absltest.main()

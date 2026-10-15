@@ -110,6 +110,8 @@ class AIMConfig(api.MechanismConfig):
     max_model_size: The maximum size of the graphical model in megabytes.
       Controls the utility/runtime trade-off.
     max_marginal_size: The maximum size of a marginal query to consider.
+    degree: The maximum degree of the automatically constructed workload.
+      Ignored when an explicit workload is provided.
     anneal_factor: The factor by which to anneal the privacy.
     select_budget_fraction: The fraction of the total budget to use for
       selecting two-way marginal queries.
@@ -119,6 +121,7 @@ class AIMConfig(api.MechanismConfig):
   max_rounds: int | None = None
   max_model_size: int = 80
   max_marginal_size: float = 1e6
+  degree: int = 3
   anneal_factor: float = 4.0
   select_budget_fraction: float = 0.1
   pgm_iters: int = 1000
@@ -127,7 +130,7 @@ class AIMConfig(api.MechanismConfig):
   def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
     """Returns the workload cliques filtered by max_marginal_size."""
     return common.supporting_cliques(
-        domain, self.workload, self.max_marginal_size
+        domain, self.workload, self.max_marginal_size, degree=self.degree
     )
 
   def configure(self, _=None, *, budget, delta=0):
@@ -171,7 +174,10 @@ class AIM(api.CalibratedMechanism):
     # Compile workload into candidate measurements.                         #
     #########################################################################
     candidates = common.compiled_workload(
-        data.domain, self.config.workload, self.config.max_marginal_size
+        data.domain,
+        self.config.workload,
+        self.config.max_marginal_size,
+        degree=self.config.degree,
     )
 
     estimator = mbi.estimation.MirrorDescent(self.config.marginal_oracle)
