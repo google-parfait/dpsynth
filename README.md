@@ -40,7 +40,7 @@ generation**. This scope is deliberately inclusive and does not mean just
 principle in scope for the library, and community contributions for new
 modalities and mechanisms are welcome.
 
-Unlike [JAX Privacy](https://github.com/google-deepmind/jax_privacy), which
+Unlike [JAX Privacy](https://github.com/google-parfait/jax_privacy), which
 focuses on lower-level DP-SGD ingredients, DPSynth implements a wide variety of
 DP mechanisms that naturally compose and build on top of each other:
 
@@ -124,7 +124,7 @@ principles:
     organization are completely flexible and can evolve freely over time without
     breaking callers. If you have a novel synthetic data mechanism for any
     modality, consider contributing it upstream by
-    [opening an issue](https://github.com/google/dpsynth/issues) to discuss the
+    [opening an issue](https://github.com/google-parfait/dpsynth/issues) to discuss the
     design (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ## Two Code Paths

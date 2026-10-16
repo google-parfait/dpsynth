@@ -18,7 +18,7 @@ We welcome contributions in many forms:
 
 ### Bug Fixes, Issues, and Documentation
 
--   **Bug reports**: Open an [issue](https://github.com/google/dpsynth/issues)
+-   **Bug reports**: Open an [issue](https://github.com/google-parfait/dpsynth/issues)
     describing what went wrong and how to reproduce it.
 -   **Bug fixes**: Small, focused PRs that fix a specific issue are always
     appreciated.
@@ -63,7 +63,7 @@ any of them directly benefit DP Synth:
     inference engine used by the tabular mechanisms.
 -   [**dp_accounting**](https://github.com/google/differential-privacy/tree/main/python/dp_accounting):
     Privacy accounting and budget composition.
--   [**jax_privacy**](https://github.com/google-deepmind/jax_privacy):
+-   [**jax_privacy**](https://github.com/google-parfait/jax_privacy):
     Differentially private training primitives used by the text generation
     module.
 
@@ -183,7 +183,7 @@ use GitHub pull requests for this purpose. Consult
 information on using pull requests.
 
 Before opening a pull request, consider
-[filing an issue](https://github.com/google/dpsynth/issues) to discuss the
+[filing an issue](https://github.com/google-parfait/dpsynth/issues) to discuss the
 change. This helps us coordinate efforts and provide guidance on the best
 approach.
 

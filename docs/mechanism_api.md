@@ -280,7 +280,7 @@ composed or split as cleanly:
     bisections, whose composite `dp_event` is a composition of exponential
     mechanisms.
 
-[dp-quantiles-src]: https://github.com/google/dpsynth/blob/main/dpsynth/local_mode/primitives.py
+[dp-quantiles-src]: https://github.com/google-parfait/dpsynth/blob/main/dpsynth/local_mode/primitives.py
 
 Because these heterogeneous parameters cannot be directly combined,
 `configure()` accepts a single scalar `zcdp_rho` and translates it into each
