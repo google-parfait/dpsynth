@@ -42,7 +42,6 @@ from dpsynth import data_generation_v3
 from dpsynth import domain
 from dpsynth.discrete_mechanisms import common as dm_common
 from dpsynth.local_mode import initialization
-from dpsynth.local_mode import primitives
 import mbi
 import numpy as np
 
@@ -193,6 +192,8 @@ def run_from_summary(
     sparse_stats: dict[str, list[tuple[Any, int]]],
     initializers: dict[str, CalibratedInitializer],
     rng: np.random.Generator,
+    *,
+    num_rows: int | None = None,
 ) -> dict[str, initialization.ColumnMeasurement]:
   """Converts materialized sparse stats to ColumnMeasurements on the driver.
 
@@ -204,6 +205,8 @@ def run_from_summary(
       produced by ``ComputeSufficientStats``.
     initializers: Calibrated initializers keyed by column name.
     rng: NumPy random generator for DP noise.
+    num_rows: Optional total row count, used to compute out-of-domain counts for
+      numerical columns with ``clip_to_range=False``.
 
   Returns:
     Per-column ``ColumnMeasurement`` results.
@@ -213,7 +216,12 @@ def run_from_summary(
     sparse = sparse_stats[column]
     if isinstance(init, initialization.NumericalInitializer):
       counts = _sparse_to_dense_numerical(sparse, init.grid_spec[2])
-      results[column] = init.from_summary(rng, counts)
+      ood_count = (
+          float(num_rows - counts.sum())
+          if (not init.attribute.clip_to_range and num_rows is not None)
+          else 0.0
+      )
+      results[column] = init.from_summary(rng, counts, ood_count=ood_count)
     elif isinstance(init, initialization.CategoricalInitializer):
       counts = _sparse_to_dense_categorical(sparse, init.attribute.size)
       results[column] = init.from_summary(rng, counts)
@@ -382,7 +390,6 @@ def generate_from_marginals(
     rng: np.random.Generator,
     column_measurements: dict[str, initialization.ColumnMeasurement],
     marginals: mbi.CliqueVector,
-    total_measurement: mbi.LinearMeasurement,
 ) -> data_generation_v3.DataGenerationResult:
   """Runs the discrete mechanism and decoding from pre-computed marginals.
 
@@ -391,7 +398,6 @@ def generate_from_marginals(
     rng: NumPy random generator for the discrete mechanism's DP noise.
     column_measurements: Per-column results from pass 1 initialization.
     marginals: The exact joint marginals computed by pass 2.
-    total_measurement: The DP-noised total-count measurement (clique ``()``).
 
   Returns:
     A DataGenerationResult containing the synthetic DataFrame.
@@ -402,7 +408,7 @@ def generate_from_marginals(
       column_measurements, synth.schema
   )
 
-  initial_measurements = [total_measurement, *codec.one_way_measurements()]
+  initial_measurements = codec.one_way_measurements()
   logging.info('[DPSynth/Beam]: Running discrete mechanism.')
   # pyrefly: ignore[missing-attribute,not-callable]
   mechanism_result = synth.base_mechanism(
@@ -439,7 +445,6 @@ def _run_two_pass(
 ) -> data_generation_v3.DataGenerationResult:
   """Two-pass Beam pipeline that delegates to a local TabularConfig."""
 
-  sigma = synth.total_count_sigma
   inits = cast(dict[str, CalibratedInitializer], synth.initializers)
   if pipeline_kwargs is None:
     pipeline_kwargs = {}
@@ -465,15 +470,11 @@ def _run_two_pass(
       _ = count | 'WriteRowCount' >> beam.Map(_write, path=count_path)
     # We run this on the driver so we don't have to track worker-side RNGs.
     sparse_stats = _read(summary_path)
-    column_measurements = run_from_summary(sparse_stats, inits, rng)
     num_rows = int(_read(count_path))
-    logging.info('[DPSynth/Beam]: Pass 1 complete.')
-    # pyrefly: ignore[missing-attribute]
-    total = primitives.add_gaussian_noise(
-        rng, float(num_rows), sigma, cast(int, synth.max_records_per_user)
+    column_measurements = run_from_summary(
+        sparse_stats, inits, rng, num_rows=num_rows
     )
-    total = float(max(1.0, total))
-    total_measurement = mbi.LinearMeasurement(np.array([total]), (), sigma)
+    logging.info('[DPSynth/Beam]: Pass 1 complete.')
 
     # Ask the configured discrete mechanism which marginals it needs.
     mbi_domain = data_generation_v3.TabularCodec.from_measurements(
@@ -499,7 +500,7 @@ def _run_two_pass(
 
     # Run the discrete mechanism and decode on the driver.
     return generate_from_marginals(
-        synth, rng, column_measurements, clique_vector, total_measurement
+        synth, rng, column_measurements, clique_vector
     )
   finally:
     # Only remove a temp dir we created; never a user-supplied temp_location.
@@ -540,7 +541,7 @@ class BeamTabularConfig(api.MechanismConfig):
   Usage::
 
       config = data_generation_v3.TabularConfig(domains=domains)
-      beam_synth = BeamTabularConfig(config).configure(zcdp_rho=1.0)
+      beam_synth = BeamTabularConfig(config).configure(budget=1.0)
       result = beam_synth(rng, create_rows_fn)
 
   Attributes:
@@ -564,15 +565,12 @@ class BeamTabularConfig(api.MechanismConfig):
           ' method.'
       )
 
-  def configure(
-      self, schema=None, *, zcdp_rho, delta=0, max_records_per_user=1
-  ) -> BeamTabularMechanism:
+  def configure(self, schema=None, *, budget, delta=0) -> BeamTabularMechanism:
     """Returns a copy whose synthesizer is configured with the given budget."""
     synthesizer = self.synthesizer.configure(
         schema,
-        zcdp_rho=zcdp_rho,
+        budget=budget,
         delta=delta,
-        max_records_per_user=max_records_per_user,
     )
     return BeamTabularMechanism(
         synthesizer=synthesizer,

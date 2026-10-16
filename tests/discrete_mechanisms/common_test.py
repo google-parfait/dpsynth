@@ -28,22 +28,6 @@ def assert_serializable(obj):
 
 class CommonTest(absltest.TestCase):
 
-  def test_exponential_mechanism(self):
-    rng = np.random.default_rng(0)
-    scores = np.array([5, 20, -10, 3])
-    idx = common.exponential_mechanism(
-        scores, epsilon=1.0, sensitivity=1.0, rng=rng
-    )
-    self.assertIn(idx, [0, 1, 2, 3])
-    idx = common.exponential_mechanism(
-        scores, epsilon=1.0, sensitivity=1e-8, rng=rng
-    )
-    self.assertEqual(idx, 1)
-    idx = common.exponential_mechanism(
-        scores, epsilon=1e8, sensitivity=1.0, rng=rng
-    )
-    self.assertEqual(idx, 1)
-
   def test_measure_marginals_with_noise(self):
     data = mbi.Dataset.synthetic(mbi.Domain(["a", "b", "c"], [3, 4, 5]), N=1000)
     marginal_queries = [("a",), ("b",), ("c",)]
@@ -80,6 +64,15 @@ class CommonTest(absltest.TestCase):
     self.assertCountEqual(
         cliques, list(itertools.combinations(domain.attributes, 3))
     )
+    # Default workload with two columns.
+    two_column_domain = mbi.Domain(["a", "b"], [3, 3])
+    cliques = common.supporting_cliques(two_column_domain, workload=None)
+    self.assertCountEqual(cliques, [("a", "b")])
+    # Configurable workload degree.
+    cliques = common.supporting_cliques(domain, workload=None, degree=2)
+    self.assertCountEqual(
+        cliques, list(itertools.combinations(domain.attributes, 2))
+    )
     # List workload.
     cliques = common.supporting_cliques(domain, [("a", "b"), ("c", "d")])
     self.assertCountEqual(cliques, [("a", "b"), ("c", "d")])
@@ -98,12 +91,28 @@ class CommonTest(absltest.TestCase):
     for cl in cliques:
       self.assertIsInstance(cl, tuple)
 
+  def test_compiled_workload_degree(self):
+    domain = mbi.Domain(["a", "b", "c"], [3, 3, 3])
+    workload = common.compiled_workload(domain, None, degree=2)
+    self.assertCountEqual(
+        workload,
+        [("a",), ("b",), ("c",), ("a", "b"), ("a", "c"), ("b", "c")],
+    )
+
   def test_compiled_workload_with_lists(self):
     domain = mbi.Domain(["a", "b"], [3, 3])
     workload = common.compiled_workload(domain, [["a", "b"]])
     self.assertIn(("a", "b"), workload)
     for cl in workload.keys():
       self.assertIsInstance(cl, tuple)
+
+  def test_compiled_workload_default_with_two_columns(self):
+    domain = mbi.Domain(["a", "b"], [3, 3])
+    workload = common.compiled_workload(domain, None)
+    self.assertCountEqual(
+        workload.keys(),
+        [("a",), ("b",), ("a", "b")],
+    )
 
   def test_precompute_marginals_standard_and_jax(self):
     domain = mbi.Domain(["a", "b"], [3, 4])

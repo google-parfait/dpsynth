@@ -41,7 +41,7 @@ class IndependentTest(absltest.TestCase):
           )
       )
 
-    result = config.configure(zcdp_rho=10000)(
+    result = config.configure(budget=10000)(
         np.random.default_rng(0),
         data,
         initial_measurements=initial_measurements,
@@ -63,7 +63,7 @@ class IndependentTest(absltest.TestCase):
 
     config = independent.IndependentConfig()
     # This should not raise 'Cliques must be unique'.
-    model = config.configure(zcdp_rho=100.0)(
+    model = config.configure(budget=100.0)(
         np.random.default_rng(0), data, initial_measurements=initial
     )
     self.assertIsNotNone(model)

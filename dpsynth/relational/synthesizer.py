@@ -23,6 +23,7 @@ from typing import Any, Literal
 
 from absl import logging
 import dp_accounting
+from dpsynth import _calibration
 from dpsynth import api
 from dpsynth import data_generation_v3
 from dpsynth import discrete_mechanisms
@@ -125,7 +126,6 @@ def _measure_root_total_count(
     rng: np.random.Generator,
     root_record_count: int,
     total_count_sigma: float,
-    max_records_per_user: int = 1,
 ) -> tuple[float, mbi.LinearMeasurement]:
   """Measures the root parent table total count with Gaussian noise (Delta = 1).
 
@@ -133,30 +133,28 @@ def _measure_root_total_count(
     - Root-Anchored Population Count: Only the root table total count is
       perturbed and measured.
     - Non-Negativity: Truncated to a minimum of 1.0 (estimated_total >= 1.0).
-    - Measurement Variance: Standard deviation is max_records_per_user *
-      total_count_sigma.
+    - Measurement Variance: Standard deviation is total_count_sigma.
 
   Args:
     rng: NumPy random generator.
     root_record_count: Number of records in the root parent table.
     total_count_sigma: Gaussian noise sigma for root count.
-    max_records_per_user: Sensitivity scaling for root parent records (>= 1).
 
   Returns:
     A tuple of (estimated_total, total_measurement) where total_measurement
     is an mbi.LinearMeasurement over clique ().
   """
-  noisy_total = primitives.add_gaussian_noise(
+  noisy_total = primitives.gaussian_mechanism(
       rng,
       root_record_count,
-      total_count_sigma,
-      max_records_per_user,
+      sigma=total_count_sigma,
+      l2_sensitivity=1.0,
   )
   total = max(1.0, float(noisy_total))
   total_measurement = mbi.LinearMeasurement(
       np.array([total]),
       (),
-      stddev=max_records_per_user * total_count_sigma,
+      stddev=total_count_sigma,
   )
   return total, total_measurement
 
@@ -166,7 +164,6 @@ def _run_single_col_initializer(
     rng: np.random.Generator,
     data: np.ndarray,
     weights: np.ndarray,
-    estimated_total: float | None = None,
 ) -> initialization.ColumnMeasurement:
   """Runs a single column initializer on weighted standalone table data.
 
@@ -181,8 +178,6 @@ def _run_single_col_initializer(
     rng: NumPy random generator.
     data: 1D array of column values.
     weights: 1D float array of row sensitivity weights.
-    estimated_total: Optional root table estimated total count for
-      NumericalInitializer heuristic one-way measurements.
 
   Returns:
     A ColumnMeasurement containing the discovered categorical attribute,
@@ -196,8 +191,10 @@ def _run_single_col_initializer(
     values = np.asarray(data, dtype=float)
     if attr.clip_to_range:
       values = np.where(np.isnan(values), attr.min_value, values)
+      ood_count = 0.0
     else:
       in_domain = (values >= attr.min_value) & (values <= attr.max_value)
+      ood_count = float(weights[~in_domain].sum())
       values, weights = values[in_domain], weights[in_domain]
     if attr.dtype == 'int':
       values = np.round(values)
@@ -205,7 +202,7 @@ def _run_single_col_initializer(
     delta = (upper - lower) / (gs - 1)
     indices = initialization.encode_to_grid(values, lower, upper, delta)
     counts = np.bincount(indices, weights=weights, minlength=gs)
-    return init.from_summary(rng, counts, estimated_total=estimated_total)
+    return init.from_summary(rng, counts, ood_count=ood_count)
 
   if isinstance(init, initialization.CategoricalInitializer):
     encoded = vtx.discrete_encode(data, init.attribute)
@@ -230,7 +227,6 @@ def _run_table_initializers(
     rng: np.random.Generator,
     tables: Mapping[str, pd.DataFrame],
     weights: Mapping[str, np.ndarray],
-    estimated_total: float | None = None,
 ) -> dict[str, dict[str, initialization.ColumnMeasurement]]:
   """Runs column initializers across all tables on weighted data.
 
@@ -240,8 +236,6 @@ def _run_table_initializers(
     rng: NumPy random generator.
     tables: Mapping from table name to filtered active DataFrames.
     weights: Mapping from table name to 1D sensitivity weights.
-    estimated_total: Optional root table estimated total count for
-      NumericalInitializer heuristic one-way measurements.
 
   Returns:
     A nested mapping from table and column name to its ColumnMeasurement.
@@ -257,7 +251,6 @@ def _run_table_initializers(
           rng=rng,
           data=table_df[col_name].to_numpy(),
           weights=table_w,
-          estimated_total=estimated_total,
       )
     results[table_name] = table_results
   return results
@@ -389,7 +382,6 @@ def _run_table_preprocessing(
       rng,
       root_record_count=len(filtered_tables[root_table]),
       total_count_sigma=mechanism.total_count_sigma,
-      max_records_per_user=mechanism.max_records_per_user,
   )
 
   table_measurements = _run_table_initializers(
@@ -397,7 +389,6 @@ def _run_table_preprocessing(
       rng=rng,
       tables=filtered_tables,
       weights=weights,
-      estimated_total=noisy_root_total,
   )
 
   codecs, datasets, mappings, one_ways = _encode_and_compress_tables(
@@ -432,7 +423,6 @@ def _create_table_initializers(
 def _compute_table_col_deltas(
     domains: Mapping[str, domain.Schema],
     delta: float,
-    init_budget_fraction: float,
 ) -> dict[str, dict[str, float]]:
   """Splits thresholding delta additively across open-set columns in all tables.
 
@@ -443,7 +433,6 @@ def _compute_table_col_deltas(
   Args:
     domains: Mapping from table names to per-column AttributeType schemas.
     delta: Total DP delta for partition selection thresholding.
-    init_budget_fraction: Fraction of delta allocated to column initialization.
 
   Returns:
     A nested mapping from table name and column name to its allocated delta.
@@ -454,8 +443,7 @@ def _compute_table_col_deltas(
   Formal Guarantees:
     - Only open-set categorical attributes consume delta
     - Categorical and numerical attributes operate under pure zCDP (delta = 0.0)
-    - Sum of per-column deltas across all tables equals init_budget_fraction *
-    delta.
+    - Sum of per-column deltas across all tables equals delta.
     - Invariance: If no open-set columns exist, all per-column deltas are 0.0.
   """
   num_open_set = 0
@@ -468,8 +456,7 @@ def _compute_table_col_deltas(
         'delta must be positive when open-set categorical attributes are'
         ' present. It is used for Gaussian partition selection.'
     )
-  thresholding_delta = init_budget_fraction * delta
-  per_col_delta = thresholding_delta / num_open_set if num_open_set > 0 else 0.0
+  per_col_delta = delta / num_open_set if num_open_set > 0 else 0.0
   return {
       table: {
           col: (
@@ -485,7 +472,6 @@ def _compute_table_col_deltas(
 
 def _compute_link_sensitivities(
     hierarchy: Sequence[tuple[int, str, rel_domain.ForeignKeyRelation | None]],
-    max_records_per_user: int = 1,
 ) -> dict[str, int]:
   """Computes cascading sensitivity (Delta_k) per relational link.
 
@@ -502,24 +488,22 @@ def _compute_link_sensitivities(
       to at most prod_{j=1}^{k-1} s_j immediate parent records in Link k, where
       s_j is the group capacity bound (max_children_per_parent) of ancestor j.
     - Sensitivity Scaling Soundness: Scaling discrete mechanism noise by
-      Delta_k = max_records_per_user * prod s_ancestors strictly preserves
-      root-level differential privacy across all child and subchild tables
-      without materializing Cartesian joins.
+      Delta_k = prod s_ancestors strictly preserves root-level differential
+      privacy across all child and subchild tables without materializing
+      Cartesian joins.
 
   Args:
     hierarchy: Ordered topological synthesis levels from
       `topological_sort_hierarchy()`.
-    max_records_per_user: Upper bound on root entity contributions (>= 1).
 
   Returns:
     A mapping from link name (f'{parent}->{child}') to its cascading integer
     sensitivity bound Delta_k.
 
   Example:
-    Household (max_records_per_user = 1) -> Person (s_1 = 3)
-    -> Activity (s_2 = 2):
-      - 'Household->Person': Delta_1 = max_records_per_user * 1 = 1
-      - 'Person->Activity': Delta_2 = max_records_per_user * s_1 = 3
+    Household -> Person (s_1 = 3) -> Activity (s_2 = 2):
+      - 'Household->Person': Delta_1 = 1
+      - 'Person->Activity': Delta_2 = s_1 = 3
     Result:
       {'Household->Person': 1, 'Person->Activity': 3}
   """
@@ -532,7 +516,7 @@ def _compute_link_sensitivities(
     else:
       parent_capacity = cumulative_capacity[fk.parent_table]
       link_name = f'{fk.parent_table}->{fk.child_table}'
-      link_sensitivities[link_name] = max_records_per_user * parent_capacity
+      link_sensitivities[link_name] = parent_capacity
       cumulative_capacity[table_name] = (
           parent_capacity * fk.max_children_per_parent
       )
@@ -946,8 +930,7 @@ class MultiTableMechanism(api.CalibratedMechanism):
     total_count_sigma: Sigma for the root table total-count mechanism.
     num_permutation_slots: Permutation exploration slot count (o), default 2.
     exploration_strategy: Exploration strategy ('empty_token' or 'size_sliced').
-    max_records_per_user: Assumed upper bound on records a single user
-      contributes to the root table. Essentially the sensitivitiy at the root.
+    link_sensitivities: Mapping from link name to cascading integer sensitivity.
 
   Note: For simplicity, user-defined contraints are not supported yet.
   """
@@ -957,9 +940,9 @@ class MultiTableMechanism(api.CalibratedMechanism):
   calibrated_discrete_mechanisms: Mapping[str, api.CalibratedMechanism]
   calibrated_initializers: Mapping[str, Mapping[str, api.CalibratedMechanism]]
   total_count_sigma: float = dataclasses.field(repr=False)
+  link_sensitivities: Mapping[str, int]
   num_permutation_slots: int = 2
   exploration_strategy: Literal['empty_token', 'size_sliced'] = 'empty_token'
-  max_records_per_user: int = 1
 
   @property
   def schema(self) -> Mapping[str, domain.Schema]:
@@ -983,9 +966,10 @@ class MultiTableMechanism(api.CalibratedMechanism):
     events.append(
         dp_accounting.GaussianDpEvent(noise_multiplier=self.total_count_sigma)
     )
-    events.extend(
-        mech.dp_event for mech in self.calibrated_discrete_mechanisms.values()
-    )
+    # Lift each link mechanism from link-parent level to root-entity level.
+    for link_name, mech in self.calibrated_discrete_mechanisms.items():
+      link_sens = self.link_sensitivities[link_name]
+      events.append(_calibration.with_group_size(mech.dp_event, link_sens))
     return dp_accounting.ComposedDpEvent(events)
 
   def __call__(
@@ -1112,14 +1096,13 @@ class MultiTableConfig(api.MechanismConfig):
           | None
       ) = None,
       *,
-      zcdp_rho: float,
+      budget: float,
       delta: float = 0.0,
-      max_records_per_user: int = 1,
   ) -> MultiTableMechanism:
     """Configures privacy budgets across column initializers and links.
 
     Formal Guarantees:
-      - Additive zCDP Partitioning: The total zCDP budget zcdp_rho is
+      - Additive zCDP Partitioning: The total zCDP budget is
         additively split into init_rho (allocated to 1 root total-count
         measurement and N_total_columns per-column initializers) and
         total_discrete_rho (split evenly across relational hierarchy links).
@@ -1139,9 +1122,8 @@ class MultiTableConfig(api.MechanismConfig):
     Args:
       schema: Mapping from table name to table domain schema (either a
         `domain.Schema` or a mapping of column name to `AttributeType`).
-      zcdp_rho: The total zCDP privacy budget (rho > 0).
+      budget: The total privacy budget (budget > 0).
       delta: Approximate DP delta for open-set Gaussian partition selection.
-      max_records_per_user: Upper bound on root entity contributions (>= 1).
 
     Returns:
       A calibrated, runnable MultiTableMechanism.
@@ -1164,9 +1146,8 @@ class MultiTableConfig(api.MechanismConfig):
           'MultiTableConfig requires at least one foreign key relationship in'
           ' foreign_keys. For single-table synthesis, use TabularConfig.'
       )
-    api.validate_max_records_per_user(max_records_per_user)
-    if zcdp_rho <= 0:
-      raise ValueError(f'zcdp_rho must be positive, got {zcdp_rho}.')
+    if budget <= 0:
+      raise ValueError(f'budget must be positive, got {budget}.')
 
     # Normalize table schemas into domain.Schema instances.
     domains: dict[str, domain.Schema] = {
@@ -1261,15 +1242,9 @@ class MultiTableConfig(api.MechanismConfig):
                 f' api.MechanismConfig, got {type(init_cfg).__name__}.'
             )
 
-    link_sensitivities = _compute_link_sensitivities(
-        hierarchy, max_records_per_user=max_records_per_user
-    )
+    link_sensitivities = _compute_link_sensitivities(hierarchy)
 
-    per_col_deltas = _compute_table_col_deltas(
-        domains,
-        delta=delta,
-        init_budget_fraction=self.init_budget_fraction,
-    )
+    per_col_deltas = _compute_table_col_deltas(domains, delta=delta)
     inits = (
         self.initializers
         if self.initializers is not None
@@ -1277,19 +1252,18 @@ class MultiTableConfig(api.MechanismConfig):
     )
 
     total_cols = sum(len(table_schema) for table_schema in domains.values())
-    init_rho = self.init_budget_fraction * zcdp_rho
+    init_rho = self.init_budget_fraction * budget
     per_col_rho = init_rho / (total_cols + 1)  # +1 for root table total count.
     total_count_rho = per_col_rho
-    total_discrete_rho = zcdp_rho - init_rho
+    total_discrete_rho = budget - init_rho
     per_link_rho = total_discrete_rho / len(link_sensitivities)
 
     calibrated_inits = {
         table: {
             col: init.configure(
                 domains[table][col],
-                zcdp_rho=per_col_rho,
+                budget=per_col_rho,
                 delta=per_col_deltas[table][col],
-                max_records_per_user=max_records_per_user,
             )
             for col, init in table_inits.items()
         }
@@ -1301,8 +1275,7 @@ class MultiTableConfig(api.MechanismConfig):
 
     calibrated_discrete = {
         link_name: self.discrete_mechanism.configure(
-            zcdp_rho=per_link_rho,
-            max_records_per_user=sensitivity,
+            budget=per_link_rho / (sensitivity**2),
         )
         for link_name, sensitivity in link_sensitivities.items()
     }
@@ -1315,5 +1288,5 @@ class MultiTableConfig(api.MechanismConfig):
         total_count_sigma=total_count_sigma,
         num_permutation_slots=self.num_permutation_slots,
         exploration_strategy=self.exploration_strategy,
-        max_records_per_user=max_records_per_user,
+        link_sensitivities=link_sensitivities,
     )

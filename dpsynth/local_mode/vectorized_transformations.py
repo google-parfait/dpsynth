@@ -206,7 +206,7 @@ def undiscretize(
   elif handling == 'sample':
     if not attribute_domain.clip_to_range:
       ood = bin_indices == 0
-      idx = bin_indices - 1
+      idx = np.where(ood, 0, bin_indices - 1)
       result = np.where(ood, sentinel, rng.uniform(lefts[idx], rights[idx]))
     else:
       result = rng.uniform(lefts[bin_indices], rights[bin_indices])
@@ -218,8 +218,10 @@ def undiscretize(
   else:
     raise ValueError(f'Unsupported interval_handling: {handling}')
 
-  if attribute_domain.dtype == 'int' and attribute_domain.clip_to_range:
-    result = np.ceil(result).astype(int)
+  if attribute_domain.dtype == 'int':
+    result = np.ceil(result)
+    if attribute_domain.clip_to_range or not np.isnan(sentinel):
+      result = result.astype(int)
   return result
 
 

@@ -89,20 +89,30 @@ for new standalone additions.
 
 When reviewing contributions, we primarily look for two things:
 
-### 1. Simplicity
+### 1. Clean Mechanism Boundaries and Simplicity
 
-Simpler contributions with smaller diffs are more likely to be accepted. For new
-mechanisms in particular:
+For new mechanisms and subpackages, we look for a clean separation between a
+lightweight outer contract and a flexible internal implementation:
 
--   **Aim for a single file** with at most ~500 lines of code.
--   You don't need to use the same internal helper functions that existing
-    mechanisms use. If your approach is novel, a self-contained implementation
-    is perfectly fine.
--   However, your mechanism **should conform to the same API contract** as
-    existing mechanisms (e.g., implementing `DPMechanism`, accepting the same
-    calibration/configuration interface). The exception is mechanisms designed
-    for a new data modality (e.g., relational data), where a new API surface may
-    be necessary.
+-   **Implement `MechanismConfig` / `CalibratedMechanism`**: Conform to the two
+    core abstractions in
+    [`docs/mechanism_api.md`](docs/mechanism_api.md)
+    (`MechanismConfig.configure` / `calibrate` returning a `CalibratedMechanism`
+    with `dp_event` and `__call__`). This contract is lightweight and
+    modality-agnostic (`domain` and `data` can be whatever types your modality
+    requires) while ensuring consistent privacy calibration and accounting
+    across the library.
+-   **Curate the public API surface**: Be deliberate and thoughtful about what
+    is exported in the public API and what the API contract is. Do not expose
+    internal helper functions or implementation details to the top-level core
+    library.
+-   **Flexible internal implementation**: You do not need to use the same
+    internal helper functions or data structures that existing mechanisms use.
+    Because end users only depend on the curated outer API, your internal
+    implementation details and code organization can be completely
+    self-contained and change freely over time. Single-file mechanisms (~500
+    lines) are welcome for focused algorithms, while larger modality-specific
+    mechanisms can live in their own subpackage directory.
 
 ### 2. No New Heavy Dependencies
 

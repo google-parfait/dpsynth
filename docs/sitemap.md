@@ -22,6 +22,24 @@
 --------------------------------------------------------------------------------
 
 <details>
+<summary>📁 <a href="specifying_domains.md">Specifying Attribute Domains</a></summary>
+
+*   [Why Domains Must Be Specified Up Front](specifying_domains.md#why-domains-must-be-specified-up-front)
+*   [Supported Attribute Types](specifying_domains.md#supported-attribute-types)
+    *   [Out-of-Domain Handling](specifying_domains.md#out-of-domain-handling)
+*   [Specifying Domains](specifying_domains.md#specifying-domains)
+    *   [1. Directly in the DPSynth Language](specifying_domains.md#1-directly-in-the-dpsynth-language)
+    *   [2. From Pydantic Models](specifying_domains.md#2-from-pydantic-models)
+    *   [3. From Protocol Buffers](specifying_domains.md#3-from-protocol-buffers)
+    *   [4. From Pandas Dtypes](specifying_domains.md#4-from-pandas-dtypes)
+    *   [Customizing Inferred Domains](specifying_domains.md#customizing-inferred-domains)
+*   [Tabular Schemas vs. Discrete Domains](specifying_domains.md#tabular-schemas-vs-discrete-domains)
+
+</details>
+
+--------------------------------------------------------------------------------
+
+<details>
 <summary>📁 <a href="data_and_terminology.md">Data Model and Terminology</a></summary>
 
 *   [Core Terminology](data_and_terminology.md#core-terminology)
@@ -33,6 +51,7 @@
     *   [1. `CategoricalAttribute` (Known Finite Domain)](data_and_terminology.md#1-categoricalattribute-known-finite-domain)
     *   [2. `OpenSetCategoricalAttribute` (Unknown Categorical Domain)](data_and_terminology.md#2-opensetcategoricalattribute-unknown-categorical-domain)
     *   [3. `NumericalAttribute` (Continuous or Integer Range)](data_and_terminology.md#3-numericalattribute-continuous-or-integer-range)
+    *   [4. `FreeFormTextAttribute` (Unstructured Text)](data_and_terminology.md#4-freeformtextattribute-unstructured-text)
 *   [Writing a `domain.yaml` Specification](data_and_terminology.md#writing-a-domainyaml-specification)
     *   [YAML Syntax & Parsing Rules](data_and_terminology.md#yaml-syntax--parsing-rules)
     *   [Example: `adult_domain.yaml`](data_and_terminology.md#example-adult_domainyaml)
@@ -132,3 +151,22 @@
 *   [`zcdp_rho` vs. Natural Privacy Parameters](mechanism_api.md#natural-parameters)
 
 </details>
+
+--------------------------------------------------------------------------------
+
+<!-- disableFinding(LINE_OVER_80) -->
+
+<details>
+<summary>📁 <a href="accounting_philosophy.md">Privacy Accounting Philosophy & Architecture</a></summary>
+
+*   [Interfaces vs. Primitives](accounting_philosophy.md#interfaces-vs-flat-functions)
+    *   [Self-Contained Mechanisms](accounting_philosophy.md#self-contained-mechanisms)
+*   [Adaptivity and Composition](accounting_philosophy.md#adaptivity)
+*   [Neighboring Relation and Group Privacy](accounting_philosophy.md#record-vs-user-dp)
+*   [Privacy Profiles (`PrivacyReport`)](accounting_philosophy.md#privacy-report)
+*   [Public vs. Private Boundaries](accounting_philosophy.md#public-vs-private)
+*   [Validation and Floating-Point Caveats](accounting_philosophy.md#inputs-and-floating-point)
+
+</details>
+
+<!-- enableFinding(LINE_OVER_80) -->

@@ -22,6 +22,7 @@ import dp_accounting
 from dpsynth import api
 from dpsynth.discrete_mechanisms import accounting
 from dpsynth.discrete_mechanisms import common
+from dpsynth.local_mode import primitives
 import jax.numpy as jnp
 import mbi
 import mbi.junction_tree
@@ -66,22 +67,21 @@ def _worst_approximated(
     eps: float,
     sigma: float,
     domain: mbi.Domain,
-    max_records_per_user: int = 1,
 ) -> mbi.Clique:
   """Returns the worst approximated candidate in the given candidates."""
   errors = {}
   for cl in candidates:
     wgt = candidates[cl]
     diff = data.project(cl).datavector() - estimates[cl].datavector()
-    bias = jnp.sqrt(2 / jnp.pi) * max_records_per_user * sigma * domain.size(cl)
+    bias = jnp.sqrt(2 / jnp.pi) * sigma * domain.size(cl)
     errors[cl] = wgt * (jnp.linalg.norm(diff, ord=1) - bias)
 
-  max_sensitivity = max_records_per_user * max(
-      candidates.values(),
+  max_sensitivity = max(
+      candidates.values()
   )  # if all weights are 0, could be a problem
   keys, values = list(errors.keys()), np.array(list(errors.values()))
-  idx = common.exponential_mechanism(
-      values, eps, max_sensitivity, rng, monotonic=False
+  idx = primitives.exponential_mechanism(
+      rng, values, epsilon=eps, sensitivity=max_sensitivity, monotonic=False
   )
   return keys[idx]
 
@@ -110,6 +110,8 @@ class AIMConfig(api.MechanismConfig):
     max_model_size: The maximum size of the graphical model in megabytes.
       Controls the utility/runtime trade-off.
     max_marginal_size: The maximum size of a marginal query to consider.
+    degree: The maximum degree of the automatically constructed workload.
+      Ignored when an explicit workload is provided.
     anneal_factor: The factor by which to anneal the privacy.
     select_budget_fraction: The fraction of the total budget to use for
       selecting two-way marginal queries.
@@ -119,6 +121,7 @@ class AIMConfig(api.MechanismConfig):
   max_rounds: int | None = None
   max_model_size: int = 80
   max_marginal_size: float = 1e6
+  degree: int = 3
   anneal_factor: float = 4.0
   select_budget_fraction: float = 0.1
   pgm_iters: int = 1000
@@ -127,15 +130,13 @@ class AIMConfig(api.MechanismConfig):
   def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
     """Returns the workload cliques filtered by max_marginal_size."""
     return common.supporting_cliques(
-        domain, self.workload, self.max_marginal_size
+        domain, self.workload, self.max_marginal_size, degree=self.degree
     )
 
-  def configure(self, _=None, *, zcdp_rho, delta=0, max_records_per_user=1):
-    api.validate_max_records_per_user(max_records_per_user)
+  def configure(self, _=None, *, budget, delta=0):
     return AIM(
         config=self,
-        zcdp_rho=zcdp_rho,
-        max_records_per_user=max_records_per_user,
+        zcdp_rho=budget,
     )
 
 
@@ -145,7 +146,6 @@ class AIM(api.CalibratedMechanism):
 
   config: AIMConfig
   zcdp_rho: float
-  max_records_per_user: int = 1
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -174,7 +174,10 @@ class AIM(api.CalibratedMechanism):
     # Compile workload into candidate measurements.                         #
     #########################################################################
     candidates = common.compiled_workload(
-        data.domain, self.config.workload, self.config.max_marginal_size
+        data.domain,
+        self.config.workload,
+        self.config.max_marginal_size,
+        degree=self.config.degree,
     )
 
     estimator = mbi.estimation.MirrorDescent(self.config.marginal_oracle)
@@ -218,7 +221,6 @@ class AIM(api.CalibratedMechanism):
             epsilon,
             sigma,
             data.domain,
-            max_records_per_user=self.max_records_per_user,
         )
 
       summary = mbi.summarize(
@@ -245,7 +247,6 @@ class AIM(api.CalibratedMechanism):
             data,  # pyrefly: ignore[bad-argument-type]
             [marginal_query],  # pyrefly: ignore[bad-argument-type]
             sigma,
-            max_records_per_user=self.max_records_per_user,
         )[0]
         measurements.append(measurement)
         old_estimate = model.project(marginal_query).datavector()
@@ -270,12 +271,7 @@ class AIM(api.CalibratedMechanism):
       ##########################################
       # Anneal epsilon and sigma if necessary. #
       ##########################################
-      threshold = (
-          self.max_records_per_user
-          * sigma
-          * np.sqrt(2 / np.pi)
-          * data.domain.size(marginal_query)
-      )
+      threshold = sigma * np.sqrt(2 / np.pi) * data.domain.size(marginal_query)
       if np.linalg.norm(new_estimate - old_estimate, ord=1) <= threshold:
         # No useful information at this noise level, increase budget per round.
         rho_per_round *= self.config.anneal_factor

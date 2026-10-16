@@ -29,7 +29,7 @@ class IndependentConfig(api.MechanismConfig):
 
   pgm_iters: int = 5000
 
-  def configure(self, _=None, *, zcdp_rho, delta=0.0, max_records_per_user=1):
+  def configure(self, _=None, *, budget, delta=0.0):
     return Independent(config=self)
 
   def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:

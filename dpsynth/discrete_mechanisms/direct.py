@@ -29,14 +29,13 @@ import numpy as np
 class DirectConfig(api.MechanismConfig):
   """Config for the direct mechanism that measures prespecified marginals."""
 
-  def configure(self, _=None, *, zcdp_rho, delta=0, max_records_per_user=1):
-    api.validate_max_records_per_user(max_records_per_user)
+  def configure(self, _=None, *, budget, delta=0):
     return Direct(
         config=self,
-        gdp_budget=accounting.zcdp_to_gdp(zcdp_rho),
-        max_records_per_user=max_records_per_user,
+        gdp_budget=accounting.zcdp_to_gdp(budget),
     )
 
+  estimator: mbi.Estimator = mbi.estimation.MirrorDescent()
   marginal_oracle: mbi.MarginalOracle | None = None
   pgm_iters: int = 5000
   prespecified_marginal_queries: list[tuple[str, ...]] = dataclasses.field(
@@ -55,7 +54,6 @@ class Direct(api.CalibratedMechanism):
 
   config: DirectConfig
   gdp_budget: float
-  max_records_per_user: int = 1
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -82,16 +80,20 @@ class Direct(api.CalibratedMechanism):
     logging.info('[%s]:\n%s', type(self).__name__, summary)
 
     # Kick off async AOT compilation of the estimator while we measure.
-    estimator = mbi.estimation.MirrorDescent(self.config.marginal_oracle)
+    estimator = self.config.estimator
+    oracle = estimator.marginal_oracle or self.config.marginal_oracle
+    estimator = dataclasses.replace(estimator, marginal_oracle=oracle)
     pgm_future = estimator.precompile(
-        data.domain, list(initial_measurements), extra_cliques=list(selected)  # pyrefly: ignore[bad-argument-type]
+        data.domain,
+        list(initial_measurements),
+        extra_cliques=list(selected),  # pyrefly: ignore[bad-argument-type]
+        constraints=constraints,
     )
     new_measurements = common.measure_marginals_with_noise(
         rng=rng,
         data=data,  # pyrefly: ignore[bad-argument-type]
         marginal_queries=selected,
         gdp_sigma=accounting.gdp_gaussian_sigma(self.gdp_budget),
-        max_records_per_user=self.max_records_per_user,
     )
     measurements = list(initial_measurements) + new_measurements
 

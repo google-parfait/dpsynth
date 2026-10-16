@@ -89,6 +89,8 @@ class ExponentialMechanismTest(parameterized.TestCase):
       primitives.exponential_mechanism(
           self.rng, np.array([]), epsilon=1.0, sensitivity=1.0
       )
+    with self.assertRaises(TypeError):
+      primitives.exponential_mechanism(self.rng, scores, epsilon=1.0)  # pyrefly: ignore[missing-argument]
 
 
 class JitterFactorTest(absltest.TestCase):
@@ -196,114 +198,193 @@ class QuantilesFromHistogramTest(parameterized.TestCase):
     )
     self.assertEqual(edges[1:6], [40, 40, 40, 40, 40])
 
-  def test_unsupported_max_records_per_user_raises(self):
-    rng = np.random.default_rng(0)
-    with self.assertRaises(NotImplementedError):
-      primitives.quantiles_from_histogram(
-          rng,
-          np.array([1, 2, 3]),
-          epsilon_levels=np.ones(2),
-          jitter_strategy="refine",
-          max_records_per_user=2,
-      )
 
-
-class SelectPartitionsGaussianThresholdingTest(absltest.TestCase):
+class GaussianThresholdingTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
     self.rng = np.random.default_rng(42)
 
   def test_basic_operation(self):
-    data = np.array([1] * 50 + [2] * 5)
-    selected_partitions, estimated_counts, _ = (
-        primitives.select_partitions_gaussian_thresholding(
-            self.rng, data, gdp_budget=10.0, delta=1e-5
-        )
+    counts = np.array([50, 5])
+    selected, estimated_counts = primitives.gaussian_thresholding(
+        self.rng,
+        counts,
+        sigma=0.3,
+        delta=1e-5,
+        l2_sensitivity=1.0,
+        linf_sensitivity=1.0,
     )
-    self.assertIn(1, selected_partitions)
-    self.assertEqual(selected_partitions.size, estimated_counts.size)
+    self.assertIn(0, selected)
+    self.assertEqual(selected.size, estimated_counts.size)
 
-  def test_empty_data(self):
-    data = np.array([], dtype=int)
-    selected_partitions, estimated_counts, _ = (
-        primitives.select_partitions_gaussian_thresholding(
-            self.rng, data, gdp_budget=1.0, delta=1e-5
-        )
+  def test_empty_counts(self):
+    counts = np.array([], dtype=int)
+    selected, estimated_counts = primitives.gaussian_thresholding(
+        self.rng,
+        counts,
+        sigma=1.0,
+        delta=1e-5,
+        l2_sensitivity=1.0,
+        linf_sensitivity=1.0,
     )
-    self.assertEmpty(selected_partitions)
+    self.assertEmpty(selected)
     self.assertEmpty(estimated_counts)
 
-  def test_high_budget_selects_all(self):
-    data = np.array([1, 2, 3, 4, 5])
-    selected_partitions, _, _ = (
-        primitives.select_partitions_gaussian_thresholding(
-            self.rng, data, gdp_budget=np.inf, delta=0.1
-        )
+  def test_zero_sigma_selects_all_eligible(self):
+    counts = np.array([1, 1, 1, 1, 1])
+    selected, _ = primitives.gaussian_thresholding(
+        self.rng,
+        counts,
+        sigma=0.0,
+        delta=0.1,
+        l2_sensitivity=1.0,
+        linf_sensitivity=1.0,
     )
-    self.assertCountEqual(selected_partitions, [1, 2, 3, 4, 5])
+    self.assertCountEqual(selected, [0, 1, 2, 3, 4])
 
   def test_rare_items_not_selected(self):
-    data = np.array([1] * 100 + [2])
-    selected_partitions, _, _ = (
-        primitives.select_partitions_gaussian_thresholding(
-            self.rng, data, gdp_budget=0.5, delta=1e-6
-        )
+    counts = np.array([100, 1])
+    selected, _ = primitives.gaussian_thresholding(
+        self.rng,
+        counts,
+        sigma=1.5,
+        delta=1e-6,
+        l2_sensitivity=1.0,
+        linf_sensitivity=1.0,
     )
-    self.assertIn(1, selected_partitions)
-    self.assertNotIn(2, selected_partitions)
-
-  def test_string_data_type(self):
-    data = np.array(["a", "b", "a", "a", "c", "a", "c"])
-    selected_partitions, _, _ = (
-        primitives.select_partitions_gaussian_thresholding(
-            self.rng, data, gdp_budget=10.0, delta=1e-5
-        )
-    )
-    self.assertTrue(all(isinstance(p, str) for p in selected_partitions))
+    self.assertIn(0, selected)
+    self.assertNotIn(1, selected)
 
   def test_min_count_filters_low_count_partitions(self):
-    data = np.array([1] * 50 + [2] * 3)
-    selected, _, _ = primitives.select_partitions_gaussian_thresholding(
-        self.rng, data, gdp_budget=10.0, delta=1e-5, min_count=5
+    counts = np.array([50, 3])
+    selected, _ = primitives.gaussian_thresholding(
+        self.rng,
+        counts,
+        sigma=0.3,
+        delta=1e-5,
+        l2_sensitivity=1.0,
+        linf_sensitivity=1.0,
+        min_count=5,
     )
-    self.assertIn(1, selected)
-    self.assertNotIn(2, selected)
+    self.assertIn(0, selected)
+    self.assertNotIn(1, selected)
 
   def test_min_count_one_matches_default(self):
-    data = np.array([1] * 50 + [2] * 5)
+    counts = np.array([50, 5])
     rng1 = np.random.default_rng(42)
     rng2 = np.random.default_rng(42)
-    result1 = primitives.select_partitions_gaussian_thresholding(
-        rng1, data, gdp_budget=10.0, delta=1e-5
+    result1 = primitives.gaussian_thresholding(
+        rng1,
+        counts,
+        sigma=0.3,
+        delta=1e-5,
+        l2_sensitivity=1.0,
+        linf_sensitivity=1.0,
     )
-    result2 = primitives.select_partitions_gaussian_thresholding(
-        rng2, data, gdp_budget=10.0, delta=1e-5, min_count=1
+    result2 = primitives.gaussian_thresholding(
+        rng2,
+        counts,
+        sigma=0.3,
+        delta=1e-5,
+        l2_sensitivity=1.0,
+        linf_sensitivity=1.0,
+        min_count=1,
     )
     np.testing.assert_array_equal(result1[0], result2[0])
     np.testing.assert_array_equal(result1[1], result2[1])
 
   def test_min_count_all_filtered_returns_empty(self):
-    data = np.array([1, 2, 3])
-    selected, counts, _ = primitives.select_partitions_gaussian_thresholding(
-        self.rng, data, gdp_budget=10.0, delta=1e-5, min_count=5
+    counts = np.array([1, 1, 1])
+    selected, estimated_counts = primitives.gaussian_thresholding(
+        self.rng,
+        counts,
+        sigma=0.3,
+        delta=1e-5,
+        l2_sensitivity=1.0,
+        linf_sensitivity=1.0,
+        min_count=5,
     )
     self.assertEmpty(selected)
-    self.assertEmpty(counts)
+    self.assertEmpty(estimated_counts)
 
-  def test_min_count_zero_raises(self):
-    data = np.array([1, 2, 3])
-    with self.assertRaises(ValueError):
-      primitives.select_partitions_gaussian_thresholding(
-          self.rng, data, gdp_budget=1.0, delta=1e-5, min_count=0
-      )
+  def test_linf_sensitivity_shifts_threshold(self):
+    counts = np.array([3, 10])
+    selected, _ = primitives.gaussian_thresholding(
+        self.rng,
+        counts,
+        sigma=0.0,
+        delta=0.1,
+        l2_sensitivity=1.0,
+        linf_sensitivity=5.0,
+    )
+    self.assertCountEqual(selected, [1])
 
   def test_min_count_increases_threshold(self):
-    data = np.array([1] * 10 + [2] * 10)
-    selected, _, _ = primitives.select_partitions_gaussian_thresholding(
-        self.rng, data, gdp_budget=np.inf, delta=0.1, min_count=10
+    counts = np.array([10, 10])
+    selected, _ = primitives.gaussian_thresholding(
+        self.rng,
+        counts,
+        sigma=0.0,
+        delta=0.1,
+        l2_sensitivity=1.0,
+        linf_sensitivity=1.0,
+        min_count=10,
     )
-    self.assertCountEqual(selected, [1, 2])
+    self.assertCountEqual(selected, [0, 1])
+
+  def test_invalid_inputs_raise(self):
+    counts = np.array([1, 2, 3])
+    with self.assertRaises(ValueError):
+      primitives.gaussian_thresholding(
+          self.rng,
+          counts,
+          sigma=-1.0,
+          delta=1e-5,
+          l2_sensitivity=1.0,
+          linf_sensitivity=1.0,
+      )
+    with self.assertRaises(ValueError):
+      primitives.gaussian_thresholding(
+          self.rng,
+          counts,
+          sigma=1.0,
+          delta=0.0,
+          l2_sensitivity=1.0,
+          linf_sensitivity=1.0,
+      )
+    with self.assertRaises(ValueError):
+      primitives.gaussian_thresholding(
+          self.rng,
+          counts,
+          sigma=1.0,
+          delta=1e-5,
+          l2_sensitivity=0.0,
+          linf_sensitivity=1.0,
+      )
+    with self.assertRaises(ValueError):
+      primitives.gaussian_thresholding(
+          self.rng,
+          counts,
+          sigma=1.0,
+          delta=1e-5,
+          l2_sensitivity=1.0,
+          linf_sensitivity=0.0,
+      )
+    with self.assertRaises(ValueError):
+      primitives.gaussian_thresholding(
+          self.rng,
+          counts,
+          sigma=1.0,
+          delta=1e-5,
+          l2_sensitivity=1.0,
+          linf_sensitivity=1.0,
+          min_count=0,
+      )
+    with self.assertRaises(TypeError):
+      primitives.gaussian_thresholding(
+          self.rng, counts, sigma=1.0, delta=1e-5
+      )  # pyrefly: ignore[missing-argument]
 
 
 class EnsurePublicPartitionsTest(absltest.TestCase):
@@ -345,49 +426,65 @@ class EnsurePublicPartitionsTest(absltest.TestCase):
     self.assertLen(cts, 2)
 
 
-class AddGaussianNoiseTest(absltest.TestCase):
+class GaussianMechanismTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
     self.rng = np.random.default_rng(42)
 
   def test_scalar(self):
-    noisy = primitives.add_gaussian_noise(self.rng, 100, sigma=1.0)
+    noisy = primitives.gaussian_mechanism(
+        self.rng, 100, sigma=1.0, l2_sensitivity=1.0
+    )
     self.assertIsInstance(noisy, float)
     self.assertAlmostEqual(noisy, 100.0, delta=5.0)
 
   def test_1d_array(self):
     counts = np.array([10, 20, 30])
-    noisy = primitives.add_gaussian_noise(self.rng, counts, sigma=1.0)
+    noisy = primitives.gaussian_mechanism(
+        self.rng, counts, sigma=1.0, l2_sensitivity=1.0
+    )
     self.assertEqual(noisy.shape, (3,))
     np.testing.assert_allclose(noisy, counts, atol=5.0)
 
   def test_2d_array(self):
     counts = np.ones((2, 2)) * 10
-    noisy = primitives.add_gaussian_noise(self.rng, counts, sigma=1.0)
+    noisy = primitives.gaussian_mechanism(
+        self.rng, counts, sigma=1.0, l2_sensitivity=1.0
+    )
     self.assertEqual(noisy.shape, (2, 2))
     np.testing.assert_allclose(noisy, counts, atol=5.0)
 
-  def test_max_records_per_user_scales_noise(self):
+  def test_l2_sensitivity_scales_noise(self):
     k = 4
     counts = np.array([10.0, 20.0, 30.0])
     base_rng = np.random.default_rng(0)
     base_noise = (
-        primitives.add_gaussian_noise(
-            base_rng, counts, sigma=1.0, max_records_per_user=1
+        primitives.gaussian_mechanism(
+            base_rng, counts, sigma=1.0, l2_sensitivity=1.0
         )
         - counts
     )
 
     scaled_rng = np.random.default_rng(0)
     scaled_noise = (
-        primitives.add_gaussian_noise(
-            scaled_rng, counts, sigma=1.0, max_records_per_user=k
+        primitives.gaussian_mechanism(
+            scaled_rng, counts, sigma=1.0, l2_sensitivity=k
         )
         - counts
     )
 
     np.testing.assert_allclose(scaled_noise, k * base_noise)
+
+  def test_invalid_inputs_raise(self):
+    with self.assertRaises(ValueError):
+      primitives.gaussian_mechanism(
+          self.rng, 10, sigma=-1.0, l2_sensitivity=1.0
+      )
+    with self.assertRaises(ValueError):
+      primitives.gaussian_mechanism(self.rng, 10, sigma=1.0, l2_sensitivity=0.0)
+    with self.assertRaises(TypeError):
+      primitives.gaussian_mechanism(self.rng, 10, sigma=1.0)  # pyrefly: ignore[missing-argument]
 
 
 if __name__ == "__main__":

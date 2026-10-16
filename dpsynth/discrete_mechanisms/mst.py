@@ -26,6 +26,7 @@ import dp_accounting
 from dpsynth import api
 from dpsynth.discrete_mechanisms import accounting
 from dpsynth.discrete_mechanisms import common
+from dpsynth.local_mode import primitives
 import mbi
 import networkx as nx
 import numpy as np
@@ -93,8 +94,11 @@ def dp_maximum_spanning_tree(
   for _ in range(r - 1):
     candidates = [e for e in candidates if not ds.connected(*e)]
     wgts = np.array([weights[e] for e in candidates])
-    idx = common.exponential_mechanism(
-        wgts, exponential_mechanism_epsilon, sensitivity=sensitivity, rng=rng
+    idx = primitives.exponential_mechanism(
+        rng,
+        wgts,
+        epsilon=exponential_mechanism_epsilon,
+        sensitivity=sensitivity,
     )
     e = candidates[idx]
     tree.add_edge(*e)
@@ -110,7 +114,6 @@ def _select_two_way_marginal_queries(
     one_way_measurements: list[mbi.LinearMeasurement],
     initial_marginal_queries: Sequence[tuple[str, ...]] = (),
     maximum_marginal_size: int = 10_000_000,
-    max_records_per_user: int = 1,
     pgm_iters: int = 2500,
 ) -> list[tuple[str, str]]:
   """Selects a set of two-way marginal queries with DP to form a spanning tree.
@@ -125,8 +128,6 @@ def _select_two_way_marginal_queries(
     one_way_measurements: The initial one-way measurements already made.
     initial_marginal_queries: The list of cliques to start with.
     maximum_marginal_size: The maximum size of a marginal query.
-    max_records_per_user: The assumed maximum number of records a single user
-      contributes; scales the sensitivity of the correlation quality scores.
     pgm_iters: The maximum number of mirror descent iterations.
 
   Returns:
@@ -155,7 +156,7 @@ def _select_two_way_marginal_queries(
       weights=weights,  # pyrefly: ignore[bad-argument-type]
       zcdp_rho=zcdp_rho,
       initial_marginal_queries=initial_marginal_queries,  # pyrefly: ignore[bad-argument-type]
-      sensitivity=max_records_per_user,
+      sensitivity=1,
   )
 
 
@@ -187,12 +188,10 @@ class MSTConfig(api.MechanismConfig):
         self.maximum_marginal_size,
     )
 
-  def configure(self, _=None, *, zcdp_rho, delta=0, max_records_per_user=1):
-    api.validate_max_records_per_user(max_records_per_user)
+  def configure(self, _=None, *, budget, delta=0):
     return MST(
         config=self,
-        zcdp_rho=zcdp_rho,
-        max_records_per_user=max_records_per_user,
+        zcdp_rho=budget,
     )
 
 
@@ -202,7 +201,6 @@ class MST(api.CalibratedMechanism):
 
   config: MSTConfig
   zcdp_rho: float
-  max_records_per_user: int = 1
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -218,7 +216,6 @@ class MST(api.CalibratedMechanism):
           self.zcdp_rho * self.config.select_budget_fraction,
           measurements,
           maximum_marginal_size=self.config.maximum_marginal_size,
-          max_records_per_user=self.max_records_per_user,
           pgm_iters=self.config.pgm_iters,
       )
 
@@ -241,7 +238,10 @@ class MST(api.CalibratedMechanism):
     # Kick off async AOT compilation of the estimator while we measure.
     estimator = mbi.estimation.MirrorDescent(self.config.marginal_oracle)
     pgm_future = estimator.precompile(
-        data.domain, list(initial_measurements), extra_cliques=list(selected)  # pyrefly: ignore[bad-argument-type]
+        data.domain,
+        list(initial_measurements),
+        extra_cliques=list(selected),  # pyrefly: ignore[bad-argument-type]
+        constraints=constraints,
     )
 
     with common.timed(phase_times, 'measurement'):
@@ -252,7 +252,6 @@ class MST(api.CalibratedMechanism):
           data=data,  # pyrefly: ignore[bad-argument-type]
           marginal_queries=selected,
           gdp_sigma=sigma,
-          max_records_per_user=self.max_records_per_user,
       )
       measurements = list(initial_measurements) + new_measurements
 

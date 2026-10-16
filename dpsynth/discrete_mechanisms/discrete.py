@@ -59,22 +59,18 @@ class DiscreteConfig(api.MechanismConfig):
   use_jax_for_bincount: bool = False
   use_jax_for_generation: bool = False
 
-  def configure(self, _=None, *, zcdp_rho, delta=0, max_records_per_user=1):
+  def configure(self, _=None, *, budget, delta=0):
     """Configures the synthesizer with a zCDP budget."""
-    api.validate_max_records_per_user(max_records_per_user)
-
-    one_way_rho = zcdp_rho * self.one_way_budget_fraction
-    remaining_rho = zcdp_rho * (1 - self.one_way_budget_fraction)
+    one_way_rho = budget * self.one_way_budget_fraction
+    remaining_rho = budget * (1 - self.one_way_budget_fraction)
     inner = self.mechanism.configure(
-        zcdp_rho=remaining_rho,
+        budget=remaining_rho,
         delta=delta,
-        max_records_per_user=max_records_per_user,
     )
     return DiscreteMechanism(
         config=self,
         base_mechanism=inner,
         one_way_gdp_budget=accounting.zcdp_to_gdp(one_way_rho),
-        max_records_per_user=max_records_per_user,
     )
 
 
@@ -85,7 +81,6 @@ class DiscreteMechanism(api.CalibratedMechanism):
   config: DiscreteConfig
   base_mechanism: api.CalibratedMechanism
   one_way_gdp_budget: float
-  max_records_per_user: int = 1
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -146,7 +141,6 @@ class DiscreteMechanism(api.CalibratedMechanism):
           data=data,  # pyrefly: ignore[bad-argument-type]
           marginal_queries=one_way_cliques,  # pyrefly: ignore[bad-argument-type]
           gdp_sigma=accounting.gdp_gaussian_sigma(self.one_way_gdp_budget),
-          max_records_per_user=self.max_records_per_user,
       )
     else:
       measurements = []

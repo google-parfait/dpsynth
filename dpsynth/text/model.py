@@ -24,70 +24,78 @@ from typing import Any, Literal
 
 from absl import logging
 from etils import epath
-from gemma import gm
-from gemma import peft
+from flax import nnx
 import jax
+from jax.experimental import mesh_utils
 import jax.numpy as jnp
-from kauldron import kd
 import numpy as np
 import optax
-
-# Type alias for Gemma model params (nested dict of jax.Array).
-Params = Any
+from orbax import checkpoint as ocp
+import qwix
+import tunix
+from tunix.models.gemma4 import model as gemma4_model
+from tunix.models.gemma4 import params as gemma4_params
 
 # Supported model names for GemmaModel.default().
 ModelName = Literal[
-    'gemma3_270m_it',
-    'gemma3_1b_it',
-    'gemma3_4b_it',
     'gemma4_e2b_it',
     'gemma4_e4b_it',
+    'gemma4_31b_it',
 ]
 
-_DEFAULTS: dict[str, tuple[Callable[..., Any], str, Callable[..., Any]]] = {
-    'gemma3_270m_it': (
-        gm.nn.Gemma3_270M,
-        gm.ckpts.CheckpointPath.GEMMA3_270M_IT,
-        gm.text.Gemma3Tokenizer,
-    ),
-    'gemma3_1b_it': (
-        gm.nn.Gemma3_1B,
-        gm.ckpts.CheckpointPath.GEMMA3_1B_IT,
-        gm.text.Gemma3Tokenizer,
-    ),
-    'gemma3_4b_it': (
-        gm.nn.Gemma3_4B,
-        gm.ckpts.CheckpointPath.GEMMA3_4B_IT,
-        gm.text.Gemma3Tokenizer,
-    ),
+_DEFAULT_LORA_TARGETS = (
+    r'.*q_einsum|.*k_einsum|.*kv_einsum|.*qkv_einsum|.*attn_vec_einsum'
+    r'|.*gate_proj|.*up_proj|.*down_proj'
+)
+
+# gemma4_params only defines checkpoint constants for E2B and E4B variants.
+_GEMMA4_31B_IT = 'gs://gemma-data/checkpoints/gemma4-31b-it'
+
+_DEFAULTS: dict[str, tuple[Callable[..., Any], str]] = {
     'gemma4_e2b_it': (
-        gm.nn.Gemma4_E2B,
-        gm.ckpts.CheckpointPath.GEMMA4_E2B_IT,
-        gm.text.Gemma4Tokenizer,
+        gemma4_model.ModelConfig.gemma4_e2b,
+        gemma4_params.GEMMA4_E2B_IT,
     ),
     'gemma4_e4b_it': (
-        gm.nn.Gemma4_E4B,
-        gm.ckpts.CheckpointPath.GEMMA4_E4B_IT,
-        gm.text.Gemma4Tokenizer,
+        gemma4_model.ModelConfig.gemma4_e4b,
+        gemma4_params.GEMMA4_E4B_IT,
+    ),
+    'gemma4_31b_it': (
+        gemma4_model.ModelConfig.gemma4_31b,
+        _GEMMA4_31B_IT,
     ),
 }
+
+
+def make_mesh(tp: int = 1) -> jax.sharding.Mesh:
+  """Builds a 3D ('replica', 'fsdp'=1, 'tp'=tp) device mesh for Gemma 4."""
+  n = jax.device_count()
+  if n % tp != 0:
+    raise ValueError(f'device_count {n} must be divisible by tp={tp}.')
+  shape = (n // tp, 1, tp)
+  try:
+    devices = mesh_utils.create_device_mesh(
+        shape, allow_split_physical_axes=True
+    )
+  except (ValueError, NotImplementedError, RuntimeError, AssertionError):
+    devices = np.asarray(jax.devices()).reshape(shape)
+  return jax.sharding.Mesh(devices, axis_names=('replica', 'fsdp', 'tp'))
 
 
 @dataclasses.dataclass(frozen=True)
 class GemmaModel:
   """Specification for a Gemma model variant."""
 
-  model_class: Callable[..., Any]
+  name: ModelName
   checkpoint_path: str
-  tokenizer_class: Callable[..., Any]
 
   @classmethod
   def default(cls, name: ModelName) -> GemmaModel:
     """Constructs a GemmaModel from a preset name."""
     if name not in _DEFAULTS:
       raise ValueError(f'Unknown model {name!r}. Options: {list(_DEFAULTS)}')
-    model_class, checkpoint_path, tokenizer_class = _DEFAULTS[name]
-    return cls(model_class, checkpoint_path, tokenizer_class)
+    _, checkpoint_path = _DEFAULTS[name]
+    return cls(name=name, checkpoint_path=checkpoint_path)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -95,7 +103,9 @@ class LoraConfig:
   """Configuration for LoRA adaptation."""
 
   rank: int = 16
-  dtype: Any = jnp.bfloat16
+  alpha: float | None = None
+  targets: str = _DEFAULT_LORA_TARGETS
+  weight_qtype: str | None = None
 
 
 def load_gemma(
@@ -103,8 +113,8 @@ def load_gemma(
     lora_config: LoraConfig,
     *,
     checkpoint_path: epath.PathLike | None = None,
-    sharding: Any = None,
-) -> tuple[gm.nn.LoRA, Params, Params]:
+    mesh: jax.sharding.Mesh | None = None,
+) -> nnx.Module:
   """Loads a Gemma model with LoRA adapters.
 
   Args:
@@ -112,36 +122,74 @@ def load_gemma(
     lora_config: LoRA adapter configuration.
     checkpoint_path: Checkpoint to restore from. If None, loads pretrained base
       weights from ``model_variant.checkpoint_path`` and initializes fresh LoRA
-      adapters. If a checkpoint is provided, restores base and LoRA params.
-    sharding: Optional sharding tree to constrain parameters across devices.
+      adapters. If a checkpoint is provided, restores LoRA params.
+    mesh: Optional sharding mesh to constrain parameters across devices.
 
   Returns:
-    ``(module, base_params, lora_params)`` tuple.
+    The LoRA-wrapped ``nnx.Module``.
   """
-  base_model = model_variant.model_class()
-  model = gm.nn.LoRA(
-      rank=lora_config.rank,
-      model=base_model,
-      dtype=lora_config.dtype,
+  if mesh is None and not jax.sharding.get_mesh().empty:
+    mesh = jax.sharding.get_mesh()
+  config_fn, _ = _DEFAULTS[model_variant.name]
+  # Work around a Tunix/Qwix limitation: RematConfig.BLOCK wraps blocks in
+  # nnx.remat(graph_updates=False) and jax.checkpoint, which masks qwix_rngs
+  # and discards LoRAParam attribute mutations during the init forward pass
+  # (see tunix/cli/utils/model.py). Enable RematConfig.BLOCK after _init_lora.
+  cfg = dataclasses.replace(
+      config_fn(),
+      dtype=jnp.bfloat16,
+      remat_config=gemma4_model.RematConfig.NONE,
   )
-  if checkpoint_path is not None:
-    all_params = gm.ckpts.load_params(checkpoint_path, sharding=sharding)
-    # LoRA params are present when loading from a lora checkpoint
-    base_params, lora_params = peft.split_params(all_params)  # pyrefly: ignore[bad-argument-type]
-  else:
-    # When starting from scratch, initialize LoRA params
-    init_params = model.init(
-        jax.random.key(0),
-        tokens=jnp.ones((1, 64), dtype=jnp.int32),
-    )['params']
-    _, lora_params = peft.split_params(init_params)
-    lora_params = kd.sharding.with_sharding_constraint(lora_params, sharding)
-    base_params = gm.ckpts.load_params(
-        model_variant.checkpoint_path, sharding=sharding
-    )
+  loaded = gemma4_params.create_model_from_checkpoint(
+      model_variant.checkpoint_path,
+      cfg,
+      mesh=mesh,
+  )
+  alpha = (
+      lora_config.alpha
+      if lora_config.alpha is not None
+      else float(lora_config.rank)
+  )
+  lora_provider = qwix.LoraProvider(
+      module_path=lora_config.targets,
+      rank=lora_config.rank,
+      alpha=alpha,
+      weight_qtype=lora_config.weight_qtype,
+  )
+  warm_tokens = jnp.ones((1, 1), dtype=jnp.int32)
+  warm_mask = jnp.ones((1, 1, 1), dtype=jnp.bool_)
+  # Skip eager init so multi-host shards are traced abstractly under nnx.jit.
+  lora_model = qwix.apply_lora_to_model(
+      loaded,
+      lora_provider,
+      warm_tokens,
+      attention_mask=warm_mask,
+      rngs=nnx.Rngs(0),
+      skip_nnx_init=True,
+  )
+  assert isinstance(lora_model, nnx.Module)
+  lora_model.set_attributes(qwix_rngs=nnx.Rngs(0))
 
-  num_lora = optax.tree.size(lora_params)
-  num_base = optax.tree.size(base_params)
+  @nnx.jit
+  def _init_lora(m: nnx.Module, tok: jax.Array, msk: jax.Array) -> nnx.Module:
+    logits, _ = m(tok, attention_mask=msk)
+    _ = jnp.sum(logits)
+    if mesh is not None:
+      state = nnx.state(m, nnx.LoRAParam)
+      pspecs = nnx.get_partition_spec(state)
+      nnx.update(m, jax.lax.with_sharding_constraint(state, pspecs))
+    return m
+
+  lora_model = _init_lora(lora_model, warm_tokens, warm_mask)
+  lora_model.set_attributes(qwix_rngs=None)
+  lora_model.config.remat_config = gemma4_model.RematConfig.BLOCK
+  if checkpoint_path is not None:
+    load_lora_params(lora_model, checkpoint_path)
+
+  lora_state = nnx.state(lora_model, nnx.LoRAParam)
+  num_lora = sum(x.size for x in jax.tree.leaves(lora_state))
+  total = sum(x.size for x in jax.tree.leaves(nnx.state(lora_model)))
+  num_base = total - num_lora
   logging.info(
       'Loaded Gemma model w/ LoRA (rank=%d): %d lora (%.4f%%), %d base',
       lora_config.rank,
@@ -149,19 +197,33 @@ def load_gemma(
       100.0 * num_lora / (num_lora + num_base),
       num_base,
   )
-  return model, base_params, lora_params
+  return lora_model
+
+
+def save_lora_params(lora_model: nnx.Module, path: epath.PathLike) -> None:
+  """Saves trainable LoRA parameters from ``lora_model`` to ``path``."""
+  lora_state = nnx.state(lora_model, nnx.LoRAParam)
+  checkpointer = ocp.StandardCheckpointer()
+  checkpointer.save(epath.Path(path), lora_state, force=True)
+  checkpointer.wait_until_finished()
+
+
+def load_lora_params(lora_model: nnx.Module, path: epath.PathLike) -> None:
+  """Restores trainable LoRA parameters into ``lora_model`` in-place."""
+  abstract_lora = nnx.state(lora_model, nnx.LoRAParam)
+  checkpointer = ocp.StandardCheckpointer()
+  restored = checkpointer.restore(epath.Path(path), abstract_lora)
+  nnx.update(lora_model, restored)
 
 
 def sft_loss_fn(
-    module: Any,
-    full_params: Params,
+    module: nnx.Module,
     data: dict[str, jax.Array],
 ) -> tuple[jax.Array, dict[str, jax.Array]]:
   """Cross-entropy next-token-prediction loss for supervised fine-tuning.
 
   Args:
     module: LoRA-wrapped Gemma model.
-    full_params: Full parameter dict (frozen + trainable, merged).
     data: Dict with ``'input_tokens'`` and ``'loss_mask'`` (int32 ``[B, L]``).
 
   Returns:
@@ -170,8 +232,16 @@ def sft_loss_fn(
   input_tokens = data['input_tokens']
   loss_mask = data['loss_mask']
 
-  out = module.apply({'params': full_params}, tokens=input_tokens)
-  logits = out.logits[:, :-1, :]
+  pad_mask = input_tokens != 0
+  positions = jnp.cumsum(pad_mask, axis=-1) - (
+      jnp.cumsum(pad_mask, axis=-1) >= 1
+  )
+  seq_len = input_tokens.shape[-1]
+  causal_mask = jnp.tril(jnp.ones((seq_len, seq_len), dtype=jnp.bool_))
+  attention_mask = pad_mask[..., None, :] * causal_mask[None, :]
+
+  logits, _ = module(input_tokens, positions, None, attention_mask)
+  logits = logits[:, :-1, :]
   targets = input_tokens[:, 1:]
   mask = loss_mask[:, 1:]
 
@@ -180,26 +250,19 @@ def sft_loss_fn(
   return loss, {'loss': loss}
 
 
-def format_prompt(prompt: str, tokenizer: Any) -> str:
+def format_prompt(prompt: str) -> str:
   """Formats a prompt string with the Gemma user and model turn tags."""
-  sp = tokenizer.special_tokens
-  sot, eot = (
-      tokenizer.tokens[sp.START_OF_TURN],
-      tokenizer.tokens[sp.END_OF_TURN],
-  )
   # Universal chat prompt format expected by Gemma instruction-tuned models.
-  return f'{sot}user\n{prompt}{eot}\n{sot}model\n'
+  return f'<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n'
 
 
-def format_response(response: str, tokenizer: Any) -> str:
+def format_response(response: str) -> str:
   """Formats a model response string with the end-of-turn tag."""
-  eot = tokenizer.tokens[tokenizer.special_tokens.END_OF_TURN]
-  return f'{response}{eot}'
+  return f'{response}<end_of_turn>'
 
 
 def tokenize_texts(
     examples: Sequence[tuple[str, str]],
-    model_variant: GemmaModel,
     max_seq_length: int,
 ) -> dict[str, np.ndarray]:
   """Tokenizes (prompt, response) pairs for supervised fine-tuning.
@@ -210,13 +273,12 @@ def tokenize_texts(
 
   Args:
     examples: Sequence of ``(prompt, response)`` string pairs.
-    model_variant: Determines which tokenizer and turn format to use.
     max_seq_length: Maximum sequence length (including special tokens).
 
   Returns:
     Dict with ``'input_tokens'`` and ``'loss_mask'`` (int32 ``[N, L]``).
   """
-  tokenizer = model_variant.tokenizer_class()
+  tokenizer = gemma4_params.create_tokenizer()
 
   tokens = np.zeros((len(examples), max_seq_length), dtype=np.int32)
   mask = np.zeros((len(examples), max_seq_length), dtype=np.int32)
@@ -224,10 +286,10 @@ def tokenize_texts(
   for i, (prompt, response) in enumerate(examples):
     # Embed turn tags as strings so SentencePiece handles tokenization
     # boundaries correctly (encoding pieces separately can shift BPE merges).
-    prompt_str = format_prompt(prompt, tokenizer)
-    response_str = format_response(response, tokenizer)
-    prompt_ids = tokenizer.encode(prompt_str, add_bos=True)
-    response_ids = tokenizer.encode(response_str, add_eos=True)
+    prompt_str = format_prompt(prompt)
+    response_str = format_response(response)
+    prompt_ids = [tokenizer.bos_id()] + tokenizer.EncodeAsIds(prompt_str)
+    response_ids = tokenizer.EncodeAsIds(response_str) + [tokenizer.eos_id()]
 
     ids = prompt_ids + response_ids
     length = min(len(ids), max_seq_length)
@@ -251,23 +313,30 @@ class GemmaSampler:
   def __init__(
       self,
       *,
-      model: Any,
-      params: Params,
+      model: nnx.Module,
+      model_variant: GemmaModel,
       max_seq_length: int,
       temperature: float,
   ):
-    sampling_method = (
-        gm.text.RandomSampling(temperature=temperature)
-        if temperature > 0
-        else gm.text.Greedy()
+    config_fn, _ = _DEFAULTS[model_variant.name]
+    cfg = config_fn()
+    cache_config = tunix.CacheConfig(
+        cache_size=max_seq_length,
+        num_layers=cfg.num_layers,
+        num_kv_heads=cfg.num_kv_heads or cfg.num_heads,
+        head_dim=cfg.head_dim,
     )
-    self._sampler = gm.text.Sampler(
-        model=model,
-        params=params,
-        cache_length=max_seq_length,
-        max_out_length=max_seq_length,
-        sampling=sampling_method,
+    self._max_seq_length = max_seq_length
+    self._temperature = temperature
+    self._sampler = tunix.Sampler(
+        transformer=model,
+        tokenizer=gemma4_params.create_tokenizer(),
+        cache_config=cache_config,
     )
+    self._eos_tokens = [
+        self._sampler.tokenizer.eos_id(),
+        *self._sampler.tokenizer.encode('<end_of_turn>'),
+    ]
 
   def __call__(
       self,
@@ -288,15 +357,20 @@ class GemmaSampler:
     Returns:
       List of generated response strings corresponding to each prompt.
     """
-    formatted = [format_prompt(p, self._sampler.tokenizer) for p in prompts]
+    formatted = [format_prompt(p) for p in prompts]
 
     results: list[str] = []
     for i, batch_items in enumerate(itertools.batched(formatted, batch_size)):
       cur_size = len(batch_items)
       batch = list(batch_items) + [batch_items[-1]] * (batch_size - cur_size)
       t0 = time.perf_counter()
-      responses = self._sampler.sample(
-          batch, sharding=kd.sharding.FIRST_DIM, rng=rng + i
+      out = self._sampler(
+          input_strings=batch,
+          max_generation_steps=self._max_seq_length // 2,
+          temperature=self._temperature,
+          top_p=1.0 if self._temperature > 0 else None,
+          eos_tokens=self._eos_tokens,
+          seed=rng + i,
       )
       elapsed = time.perf_counter() - t0
       logging.info(
@@ -306,5 +380,5 @@ class GemmaSampler:
           elapsed,
           cur_size / elapsed if elapsed > 0 else 0.0,
       )
-      results.extend([str(r) for r in responses[:cur_size]])
+      results.extend([str(r) for r in out.text[:cur_size]])
     return results

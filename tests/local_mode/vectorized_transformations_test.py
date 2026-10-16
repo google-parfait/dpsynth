@@ -298,6 +298,27 @@ class UndiscretizeTest(parameterized.TestCase):
     )
     self.assertEqual(result[0], -1)
 
+  @parameterized.parameters(('midpoint', None), ('sample', -1))
+  def test_integer_dtype_no_clip(self, interval_handling, sentinel):
+    rng = np.random.default_rng(0)
+    attr = domain.NumericalAttribute(
+        min_value=0,
+        max_value=3,
+        dtype='int',
+        clip_to_range=False,
+        sentinel=sentinel,
+        interval_handling=interval_handling,
+    )
+    result = vectorized_transformations.undiscretize(
+        np.array([0, 1, 2, 3, 4]), np.array([0.0, 1.0, 2.0]), attr, rng=rng
+    )
+    np.testing.assert_array_equal(result[1:], [0, 1, 2, 3])
+    if sentinel is None:
+      self.assertTrue(np.isnan(result[0]))
+    else:
+      self.assertTrue(np.issubdtype(result.dtype, np.integer))
+      self.assertEqual(result[0], sentinel)
+
 
 class MergeRareValuesTest(absltest.TestCase):
 

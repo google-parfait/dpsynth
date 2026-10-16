@@ -57,13 +57,13 @@ class NestedTabularConfigTest(absltest.TestCase):
   def test_calibrate_returns_new_instance(self):
     schema = self._make_schema()
     synth = nested.NestedTabularConfig()
-    calibrated = synth.configure(schema, zcdp_rho=10.0)
+    calibrated = synth.configure(schema, budget=10.0)
     self.assertIsInstance(calibrated, nested.NestedTabularMechanism)
 
   def test_dp_event_is_composed(self):
     schema = self._make_schema()
     synth = nested.NestedTabularConfig()
-    calibrated = synth.configure(schema, zcdp_rho=10.0)
+    calibrated = synth.configure(schema, budget=10.0)
     event = calibrated.dp_event
     self.assertIsInstance(event, dp_accounting.ComposedDpEvent)
     # Detail level should be a ZCDpEvent (conservative parallel composition).
@@ -73,7 +73,7 @@ class NestedTabularConfigTest(absltest.TestCase):
   def test_end_to_end(self):
     schema = self._make_schema()
     synth = nested.NestedTabularConfig()
-    calibrated = synth.configure(schema, zcdp_rho=100.0)
+    calibrated = synth.configure(schema, budget=100.0)
     rng = np.random.default_rng(42)
     data = {
         'click': pd.DataFrame({
@@ -98,19 +98,43 @@ class NestedTabularConfigTest(absltest.TestCase):
     self.assertIn('element', result.synthetic_data['click'].columns)
     self.assertIn('amount', result.synthetic_data['purchase'].columns)
 
-  def test_max_records_per_user(self):
-    schema = self._make_schema()
-    synth = nested.NestedTabularConfig(_allow_multiple_records_per_user=True)
-    calibrated = synth.configure(schema, zcdp_rho=10.0, max_records_per_user=5)
-    self.assertEqual(calibrated.shared_synth.max_records_per_user, 5)
-    for detail_synth in calibrated.detail_synths.values():
-      self.assertEqual(detail_synth.max_records_per_user, 5)
-
-  def test_max_records_per_user_requires_bypass(self):
-    schema = self._make_schema()
+  def test_empty_detail_schema(self):
+    shared_schema = domain.Schema({
+        'platform': domain.CategoricalAttribute(
+            possible_values=['web', 'mobile']
+        ),
+    })
+    per_type_schemas = {
+        'click': domain.Schema({
+            'element': domain.CategoricalAttribute(
+                possible_values=['button', 'link']
+            ),
+        }),
+        'marker': domain.Schema({}),
+    }
+    schema = nested.NestedSchema(
+        shared_schema=shared_schema,
+        per_type_schemas=per_type_schemas,
+    )
     synth = nested.NestedTabularConfig()
-    with self.assertRaises(ValueError):
-      synth.configure(schema, zcdp_rho=10.0, max_records_per_user=5)
+    calibrated = synth.configure(schema, budget=100.0)
+    self.assertNotIn('marker', calibrated.detail_synths)
+    self.assertIn('click', calibrated.detail_synths)
+
+    rng = np.random.default_rng(42)
+    data = {
+        'click': pd.DataFrame({
+            'platform': ['web', 'mobile'] * 10,
+            'element': ['button', 'link'] * 10,
+        }),
+        'marker': pd.DataFrame({
+            'platform': ['web', 'mobile'] * 10,
+        }),
+    }
+    result = calibrated(rng, data)
+    self.assertIn('marker', result.synthetic_data)
+    self.assertIn('platform', result.synthetic_data['marker'].columns)
+    self.assertLen(result.synthetic_data['marker'].columns, 1)
 
 
 def load_tests(loader, tests, ignore):

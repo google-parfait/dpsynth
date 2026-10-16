@@ -24,13 +24,12 @@ from typing import TypeAlias
 
 from absl import logging
 from dpsynth import transformations
+from dpsynth.local_mode import primitives
 import mbi
 import mbi.clique_utils
 import mbi.junction_tree
 import more_itertools
 import numpy as np
-import scipy
-import scipy.special
 import tqdm
 
 
@@ -217,27 +216,12 @@ def compression_mappings(
   return mappings
 
 
-def exponential_mechanism(
-    quality_scores: np.ndarray,
-    epsilon: float,
-    sensitivity: float,
-    rng: np.random.Generator,
-    monotonic: bool = False,
-) -> int:
-  """Returns an index chosen by the exponential mechanism."""
-  coef = 1.0 if monotonic else 0.5
-  scores = coef * epsilon / sensitivity * quality_scores
-  probas = scipy.special.softmax(scores)
-  return rng.choice(quality_scores.size, p=probas)
-
-
 def measure_marginals_with_noise(
     rng: np.random.Generator,
     data: mbi.Dataset | mbi.CliqueVector,
     marginal_queries: Sequence[mbi.Clique],
     gdp_sigma: float,
     weights: np.ndarray | None = None,
-    max_records_per_user: int = 1,
 ) -> list[mbi.LinearMeasurement]:
   """Measures the given marginal queries with the Gaussian mechanism.
 
@@ -254,11 +238,6 @@ def measure_marginals_with_noise(
     gdp_sigma: The parameter of the Gaussian mechanism.
     weights: The weights to use for each marginal query. If None, use uniform
       weights.
-    max_records_per_user: Assumed upper bound on the number of records a single
-      user contributes. Added noise (and mechanism sensitivity) is scaled by
-      this factor to provide user-level rather than record-level DP; the privacy
-      accounting is unchanged. Soundness relies on the caller enforcing this
-      bound.
 
   Returns:
     The list of LinearMeasurements.
@@ -272,9 +251,9 @@ def measure_marginals_with_noise(
     )
   measurements = []
   for proj, wgt in zip(marginal_queries, weights):
-    stddev = max_records_per_user * gdp_sigma / wgt
-    x = data.project(proj).datavector()
-    y = x + rng.normal(loc=0, scale=stddev, size=x.size)
+    stddev = gdp_sigma / wgt
+    x = np.asarray(data.project(proj).datavector())
+    y = primitives.gaussian_mechanism(rng, x, sigma=stddev, l2_sensitivity=1.0)
     measurements.append(mbi.LinearMeasurement(y, proj, stddev))
   return measurements
 
@@ -402,6 +381,7 @@ def supporting_cliques(
     domain: mbi.Domain,
     workload: Workload | Workload2 | None,
     max_marginal_size: float = float('inf'),
+    degree: int = 3,
 ) -> list[mbi.Clique]:
   """Returns the maximal workload cliques filtered by domain size.
 
@@ -413,14 +393,18 @@ def supporting_cliques(
 
   Args:
     domain: The domain of the dataset.
-    workload: A workload specification. Defaults to all three-way marginals.
+    workload: A workload specification. Defaults to all three-way marginals, or
+      the maximum possible degree for fewer than three columns.
     max_marginal_size: The maximum domain size of a clique to include.
+    degree: The maximum degree of the automatically constructed workload.
+      Ignored when an explicit workload is provided.
 
   Returns:
     A list of cliques from the workload whose domain size is within the limit.
   """
   if workload is None:
-    cliques = list(itertools.combinations(domain.attributes, 3))
+    degree = min(degree, len(domain.attributes))
+    cliques = list(itertools.combinations(domain.attributes, degree))
   elif isinstance(workload, Mapping):
     cliques = [tuple(cl) for cl in workload.keys()]
   else:
@@ -443,6 +427,7 @@ def compiled_workload(
     domain: mbi.Domain,
     workload: Workload | Workload2 | None,
     max_marginal_size: float = float('inf'),
+    degree: int = 3,
 ) -> Workload:
   """Compiles an input workload into a set of candidate measurements for AIM.
 
@@ -451,6 +436,8 @@ def compiled_workload(
     workload: A dictionary mapping marginal queries to weights representing the
       importance of each marginal query.
     max_marginal_size: The maximum size of a marginal query to consider.
+    degree: The maximum degree of the automatically constructed workload.
+      Ignored when an explicit workload is provided.
 
   Returns:
     A dictionary mapping marginal queries in the downward closure of the
@@ -458,7 +445,8 @@ def compiled_workload(
   """
 
   if workload is None:
-    workload = list(itertools.combinations(domain.attributes, 3))
+    degree = min(degree, len(domain.attributes))
+    workload = list(itertools.combinations(domain.attributes, degree))
 
   if not isinstance(workload, Mapping):
     workload = {tuple(cl): 1.0 for cl in workload}

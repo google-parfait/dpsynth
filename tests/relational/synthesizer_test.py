@@ -97,14 +97,11 @@ class SynthesizerTest(absltest.TestCase):
             'gender': domain.CategoricalAttribute(possible_values=['M', 'F']),
         },
     }
-    deltas = synthesizer._compute_table_col_deltas(
-        domains, delta=1e-4, init_budget_fraction=0.2
-    )
-    # Total thresholding delta = 0.2 * 1e-4 = 2e-5.
-    # 2 open-set columns -> each gets 1e-5.
-    self.assertAlmostEqual(deltas['Household']['tags'], 1e-5)
+    deltas = synthesizer._compute_table_col_deltas(domains, delta=1e-4)
+    # 2 open-set columns -> each gets 5e-5.
+    self.assertAlmostEqual(deltas['Household']['tags'], 5e-5)
     self.assertEqual(deltas['Household']['income'], 0.0)
-    self.assertAlmostEqual(deltas['Person']['hobbies'], 1e-5)
+    self.assertAlmostEqual(deltas['Person']['hobbies'], 5e-5)
     self.assertEqual(deltas['Person']['gender'], 0.0)
 
   def test_compute_table_col_deltas_no_open_set(self):
@@ -114,9 +111,7 @@ class SynthesizerTest(absltest.TestCase):
             'region': domain.CategoricalAttribute(possible_values=['U', 'R']),
         },
     }
-    deltas = synthesizer._compute_table_col_deltas(
-        domains, delta=0.0, init_budget_fraction=0.1
-    )
+    deltas = synthesizer._compute_table_col_deltas(domains, delta=0.0)
     self.assertEqual(deltas['Household']['income'], 0.0)
     self.assertEqual(deltas['Household']['region'], 0.0)
 
@@ -127,9 +122,7 @@ class SynthesizerTest(absltest.TestCase):
         },
     }
     with self.assertRaisesRegex(ValueError, 'delta must be positive'):
-      synthesizer._compute_table_col_deltas(
-          domains, delta=0.0, init_budget_fraction=0.1
-      )
+      synthesizer._compute_table_col_deltas(domains, delta=0.0)
 
   def test_dp_event_composition(self):
     # Setup calibrated initializers for 2 tables.
@@ -139,13 +132,13 @@ class SynthesizerTest(absltest.TestCase):
                 num_partitions=16,
             ).configure(
                 domain.NumericalAttribute(min_value=0, max_value=100),
-                zcdp_rho=0.01,
+                budget=0.01,
             )
         ),
         'region': (
             initialization.CategoricalInitializerConfig().configure(
                 domain.CategoricalAttribute(possible_values=['U', 'R']),
-                zcdp_rho=0.01,
+                budget=0.01,
             )
         ),
     }
@@ -155,7 +148,7 @@ class SynthesizerTest(absltest.TestCase):
                 num_partitions=16,
             ).configure(
                 domain.NumericalAttribute(min_value=0, max_value=100),
-                zcdp_rho=0.01,
+                budget=0.01,
             )
         ),
     }
@@ -165,9 +158,7 @@ class SynthesizerTest(absltest.TestCase):
     }
 
     # Setup calibrated discrete mechanism for link Household -> Person.
-    calibrated_discrete = discrete_mechanisms.AIMConfig().configure(
-        zcdp_rho=0.1
-    )
+    calibrated_discrete = discrete_mechanisms.AIMConfig().configure(budget=0.1)
     calibrated_discrete_mechanisms = {
         'Household->Person': calibrated_discrete,
     }
@@ -178,6 +169,7 @@ class SynthesizerTest(absltest.TestCase):
         calibrated_discrete_mechanisms=calibrated_discrete_mechanisms,
         calibrated_initializers=calibrated_initializers,
         total_count_sigma=5.0,
+        link_sensitivities={'Household->Person': 1},
     )
 
     event = mech.dp_event
@@ -214,16 +206,13 @@ class SynthesizerTest(absltest.TestCase):
     ]
     hierarchy = rel_domain.topological_sort_hierarchy(tables, foreign_keys)
 
-    # Unit sensitivity (max_records_per_user = 1)
-    sensitivities = synthesizer._compute_link_sensitivities(
-        hierarchy, max_records_per_user=1
-    )
+    sensitivities = synthesizer._compute_link_sensitivities(hierarchy)
     # Link 1 (Household -> Person): Delta_1 = 1
     self.assertEqual(sensitivities['Household->Person'], 1)
     # Link 2 (Person -> Activity): Delta_2 = s_1 = 3
     self.assertEqual(sensitivities['Person->Activity'], 3)
 
-  def test_compute_link_sensitivities_branching_and_scaled(self):
+  def test_compute_link_sensitivities_branching(self):
     tables = ['Household', 'Person', 'Vehicle']
     foreign_keys = [
         rel_domain.ForeignKeyRelation(
@@ -243,19 +232,14 @@ class SynthesizerTest(absltest.TestCase):
     ]
     hierarchy = rel_domain.topological_sort_hierarchy(tables, foreign_keys)
 
-    sensitivities = synthesizer._compute_link_sensitivities(
-        hierarchy, max_records_per_user=4
-    )
-    # Both direct children scale by max_records_per_user * 1 = 4
-    self.assertEqual(sensitivities['Household->Person'], 4)
-    self.assertEqual(sensitivities['Household->Vehicle'], 4)
+    sensitivities = synthesizer._compute_link_sensitivities(hierarchy)
+    self.assertEqual(sensitivities['Household->Person'], 1)
+    self.assertEqual(sensitivities['Household->Vehicle'], 1)
 
   def test_compute_link_sensitivities_no_links(self):
     tables = ['Household', 'Logs']
     hierarchy = rel_domain.topological_sort_hierarchy(tables, foreign_keys=())
-    sensitivities = synthesizer._compute_link_sensitivities(
-        hierarchy, max_records_per_user=1
-    )
+    sensitivities = synthesizer._compute_link_sensitivities(hierarchy)
     self.assertEmpty(sensitivities)
 
   def test_configure_single_table_raises(self):
@@ -265,7 +249,7 @@ class SynthesizerTest(absltest.TestCase):
       config = synthesizer.MultiTableConfig(foreign_keys=())
       config.configure(
           schema={'Household': {'income': domain.NumericalAttribute(0, 100)}},
-          zcdp_rho=0.5,
+          budget=0.5,
       )
 
   def test_configure_empty_foreign_keys_raises(self):
@@ -278,7 +262,7 @@ class SynthesizerTest(absltest.TestCase):
               'Household': {'income': domain.NumericalAttribute(0, 100)},
               'Person': {'age': domain.NumericalAttribute(0, 100)},
           },
-          zcdp_rho=0.5,
+          budget=0.5,
       )
 
   def test_configure_end_to_end_3_tier(self):
@@ -320,7 +304,7 @@ class SynthesizerTest(absltest.TestCase):
     # init_rho = 0.1 * 0.6 = 0.06 => per_col_rho = 0.01.
     # total_count_sigma = sqrt(0.5 / 0.01) = sqrt(50).
     # discrete_rho = 0.6 - 0.06 = 0.54 => per_link_rho = 0.27 across 2 links.
-    mech = config.configure(domains, zcdp_rho=0.6, max_records_per_user=1)
+    mech = config.configure(domains, budget=0.6)
 
     self.assertIsInstance(mech, synthesizer.MultiTableMechanism)
     self.assertAlmostEqual(mech.total_count_sigma, math.sqrt(50.0))
@@ -334,6 +318,11 @@ class SynthesizerTest(absltest.TestCase):
     event = mech.dp_event
     self.assertIsInstance(event, dp_accounting.ComposedDpEvent)
     self.assertLen(event.events, 8)
+    expected_link_event = config.discrete_mechanism.configure(
+        budget=0.27
+    ).dp_event
+    self.assertEqual(event.events[-2], expected_link_event)
+    self.assertEqual(event.events[-1], expected_link_event)
 
   def test_calibrate_end_to_end(self):
     domains = {
@@ -378,10 +367,10 @@ class SynthesizerTest(absltest.TestCase):
         ),
     ]
 
-    with self.subTest('negative_zcdp_rho'):
+    with self.subTest('negative_budget'):
       config = synthesizer.MultiTableConfig(foreign_keys=foreign_keys)
-      with self.assertRaisesRegex(ValueError, 'zcdp_rho must be positive'):
-        config.configure(domains, zcdp_rho=-0.1)
+      with self.assertRaisesRegex(ValueError, 'budget must be positive'):
+        config.configure(domains, budget=-0.1)
 
     with self.subTest('invalid_init_budget_fraction_above_one'):
       with self.assertRaisesRegex(
@@ -454,7 +443,7 @@ class SynthesizerTest(absltest.TestCase):
                 'House.hold': {'income': domain.NumericalAttribute(0, 100)},
                 'Person': {'age': domain.NumericalAttribute(0, 100)},
             },
-            zcdp_rho=0.5,
+            budget=0.5,
         )
 
     with self.subTest('dot_in_column_name'):
@@ -465,7 +454,7 @@ class SynthesizerTest(absltest.TestCase):
                 'Household': {'inc.ome': domain.NumericalAttribute(0, 100)},
                 'Person': {'age': domain.NumericalAttribute(0, 100)},
             },
-            zcdp_rho=0.5,
+            budget=0.5,
         )
 
     with self.subTest('reserved_column_name_group_size'):
@@ -478,7 +467,7 @@ class SynthesizerTest(absltest.TestCase):
                 'Household': {'group_size': domain.NumericalAttribute(0, 100)},
                 'Person': {'age': domain.NumericalAttribute(0, 100)},
             },
-            zcdp_rho=0.5,
+            budget=0.5,
         )
 
     with self.subTest('reserved_column_name_slot_prefix'):
@@ -489,7 +478,7 @@ class SynthesizerTest(absltest.TestCase):
                 'Household': {'slot_1': domain.NumericalAttribute(0, 100)},
                 'Person': {'age': domain.NumericalAttribute(0, 100)},
             },
-            zcdp_rho=0.5,
+            budget=0.5,
         )
 
     with self.subTest('empty_table_schema'):
@@ -500,7 +489,7 @@ class SynthesizerTest(absltest.TestCase):
                 'Household': {},
                 'Person': {'age': domain.NumericalAttribute(0, 100)},
             },
-            zcdp_rho=0.5,
+            budget=0.5,
         )
 
     with self.subTest('unsupported_attribute_type'):
@@ -511,7 +500,7 @@ class SynthesizerTest(absltest.TestCase):
                 'Household': {'text': domain.FreeFormTextAttribute()},
                 'Person': {'age': domain.NumericalAttribute(0, 100)},
             },
-            zcdp_rho=0.5,
+            budget=0.5,
         )
 
     with self.subTest('multi_root_forest_raises'):
@@ -523,7 +512,7 @@ class SynthesizerTest(absltest.TestCase):
                 'Person': {'age': domain.NumericalAttribute(0, 100)},
                 'Unlinked': {'type': domain.CategoricalAttribute(['A', 'B'])},
             },
-            zcdp_rho=0.5,
+            budget=0.5,
         )
 
     with self.subTest('pk_in_domain_schema_raises'):
@@ -537,7 +526,7 @@ class SynthesizerTest(absltest.TestCase):
                 },
                 'Person': {'age': domain.NumericalAttribute(0, 100)},
             },
-            zcdp_rho=0.5,
+            budget=0.5,
         )
 
     with self.subTest('fk_in_domain_schema_raises'):
@@ -551,7 +540,7 @@ class SynthesizerTest(absltest.TestCase):
                     'hid': domain.CategoricalAttribute(['H1', 'H2']),
                 },
             },
-            zcdp_rho=0.5,
+            budget=0.5,
         )
 
     with self.subTest('custom_initializers_mismatched_tables'):
@@ -560,7 +549,7 @@ class SynthesizerTest(absltest.TestCase):
             foreign_keys=foreign_keys,
             initializers={'Household': {}},
         )
-        config.configure(schema=domains, zcdp_rho=0.5)
+        config.configure(schema=domains, budget=0.5)
 
     with self.subTest('custom_initializers_mismatched_columns'):
       mock_cfg = unittest.mock.MagicMock(spec=api.MechanismConfig)
@@ -572,7 +561,7 @@ class SynthesizerTest(absltest.TestCase):
                 'Person': {'age': mock_cfg},
             },
         )
-        config.configure(schema=domains, zcdp_rho=0.5)
+        config.configure(schema=domains, budget=0.5)
 
   def test_validate_input_table_columns_success(self):
     domains = {
@@ -706,30 +695,27 @@ class SynthesizerTest(absltest.TestCase):
         rng,
         root_record_count=100,
         total_count_sigma=0.0,
-        max_records_per_user=1,
     )
     self.assertEqual(total, 100.0)
     self.assertEqual(measurement.clique, ())
     self.assertEqual(measurement.stddev, 0.0)
     np.testing.assert_allclose(measurement.noisy_measurement, [100.0])
 
-    # Noisy test with sensitivity scaling
+    # Noisy test
     total_noisy, measurement_noisy = synthesizer._measure_root_total_count(
         rng,
         root_record_count=100,
         total_count_sigma=5.0,
-        max_records_per_user=2,
     )
     self.assertGreaterEqual(total_noisy, 1.0)
     self.assertEqual(measurement_noisy.clique, ())
-    self.assertEqual(measurement_noisy.stddev, 10.0)
+    self.assertEqual(measurement_noisy.stddev, 5.0)
 
     # Negative noisy value clips to 1.0
     total_clipped, measurement_clipped = synthesizer._measure_root_total_count(
         rng,
         root_record_count=0,
         total_count_sigma=0.0,
-        max_records_per_user=1,
     )
     self.assertEqual(total_clipped, 1.0)
     np.testing.assert_allclose(measurement_clipped.noisy_measurement, [1.0])
@@ -742,12 +728,12 @@ class SynthesizerTest(absltest.TestCase):
         num_partitions=8,
     ).configure(
         domain.NumericalAttribute(min_value=0.0, max_value=100.0),
-        zcdp_rho=0.5,
+        budget=0.5,
     )
     data_num = np.array([10.0, 20.0, 30.0, 80.0, 90.0])
     weights_num = np.array([0.5, 0.5, 1.0, 0.5, 0.5])
     res_num = synthesizer._run_single_col_initializer(
-        num_init, rng, data_num, weights_num, estimated_total=100.0
+        num_init, rng, data_num, weights_num
     )
     self.assertIsInstance(res_num, initialization.NumericalMeasurement)
     self.assertIsNotNone(res_num.bin_edges)
@@ -757,7 +743,7 @@ class SynthesizerTest(absltest.TestCase):
     # 2. Categorical initializer on weighted data
     cat_init = initialization.CategoricalInitializerConfig().configure(
         domain.CategoricalAttribute(possible_values=['M', 'F']),
-        zcdp_rho=0.5,
+        budget=0.5,
     )
     data_cat = np.array(['M', 'M', 'F', 'F'])
     weights_cat = np.array([0.5, 0.5, 1.0, 1.0])
@@ -773,7 +759,7 @@ class SynthesizerTest(absltest.TestCase):
         min_count=1,
     ).configure(
         domain.OpenSetCategoricalAttribute(),
-        zcdp_rho=0.5,
+        budget=0.5,
         delta=1e-3,
     )
     data_open = np.array(['sport', 123, 'music'] * 50, dtype=object)
@@ -800,13 +786,13 @@ class SynthesizerTest(absltest.TestCase):
                     num_partitions=8,
                 ).configure(
                     domain.NumericalAttribute(min_value=0.0, max_value=100.0),
-                    zcdp_rho=0.1,
+                    budget=0.1,
                 )
             ),
             'region': (
                 initialization.CategoricalInitializerConfig().configure(
                     domain.CategoricalAttribute(possible_values=['U', 'R']),
-                    zcdp_rho=0.1,
+                    budget=0.1,
                 )
             ),
         },
@@ -816,7 +802,7 @@ class SynthesizerTest(absltest.TestCase):
                     num_partitions=8,
                 ).configure(
                     domain.NumericalAttribute(min_value=0, max_value=100),
-                    zcdp_rho=0.1,
+                    budget=0.1,
                 )
             ),
         },
@@ -840,7 +826,6 @@ class SynthesizerTest(absltest.TestCase):
         rng=rng,
         tables=tables,
         weights=weights,
-        estimated_total=2.0,
     )
 
     self.assertIn('Household', results)
@@ -962,7 +947,7 @@ class SynthesizerTest(absltest.TestCase):
         foreign_keys=foreign_keys,
         init_budget_fraction=0.2,
     )
-    mech = config.configure(domains, zcdp_rho=0.5, max_records_per_user=1)
+    mech = config.configure(domains, budget=0.5)
     rng = np.random.default_rng(42)
 
     data = {
@@ -1103,7 +1088,7 @@ class SynthesizerTest(absltest.TestCase):
     )
     discrete_mech = discrete_mechanisms.AIMConfig(
         pgm_iters=10, max_rounds=2
-    ).configure(zcdp_rho=0.5)
+    ).configure(budget=0.5)
 
     res = synthesizer._synthesize_relational_link(
         parent_dataset=parent_ds,
@@ -1145,7 +1130,7 @@ class SynthesizerTest(absltest.TestCase):
     )
     discrete_mech = discrete_mechanisms.AIMConfig(
         pgm_iters=10, max_rounds=2
-    ).configure(zcdp_rho=0.5)
+    ).configure(budget=0.5)
 
     # Simulated synth_parents from Level 1
     synth_parents = mbi.Dataset({'age': np.array([2, 0, 1])}, parent_dom)
@@ -1223,7 +1208,7 @@ class SynthesizerTest(absltest.TestCase):
         ),
         num_permutation_slots=2,
     )
-    mech = cfg.configure(domains, zcdp_rho=0.5, max_records_per_user=1)
+    mech = cfg.configure(domains, budget=0.5)
 
     preprocessed = synthesizer._run_table_preprocessing(
         mechanism=mech,
@@ -1313,7 +1298,7 @@ class SynthesizerTest(absltest.TestCase):
         ),
         num_permutation_slots=2,
     )
-    mech = cfg.configure(domains, zcdp_rho=0.5, max_records_per_user=1)
+    mech = cfg.configure(domains, budget=0.5)
 
     preprocessed = synthesizer._run_table_preprocessing(
         mechanism=mech,
@@ -1622,7 +1607,7 @@ class SynthesizerTest(absltest.TestCase):
     )
     mechanism = cfg.configure(
         domains,
-        zcdp_rho=1.0,
+        budget=1.0,
     )
 
     result = mechanism(rng=rng, data=data)
@@ -1702,7 +1687,7 @@ class SynthesizerTest(absltest.TestCase):
     )
     mechanism = cfg.configure(
         domains,
-        zcdp_rho=1.0,
+        budget=1.0,
     )
 
     result = mechanism(rng=rng, data=data)

@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from absl.testing import absltest
-from absl.testing import parameterized
 import dp_accounting
 from dpsynth import domain
 from dpsynth.local_mode import initialization
@@ -27,11 +26,13 @@ class InitializationTest(absltest.TestCase):
   def test_numerical_initializer_dp_event(self):
     attr = domain.NumericalAttribute(min_value=0, max_value=10)
     initializer = initialization.NumericalInitializerConfig(num_partitions=4)
-    event = initializer.configure(attr, zcdp_rho=1.0).dp_event
+    event = initializer.configure(attr, budget=1.0).dp_event
     self.assertIsInstance(event, dp_accounting.ComposedDpEvent)
-    self.assertLen(event.events, 2)
-    for e in event.events:
+    self.assertLen(event.events, 3)
+    for e in event.events[:2]:
       self.assertIsInstance(e, dp_accounting.ExponentialMechanismDpEvent)
+    self.assertIsInstance(event.events[2], dp_accounting.GaussianDpEvent)
+    self.assertAlmostEqual(event.events[2].noise_multiplier, 1.0)
 
   def test_numerical_initializer_call(self):
     attr = domain.NumericalAttribute(min_value=0, max_value=10)
@@ -39,11 +40,12 @@ class InitializationTest(absltest.TestCase):
     initializer = initialization.NumericalInitializerConfig(num_partitions=4)
 
     data = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9])
-    measurement = initializer.configure(attr, zcdp_rho=np.inf)(rng, data)
+    measurement = initializer.configure(attr, budget=np.inf)(rng, data)
 
     self.assertIsInstance(measurement, initialization.NumericalMeasurement)
     self.assertEqual(measurement.categorical_attribute.size, 4)
-    self.assertIsNone(measurement.noisy_counts)
+    self.assertIsNotNone(measurement.noisy_counts)
+    self.assertEqual(measurement.stddev, 0.0)
     self.assertIsNotNone(measurement.bin_edges)
 
     encoded_data = vtx.discretize(data, measurement.bin_edges, attr)
@@ -53,6 +55,26 @@ class InitializationTest(absltest.TestCase):
     self.assertEqual(counts.sum(), 9)
     self.assertLen(counts, 4)
     self.assertTrue(np.all(counts > 0))
+    np.testing.assert_array_equal(measurement.noisy_counts, counts)
+
+  def test_numerical_initializer_out_of_domain_values(self):
+    attr = domain.NumericalAttribute(
+        min_value=0, max_value=10, clip_to_range=False
+    )
+    rng = np.random.default_rng(0)
+    initializer = initialization.NumericalInitializerConfig(num_partitions=4)
+
+    data = np.array(
+        [-5.0, np.nan, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 15.0]
+    )
+    measurement = initializer.configure(attr, budget=np.inf)(rng, data)
+
+    self.assertEqual(measurement.categorical_attribute.size, 5)
+    self.assertIsNotNone(measurement.noisy_counts)
+    self.assertLen(measurement.noisy_counts, 5)
+    # 3 OOD values (-5.0, nan, 15.0) map to bin 0.
+    self.assertEqual(measurement.noisy_counts[0], 3.0)
+    self.assertEqual(measurement.noisy_counts.sum(), 11.0)
 
   def test_numerical_initializer_deduplicates_bin_edges(self):
     """Concentrated data can make quantiles return duplicate edges."""
@@ -61,7 +83,7 @@ class InitializationTest(absltest.TestCase):
     initializer = initialization.NumericalInitializerConfig(num_partitions=8)
     # Data is heavily concentrated at 50.
     data = np.array([50] * 100 + [1, 99])
-    result = initializer.configure(attr, zcdp_rho=1.0)(rng, data)
+    result = initializer.configure(attr, budget=1.0)(rng, data)
 
     # After dedup, bin_edges should be strictly increasing.
     edges = result.bin_edges
@@ -80,7 +102,7 @@ class InitializationTest(absltest.TestCase):
     initializer = initialization.NumericalInitializerConfig(num_partitions=8)
     # Only 3 distinct values but 8 partitions requested.
     data = np.array([3, 3, 3, 3, 5, 5, 5, 7])
-    result = initializer.configure(attr, zcdp_rho=1.0)(rng, data)
+    result = initializer.configure(attr, budget=1.0)(rng, data)
 
     edges = result.bin_edges
     self.assertTrue(
@@ -96,26 +118,12 @@ class InitializationTest(absltest.TestCase):
     rng = np.random.default_rng(42)
     initializer = initialization.NumericalInitializerConfig(num_partitions=4)
     data = np.arange(100)
-    result = initializer.configure(attr, zcdp_rho=100.0)(rng, data)
+    result = initializer.configure(attr, budget=100.0)(rng, data)
     # All edges should be integers (integer grid produces exact integer edges).
     np.testing.assert_array_equal(result.bin_edges, np.floor(result.bin_edges))
     # Edges must be within [min_value, max_value - 1].
     self.assertGreaterEqual(result.bin_edges[0], 0)
     self.assertLess(result.bin_edges[-1], 100)
-
-  def test_numerical_initializer_measurement_with_merged_bins(self):
-    """When integer edges collapse, merged bins get proportionally more mass."""
-    attr = domain.NumericalAttribute(min_value=0, max_value=100, dtype='int')
-    rng = np.random.default_rng(0)
-    initializer = initialization.NumericalInitializerConfig(num_partitions=8)
-    # Concentrated data will cause edge collisions.
-    data = np.array([50] * 100 + [1, 99])
-    result = initializer.configure(attr, zcdp_rho=1.0)(
-        rng, data, estimated_total=100.0
-    )
-    self.assertIsNotNone(result.noisy_counts)
-    # Counts should sum to the estimated total.
-    np.testing.assert_allclose(result.noisy_counts.sum(), 100.0, atol=1e-10)
 
   def test_max_grid_size_below_two_raises(self):
     for bad in (0, 1):
@@ -136,57 +144,32 @@ class InitializationTest(absltest.TestCase):
     )
     m = primitives.jitter_factor(init.num_partitions)
     self.assertLessEqual(
-        init.configure(attr, zcdp_rho=1.0).grid_size * m, max_grid_size
+        init.configure(attr, budget=1.0).grid_size * m, max_grid_size
     )
-
-  def test_numerical_initializer_measurement_with_estimated_total(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=10)
-    rng = np.random.default_rng(0)
-    initializer = initialization.NumericalInitializerConfig(num_partitions=4)
-    data = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9])
-    result = initializer.configure(attr, zcdp_rho=1.0)(
-        rng, data, estimated_total=100.0
-    )
-
-    self.assertIsNotNone(result.noisy_counts)
-    # Measurement should be uniform counts: estimated_total / num_bins each.
-    num_bins = result.categorical_attribute.size
-    expected_count = 100.0 / num_bins
-    np.testing.assert_allclose(
-        result.noisy_counts,
-        np.full(num_bins, expected_count),
-    )
-    # stddev should be 1/sqrt(rho) = 1.0 in count space.
-    self.assertAlmostEqual(result.stddev, 1.0)
-
-  def test_numerical_initializer_no_measurement_without_estimated_total(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=10)
-    rng = np.random.default_rng(0)
-    initializer = initialization.NumericalInitializerConfig(num_partitions=4)
-    data = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9])
-    result = initializer.configure(attr, zcdp_rho=1.0)(rng, data)
-    self.assertIsNone(result.noisy_counts)
 
   def test_numerical_initializer_epsilon_ratio_default_and_custom(self):
     attr = domain.NumericalAttribute(min_value=0, max_value=10)
-    # Default is 1.0 (uniform)
+    # Default is 1.0 (uniform), and quantile_budget_fraction defaults to 0.5.
     init_default = initialization.NumericalInitializerConfig(num_partitions=4)
     self.assertEqual(init_default.epsilon_ratio, 1.0)
-    calibrated_default = init_default.configure(attr, zcdp_rho=2.0)
-    # For 4 partitions (2 levels), uniform budget splits zcdp_rho equally:
-    # rho/2 each. eps = sqrt(8 * rho_level) = sqrt(8 * 1.0) = sqrt(8).
+    self.assertEqual(init_default.quantile_budget_fraction, 0.5)
+    calibrated_default = init_default.configure(attr, budget=4.0)
+    # quantile_rho = 2.0, count_rho = 2.0.
+    # For 4 partitions (2 levels), uniform budget splits quantile_rho equally:
+    # 1.0 each. eps = sqrt(8 * rho_level) = sqrt(8 * 1.0) = sqrt(8).
     np.testing.assert_allclose(
         calibrated_default.epsilon_levels,
         (np.sqrt(8.0), np.sqrt(8.0)),
     )
+    self.assertAlmostEqual(calibrated_default.sigma, 0.5)
 
     # Custom ratio (e.g. sqrt(2))
     init_custom = initialization.NumericalInitializerConfig(
         num_partitions=4, epsilon_ratio=np.sqrt(2)
     )
     self.assertEqual(init_custom.epsilon_ratio, np.sqrt(2))
-    calibrated_custom = init_custom.configure(attr, zcdp_rho=2.0)
-    # rho_ratio = 2.0. budget_weights = [2.0, 1.0].
+    calibrated_custom = init_custom.configure(attr, budget=4.0)
+    # quantile_rho = 2.0. rho_ratio = 2.0. budget_weights = [2.0, 1.0].
     # Leaves get 2/3, root gets 1/3.
     # rho_levels = [2.0 * 2/3, 2.0 * 1/3] = [4/3, 2/3]
     # eps_levels = [sqrt(8 * 4/3), sqrt(8 * 2/3)]
@@ -204,36 +187,12 @@ class InitializationTest(absltest.TestCase):
     # at max_value.  The lower values form genuine interior bins, while the top
     # quantile edges land at max_value and must be absorbed into the last bin.
     data = np.concatenate([np.repeat(np.arange(0, 10), 20), np.full(100, 10)])
-    result = initializer.configure(attr, zcdp_rho=100.0)(
-        rng, data, estimated_total=len(data)
-    )
+    result = initializer.configure(attr, budget=100.0)(rng, data)
     # No edge should equal max_value (they get absorbed).
     if len(result.bin_edges) > 0:
       self.assertLess(result.bin_edges[-1], 10)
-    # Counts must still sum to the estimated total.
-    np.testing.assert_allclose(result.noisy_counts.sum(), len(data), atol=1e-10)
-    # The last bin absorbs the max_value spike, so it should dominate the
-    # uniform per-bin baseline (estimated_total / num_bins).
-    counts = result.noisy_counts
-    self.assertGreater(counts.max(), len(data) / len(counts))
-
-  def test_bin_weights_sum_to_num_partitions(self):
-    """bin_weights must always sum to num_partitions regardless of dedup."""
-    attr = domain.NumericalAttribute(min_value=0, max_value=20, dtype='int')
-    for seed in range(10):
-      rng = np.random.default_rng(seed)
-      initializer = initialization.NumericalInitializerConfig(num_partitions=8)
-      data = np.array([5] * 50 + [15] * 50)
-      result = initializer.configure(attr, zcdp_rho=1.0)(
-          rng, data, estimated_total=100.0
-      )
-      # Counts sum to the estimated total.
-      np.testing.assert_allclose(
-          result.noisy_counts.sum(),
-          100.0,
-          atol=1e-10,
-          err_msg=f'seed={seed}: counts do not sum to estimated_total',
-      )
+    self.assertIsNotNone(result.noisy_counts)
+    self.assertLen(result.noisy_counts, result.categorical_attribute.size)
 
   def test_integer_jitter_prevents_spurious_splits(self):
     """Positive jitter should prevent edges from splitting across integers."""
@@ -242,7 +201,7 @@ class InitializationTest(absltest.TestCase):
     initializer = initialization.NumericalInitializerConfig(num_partitions=4)
     # Uniform data: with high budget, edges should land at 25, 50, 75.
     data = np.arange(101)
-    result = initializer.configure(attr, zcdp_rho=1000.0)(rng, data)
+    result = initializer.configure(attr, budget=1000.0)(rng, data)
     # With 4 partitions and 3 edges, no dedup should be needed.
     self.assertLen(result.bin_edges, 3)
     # All edges should be integers.
@@ -255,9 +214,7 @@ class InitializationTest(absltest.TestCase):
     initializer = initialization.NumericalInitializerConfig(num_partitions=4)
     # Deliberately lumpy distribution: 45 points across 4 distinct values.
     data = np.array([0] * 10 + [3] * 10 + [5] * 17 + [6] * 8)
-    result = initializer.configure(attr, zcdp_rho=np.inf)(
-        rng, data, estimated_total=len(data)
-    )
+    result = initializer.configure(attr, budget=np.inf)(rng, data)
     # Edges should be integers strictly inside [min_value, max_value).
     for e in result.bin_edges:
       self.assertEqual(e, int(e), f'edge {e} is not an integer')
@@ -279,212 +236,36 @@ class InitializationTest(absltest.TestCase):
         f' edges={result.bin_edges}',
     )
 
+  def test_numerical_initializer_fixed_bin_edges_dp_event(self):
+    attr = domain.NumericalAttribute(
+        min_value=0, max_value=10, bin_edges=[2.0, 5.0, 8.0]
+    )
+    initializer = initialization.NumericalInitializerConfig(num_partitions=4)
+    configured = initializer.configure(attr, budget=0.5)
+    expected = initialization.NumericalInitializer(
+        config=initializer,
+        attribute=attr,
+        epsilon_levels=(),
+        sigma=1.0,
+    )
+    self.assertEqual(configured, expected)
+    self.assertEqual(
+        configured.dp_event,
+        dp_accounting.ComposedDpEvent([dp_accounting.GaussianDpEvent(1.0)]),
+    )
 
-class MeasurementApproximationTest(parameterized.TestCase):
-  """Property test: measurement counts ≈ true histogram.
-
-  The heuristic uniform measurement should satisfy
-      L1(measurement, true_histogram) < max(3 / sqrt(rho), 2 - 1/K)
-  where the 3/sqrt(rho) term covers quantile noise and 2-1/K covers the
-  worst-case uniform-vs-delta misspecification error (K = num_bins).
-  """
-
-  @parameterized.named_parameters(
-      # --- High budget (rho=1000): misspecification-dominated ---
-      dict(
-          testcase_name='uniform_int',
-          attr=domain.NumericalAttribute(
-              min_value=0, max_value=50, dtype='int'
-          ),
-          data=np.arange(51),
-          num_partitions=4,
-          rho=1000.0,
-      ),
-      dict(
-          testcase_name='heterogeneous_int',
-          attr=domain.NumericalAttribute(
-              min_value=0, max_value=10, dtype='int'
-          ),
-          data=np.array([0] * 10 + [3] * 10 + [5] * 17 + [6] * 8 + [9] * 5),
-          num_partitions=4,
-          rho=1000.0,
-      ),
-      dict(
-          testcase_name='uniform_float',
-          attr=domain.NumericalAttribute(
-              min_value=0, max_value=100, dtype='float'
-          ),
-          data=np.linspace(0, 100, 200),
-          num_partitions=8,
-          rho=1000.0,
-      ),
-      dict(
-          testcase_name='boundary_heavy_int',
-          attr=domain.NumericalAttribute(
-              min_value=0, max_value=100, dtype='int'
-          ),
-          data=np.array([0] * 30 + [100] * 30 + [50] * 40),
-          num_partitions=4,
-          rho=1000.0,
-      ),
-      dict(
-          testcase_name='bimodal_int',
-          attr=domain.NumericalAttribute(
-              min_value=0, max_value=100, dtype='int'
-          ),
-          data=np.array([10] * 50 + [90] * 50),
-          num_partitions=8,
-          rho=1000.0,
-      ),
-      dict(
-          testcase_name='sparse_int',
-          attr=domain.NumericalAttribute(
-              min_value=0, max_value=1000, dtype='int'
-          ),
-          data=np.array([1] * 40 + [500] * 10 + [999] * 50),
-          num_partitions=4,
-          rho=1000.0,
-      ),
-      # --- Low budget (rho=0.5): noise-dominated ---
-      dict(
-          testcase_name='uniform_int_low_rho',
-          attr=domain.NumericalAttribute(
-              min_value=0, max_value=50, dtype='int'
-          ),
-          data=np.arange(51),
-          num_partitions=4,
-          rho=0.5,
-      ),
-      dict(
-          testcase_name='uniform_float_low_rho',
-          attr=domain.NumericalAttribute(
-              min_value=0, max_value=100, dtype='float'
-          ),
-          data=np.linspace(0, 100, 200),
-          num_partitions=8,
-          rho=0.5,
-      ),
-      dict(
-          testcase_name='heterogeneous_int_low_rho',
-          attr=domain.NumericalAttribute(
-              min_value=0, max_value=10, dtype='int'
-          ),
-          data=np.array([0] * 10 + [3] * 10 + [5] * 17 + [6] * 8 + [9] * 5),
-          num_partitions=4,
-          rho=0.5,
-      ),
-  )
-  def test_measurement_approximates_true_histogram(
-      self, attr, data, num_partitions, rho
-  ):
+  def test_numerical_initializer_fixed_bin_edges_call(self):
+    attr = domain.NumericalAttribute(
+        min_value=0, max_value=10, bin_edges=[3.0, 7.0]
+    )
     rng = np.random.default_rng(0)
-    initializer = initialization.NumericalInitializerConfig(
-        num_partitions=num_partitions
-    )
-    result = initializer.configure(attr, zcdp_rho=rho)(
-        rng, data, estimated_total=len(data)
-    )
-    # -- Structural checks (must always hold) --
-    num_bins = result.categorical_attribute.size
-    self.assertGreaterEqual(num_bins, 2)
-    noisy_counts = result.noisy_counts
-    self.assertIsNotNone(noisy_counts)
-    # Measurement counts must sum to the estimated total.
-    np.testing.assert_allclose(noisy_counts.sum(), len(data), atol=1e-10)
-    # All measurement counts should be positive.
-    self.assertTrue(
-        np.all(noisy_counts > 0),
-        f'non-positive measurement counts: {noisy_counts}',
-    )
-    # -- Statistical approximation check --
-    encoded = vtx.discretize(data, result.bin_edges, attr)
-    true_counts = np.bincount(encoded, minlength=num_bins).astype(float)
-    true_prob = true_counts / true_counts.sum()
-    meas = noisy_counts
-    meas_prob = meas / meas.sum()
-    l1_dist = np.abs(true_prob - meas_prob).sum()
-    # 3/sqrt(rho) covers quantile noise; 2-1/K covers uniform-vs-delta.
-    max_l1 = max(3.0 / np.sqrt(rho), 2.0 - 1.0 / num_bins)
-    self.assertLess(
-        l1_dist,
-        max_l1,
-        f'Measurement too far from true histogram (L1={l1_dist:.3f},'
-        f' bound={max_l1:.3f}, rho={rho}):\n'
-        f'  true_prob = {true_prob}\n'
-        f'  meas_prob = {meas_prob}',
-    )
+    initializer = initialization.NumericalInitializerConfig(num_partitions=8)
+    data = np.array([0.0, 1.0, 2.0, 3.0, 5.0, 7.0, 8.0, 9.0, 10.0])
+    measurement = initializer.configure(attr, budget=np.inf)(rng, data)
 
-  def test_measurement_property_random_configs(self):
-    """Randomized property test: max(3/sqrt(rho), 2-1/K) over many configs."""
-    master_rng = np.random.default_rng(20260619)
-    num_trials = 50
-
-    for trial in range(num_trials):
-      with self.subTest(trial=trial):
-        # -- Random configuration --
-        rho = float(10 ** master_rng.uniform(-1, 3))  # 0.1 to 1000
-        num_partitions = int(master_rng.choice([2, 4, 8, 16]))
-        min_val = int(master_rng.integers(0, 50))
-        max_val = min_val + int(master_rng.integers(5, 200))
-        is_int = bool(master_rng.random() < 0.5)
-
-        # -- Random data as a mixture of 1-5 point masses --
-        num_modes = int(master_rng.integers(1, 6))
-        modes = master_rng.integers(min_val, max_val + 1, size=num_modes)
-        weights = master_rng.dirichlet(np.ones(num_modes))
-        n = int(master_rng.integers(50, 300))
-        counts = np.round(weights * n).astype(int)
-        counts[-1] = n - counts[:-1].sum()  # ensure exact total
-        data = np.concatenate([np.full(c, m) for c, m in zip(counts, modes)])
-        if not is_int:
-          data = data.astype(float)
-
-        dtype = 'int' if is_int else 'float'
-        attr = domain.NumericalAttribute(
-            min_value=min_val, max_value=max_val, dtype=dtype
-        )
-
-        # -- Run initializer --
-        rng = np.random.default_rng(trial)
-        initializer = initialization.NumericalInitializerConfig(
-            num_partitions=num_partitions
-        )
-        result = initializer.configure(attr, zcdp_rho=rho)(
-            rng, data, estimated_total=len(data)
-        )
-
-        # -- Structural checks --
-        noisy_counts = result.noisy_counts
-        self.assertIsNotNone(noisy_counts)
-        np.testing.assert_allclose(
-            noisy_counts.sum(),
-            len(data),
-            atol=1e-10,
-            err_msg=f'trial={trial}: counts do not sum to estimated_total',
-        )
-        self.assertTrue(
-            np.all(noisy_counts > 0),
-            f'trial={trial}: non-positive probabilities {noisy_counts}',
-        )
-
-        # -- L1 property check --
-        num_bins = result.categorical_attribute.size
-        encoded = vtx.discretize(data, result.bin_edges, attr)
-        true_counts = np.bincount(encoded, minlength=num_bins).astype(float)
-        true_prob = true_counts / true_counts.sum()
-        meas = noisy_counts
-        meas_prob = meas / meas.sum()
-        l1_dist = np.abs(true_prob - meas_prob).sum()
-        max_l1 = max(3.0 / np.sqrt(rho), 2.0 - 1.0 / num_bins)
-        self.assertLess(
-            l1_dist,
-            max_l1,
-            f'trial={trial} (rho={rho:.2f}, K={num_partitions},'
-            f' modes={modes}, is_int={is_int}):\n'
-            f'  L1={l1_dist:.3f}, bound={max_l1:.3f}\n'
-            f'  true_prob={true_prob}\n'
-            f'  meas_prob={meas_prob}',
-        )
+    np.testing.assert_array_equal(measurement.bin_edges, [3.0, 7.0])
+    self.assertEqual(measurement.categorical_attribute.size, 3)
+    np.testing.assert_array_equal(measurement.noisy_counts, [4.0, 2.0, 3.0])
 
 
 class CategoricalInitializerTest(absltest.TestCase):
@@ -492,7 +273,7 @@ class CategoricalInitializerTest(absltest.TestCase):
   def test_dp_event(self):
     attr = domain.CategoricalAttribute(possible_values=['A', 'B', 'C'])
     initializer = initialization.CategoricalInitializerConfig()
-    event = initializer.configure(attr, zcdp_rho=0.5).dp_event
+    event = initializer.configure(attr, budget=0.5).dp_event
     self.assertIsInstance(event, dp_accounting.GaussianDpEvent)
     # rho = 0.5 => sigma = 1/sqrt(2*0.5) = 1.0
     self.assertEqual(event.noise_multiplier, 1.0)
@@ -502,7 +283,7 @@ class CategoricalInitializerTest(absltest.TestCase):
     rng = np.random.default_rng(0)
     initializer = initialization.CategoricalInitializerConfig()
     data = np.array(['A', 'A', 'B', 'C', 'C', 'C'])
-    result = initializer.configure(attr, zcdp_rho=np.inf)(rng, data)
+    result = initializer.configure(attr, budget=np.inf)(rng, data)
 
     self.assertIsInstance(result, initialization.CategoricalMeasurement)
     self.assertEqual(result.categorical_attribute, attr)
@@ -517,7 +298,7 @@ class CategoricalInitializerTest(absltest.TestCase):
     rng = np.random.default_rng(0)
     initializer = initialization.CategoricalInitializerConfig()
     data = np.array(['X', 'Y', 'Z', 'W'])
-    result = initializer.configure(attr, zcdp_rho=np.inf)(rng, data)
+    result = initializer.configure(attr, budget=np.inf)(rng, data)
 
     # 'Z' and 'W' are OOD, mapped to index 0 (None).
     np.testing.assert_array_equal(result.noisy_counts, [2, 1, 1])
@@ -528,7 +309,7 @@ class OpenSetCategoricalInitializerTest(absltest.TestCase):
   def test_dp_event(self):
     attr = domain.OpenSetCategoricalAttribute(default_value='<OOD>')
     initializer = initialization.OpenSetInitializerConfig()
-    event = initializer.configure(attr, zcdp_rho=0.5, delta=1e-5).dp_event
+    event = initializer.configure(attr, budget=0.5, delta=1e-5).dp_event
     self.assertIsInstance(event, dp_accounting.ComposedDpEvent)
     self.assertLen(event.events, 2)
     self.assertIsInstance(event.events[0], dp_accounting.GaussianDpEvent)
@@ -537,13 +318,20 @@ class OpenSetCategoricalInitializerTest(absltest.TestCase):
     )
     self.assertEqual(event.events[1].delta, 1e-5)
 
+  def test_calibrate(self):
+    attr = domain.OpenSetCategoricalAttribute(default_value='<OOD>')
+    config = initialization.OpenSetInitializerConfig()
+    calibrated = config.calibrate(attr, epsilon=1.0, delta=1e-5)
+    self.assertAlmostEqual(calibrated.delta, 5e-6)
+    self.assertGreater(calibrated.sigma, 0.0)
+
   def test_call_noiseless(self):
     attr = domain.OpenSetCategoricalAttribute(default_value='<OOD>')
     rng = np.random.default_rng(42)
     initializer = initialization.OpenSetInitializerConfig()
     # 'A' appears 100 times, 'B' 50, 'C' 1 (rare).
     data = np.array(['A'] * 100 + ['B'] * 50 + ['C'] * 1)
-    result = initializer.configure(attr, zcdp_rho=np.inf, delta=1e-5)(rng, data)
+    result = initializer.configure(attr, budget=np.inf, delta=1e-5)(rng, data)
 
     self.assertIsInstance(result, initialization.OpenSetMeasurement)
     self.assertIsNotNone(result.noisy_counts)
@@ -561,7 +349,7 @@ class OpenSetCategoricalInitializerTest(absltest.TestCase):
     rng = np.random.default_rng(0)
     initializer = initialization.OpenSetInitializerConfig()
     data = np.array(['A'] * 100 + ['B'] * 50)
-    result = initializer.configure(attr, zcdp_rho=np.inf, delta=1e-5)(rng, data)
+    result = initializer.configure(attr, budget=np.inf, delta=1e-5)(rng, data)
 
     cat_attr = result.categorical_attribute
     # Discovered values map to valid indices.
@@ -577,7 +365,7 @@ class OpenSetCategoricalInitializerTest(absltest.TestCase):
     rng = np.random.default_rng(0)
     initializer = initialization.OpenSetInitializerConfig()
     data = np.array([], dtype=str)
-    result = initializer.configure(attr, zcdp_rho=np.inf, delta=1e-5)(rng, data)
+    result = initializer.configure(attr, budget=np.inf, delta=1e-5)(rng, data)
 
     # Only the default value should be in the domain.
     self.assertEqual(result.categorical_attribute.possible_values, ['<OOD>'])
@@ -592,18 +380,18 @@ class NumericalInitializerFromSummaryTest(absltest.TestCase):
     init = initialization.NumericalInitializerConfig(
         num_partitions=4,
         max_grid_size=10001,
-    ).configure(attr, zcdp_rho=1.0)
+    ).configure(attr, budget=1.0)
     event = init.dp_event
     self.assertIsInstance(event, dp_accounting.ComposedDpEvent)
-    # 4 partitions = 2 levels.
-    self.assertLen(event.events, 2)
+    # 4 partitions = 2 levels + 1 Gaussian count event = 3 events.
+    self.assertLen(event.events, 3)
 
   def test_integer_attribute_snaps_edges(self):
     rng = np.random.default_rng(42)
     attr = domain.NumericalAttribute(min_value=0, max_value=10, dtype='int')
     init = initialization.NumericalInitializerConfig(
         num_partitions=4,
-    ).configure(attr, zcdp_rho=1.0)
+    ).configure(attr, budget=1.0)
     # Integer grid: grid_size = 11 (one bin per integer 0..10).
     counts = rng.integers(0, 30, size=init.grid_size)
     cm = init.from_summary(rng, counts)
@@ -618,63 +406,22 @@ class NumericalInitializerFromSummaryTest(absltest.TestCase):
     init = initialization.NumericalInitializerConfig(
         num_partitions=4,
         max_grid_size=max_grid_size,
-    ).configure(attr, zcdp_rho=1.0)
+    ).configure(attr, budget=1.0)
 
     data = np.linspace(0.0, 100.0, 500)
-    cm_call = init(rng, data, estimated_total=500.0)
+    cm_call = init(rng, data)
     self.assertIsNotNone(cm_call.bin_edges)
     self.assertIsNotNone(cm_call.noisy_counts)
+    self.assertLen(cm_call.noisy_counts, cm_call.categorical_attribute.size)
 
     rng2 = np.random.default_rng(42)
     counts = np.random.randint(0, 100, size=max_grid_size)
-    cm_summary = init.from_summary(rng2, counts, estimated_total=500.0)
+    cm_summary = init.from_summary(rng2, counts)
     self.assertIsNotNone(cm_summary.bin_edges)
     self.assertIsNotNone(cm_summary.noisy_counts)
-
-
-class MaxRecordsPerUserTest(parameterized.TestCase):
-  """Tests the user-level DP knob ``max_records_per_user`` on initializers."""
-
-  def test_categorical_stddev_scales_with_k(self):
-    attr = domain.CategoricalAttribute(possible_values=['a', 'b', 'c'])
-    data = np.array(['a', 'b', 'c', 'a'])
-    base = initialization.CategoricalInitializerConfig().configure(
-        attr, zcdp_rho=1.0
+    self.assertLen(
+        cm_summary.noisy_counts, cm_summary.categorical_attribute.size
     )
-    scaled = initialization.CategoricalInitializerConfig().configure(
-        attr, zcdp_rho=1.0, max_records_per_user=4
-    )
-    b = base(np.random.default_rng(0), data)
-    s = scaled(np.random.default_rng(0), data)
-    self.assertAlmostEqual(s.stddev, 4 * b.stddev)
-
-  def test_numerical_raises_with_multiple_records_per_user(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=10)
-    with self.assertRaises(NotImplementedError):
-      _ = initialization.NumericalInitializerConfig(num_partitions=4).configure(
-          attr, zcdp_rho=1.0, max_records_per_user=4
-      )
-
-  def test_open_set_stddev_scales_with_k(self):
-    attr = domain.OpenSetCategoricalAttribute()
-    data = np.array(['a'] * 50 + ['b'] * 40 + ['c'] * 30)
-    base = initialization.OpenSetInitializerConfig().configure(
-        attr, zcdp_rho=1.0, delta=1e-5
-    )
-    scaled = initialization.OpenSetInitializerConfig().configure(
-        attr, zcdp_rho=1.0, delta=1e-5, max_records_per_user=4
-    )
-    b = base(np.random.default_rng(0), data)
-    s = scaled(np.random.default_rng(0), data)
-    self.assertAlmostEqual(s.stddev, 4 * b.stddev)
-
-  @parameterized.named_parameters(('zero', 0), ('negative', -3))
-  def test_invalid_k_raises(self, k):
-    attr = domain.CategoricalAttribute(possible_values=['a', 'b'])
-    with self.assertRaises(ValueError):
-      initialization.CategoricalInitializerConfig().configure(
-          attr, zcdp_rho=0.5, max_records_per_user=k
-      )
 
   def test_open_set_public_possible_values_retained(self):
     attr = domain.OpenSetCategoricalAttribute(
@@ -684,7 +431,7 @@ class MaxRecordsPerUserTest(parameterized.TestCase):
     # PUB1 and PUB2 have 0 occurrences but should still appear.
     data = np.array(['a'] * 100 + ['b'] * 1)
     init = initialization.OpenSetInitializerConfig(min_count=5).configure(
-        attr, zcdp_rho=1.0, delta=1e-6
+        attr, budget=1.0, delta=1e-6
     )
     col_meas = init(np.random.default_rng(0), data)
     cat_attr = col_meas.categorical_attribute
@@ -702,7 +449,7 @@ class MaxRecordsPerUserTest(parameterized.TestCase):
         ['a'] * 100 + [None] * 50 + [123] * 100 + [np.nan] * 10, dtype=object
     )
     init = initialization.OpenSetInitializerConfig(min_count=5).configure(
-        attr, zcdp_rho=1.0, delta=1e-6
+        attr, budget=1.0, delta=1e-6
     )
     col_meas = init(np.random.default_rng(0), data)
     cat_attr = col_meas.categorical_attribute
@@ -714,7 +461,7 @@ class MaxRecordsPerUserTest(parameterized.TestCase):
     attr = domain.CategoricalAttribute(possible_values=['a', 'b', 'c'])
     data = np.array(['a', None, 'b', np.nan, 999, 'c'], dtype=object)
     init = initialization.CategoricalInitializerConfig().configure(
-        attr, zcdp_rho=1.0
+        attr, budget=1.0
     )
     col_meas = init(np.random.default_rng(0), data)
     self.assertIsNotNone(col_meas.noisy_counts)
@@ -725,7 +472,7 @@ class MaxRecordsPerUserTest(parameterized.TestCase):
     data = np.array([10.5, None, 50.0, np.nan, '75.0'], dtype=object)
     init = initialization.NumericalInitializerConfig(
         num_partitions=4
-    ).configure(attr, zcdp_rho=1.0)
+    ).configure(attr, budget=1.0)
     col_meas = init(np.random.default_rng(0), data)
     self.assertIsNotNone(col_meas.bin_edges)
 

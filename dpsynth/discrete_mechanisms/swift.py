@@ -41,6 +41,7 @@ from dpsynth.discrete_mechanisms import accounting
 from dpsynth.discrete_mechanisms import clique_tree
 from dpsynth.discrete_mechanisms import common
 from dpsynth.discrete_mechanisms import swift_utils
+from dpsynth.local_mode import primitives
 import mbi
 import networkx as nx
 import numpy as np
@@ -85,12 +86,10 @@ class SWIFTConfig(api.MechanismConfig):
         domain, self.workload, self.max_marginal_size
     )
 
-  def configure(self, _=None, *, zcdp_rho, delta=0, max_records_per_user=1):
-    api.validate_max_records_per_user(max_records_per_user)
+  def configure(self, _=None, *, budget, delta=0):
     return SWIFT(
         config=self,
-        gdp_budget=accounting.zcdp_to_gdp(zcdp_rho),
-        max_records_per_user=max_records_per_user,
+        gdp_budget=accounting.zcdp_to_gdp(budget),
     )
 
 
@@ -100,7 +99,6 @@ class SWIFT(api.CalibratedMechanism):
 
   config: SWIFTConfig
   gdp_budget: float
-  max_records_per_user: int = 1
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -150,7 +148,6 @@ class SWIFT(api.CalibratedMechanism):
             model,  # pyrefly: ignore[bad-argument-type]
             list(candidates),
             select_gdp_budget,
-            max_records_per_user=self.max_records_per_user,
         )
 
       with common.timed(phase_times, 'select_queries'):
@@ -174,6 +171,7 @@ class SWIFT(api.CalibratedMechanism):
         data.domain,
         list(initial_measurements),
         extra_cliques=list(selected),  # pyrefly: ignore[bad-argument-type]
+        constraints=constraints,
     )
     synth_future = mbi.extensions.precompile(
         data.domain, list(jtree.nodes), rows
@@ -187,7 +185,6 @@ class SWIFT(api.CalibratedMechanism):
           data,
           selected,
           measure_gdp_budget,
-          max_records_per_user=self.max_records_per_user,
       )
       measurements = list(initial_measurements) + new_measurements
       logging.info('[SWIFT] Finished measurements.')
@@ -421,16 +418,17 @@ def _compute_initial_errors(
     model: mbi.MarkovRandomField,
     cliques: Sequence[mbi.Clique],
     gdp_budget: float,
-    max_records_per_user: int = 1,
 ) -> dict[mbi.Clique, float]:
   """Computes DP initial errors for the SWIFT mechanism."""
   budget_per_clique = gdp_budget / len(cliques)
-  sigma_per_clique = max_records_per_user * accounting.gdp_gaussian_sigma(
-      budget_per_clique
-  )
+  sigma = accounting.gdp_gaussian_sigma(budget_per_clique)
   errors = common.compute_independence_errors(data, model, cliques)  # pyrefly: ignore[bad-argument-type]
   for cl in errors:
-    errors[cl] += rng.normal(loc=0.0, scale=sigma_per_clique)
+    errors[cl] = float(
+        primitives.gaussian_mechanism(
+            rng, errors[cl], sigma=sigma, l2_sensitivity=1.0
+        )
+    )
   return errors
 
 
@@ -488,15 +486,14 @@ def _measure_selected_marginals(
     data: mbi.Dataset | mbi.CliqueVector,
     selected: dict[mbi.Clique, float],
     budget_remaining: float,
-    max_records_per_user: int = 1,
 ) -> list[mbi.LinearMeasurement]:
   """Measures the selected marginal queries."""
   measurements = []
   for cl in selected:
     budget_remaining -= selected[cl]
-    sigma = max_records_per_user * accounting.gdp_gaussian_sigma(selected[cl])
-    x = data.project(cl).datavector()
-    y = x + rng.normal(loc=0.0, scale=sigma, size=x.size)
+    sigma = accounting.gdp_gaussian_sigma(selected[cl])
+    x = np.asarray(data.project(cl).datavector())
+    y = primitives.gaussian_mechanism(rng, x, sigma=sigma, l2_sensitivity=1.0)
     measurements.append(mbi.LinearMeasurement(y, cl, sigma))
     logging.info('[SWIFT] Measured %s with sigma %f', cl, sigma)
 

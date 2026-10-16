@@ -20,7 +20,7 @@ import itertools
 from typing import Any, TypeAlias, TypeVar
 
 from dpsynth.dataset_descriptors import dataset_descriptor
-from dpsynth.discrete_mechanisms import common
+from dpsynth.local_mode import primitives
 from dpsynth.pipeline_transformations import diagnostic_info
 from dpsynth.pipeline_transformations import independent_mechanism
 from dpsynth.pipeline_transformations import marginals_computations
@@ -30,7 +30,6 @@ import jax.numpy as jnp
 import mbi
 import numpy as np
 import pipeline_dp
-
 
 Clique: TypeAlias = tuple[int, ...]
 MarginalQuery: TypeAlias = tuple[int, ...]
@@ -300,8 +299,8 @@ def _select_worst_approximated(
   """Returns the worst approximated candidate in the given errors."""
   errors = np.array([x[1] for x in clique_errors])
   exponential_eps = np.sqrt(2) / exponential_spec.noise_standard_deviation
-  idx = common.exponential_mechanism(
-      errors, exponential_eps, sensitivity=1.0, rng=rng, monotonic=True
+  idx = primitives.exponential_mechanism(
+      rng, errors, epsilon=exponential_eps, sensitivity=1.0, monotonic=True
   )
   return clique_errors[idx][0]
 

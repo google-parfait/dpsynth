@@ -30,6 +30,7 @@ from dpsynth.discrete_mechanisms import independent
 from dpsynth.discrete_mechanisms import mst
 from dpsynth.discrete_mechanisms import swift
 from dpsynth.local_mode import initialization
+import mbi
 import yaml
 
 
@@ -88,6 +89,23 @@ class SerializeTest(parameterized.TestCase):
         prespecified_marginal_queries=[('a', 'b'), ('c',)],
     )
     yaml_str = serialize.to_yaml(config)
+    raw_dict = yaml.safe_load(yaml_str)
+    self.assertNotIn('estimator', raw_dict)
+    loaded = serialize.from_yaml(yaml_str)
+    self.assertEqual(loaded, config)
+
+  def test_direct_config_with_estimator_roundtrip(self):
+    config = direct.DirectConfig(
+        pgm_iters=1500,
+        prespecified_marginal_queries=[('a', 'b')],
+        estimator=mbi.estimation.UniversalAcceleratedMethod(linesearch=True),
+    )
+    yaml_str = serialize.to_yaml(config)
+    raw_dict = yaml.safe_load(yaml_str)
+    self.assertEqual(
+        raw_dict['estimator'],
+        {'type': 'UniversalAcceleratedMethod', 'linesearch': True},
+    )
     loaded = serialize.from_yaml(yaml_str)
     self.assertEqual(loaded, config)
 

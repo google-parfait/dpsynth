@@ -147,11 +147,11 @@ class NestedTabularMechanism(api.CalibratedMechanism):
     """Runs the mechanism on per-type DataFrames, returns synthetic records."""
     shared_cols = list(self.schema.shared_schema.attributes)
 
-    types = list(self.detail_synths.keys())
+    types = list(self.type_vocabulary)
     data = dict(data)
     for t in types:
-      if t not in data:
-        columns = list(self.schema.per_type_schemas[t].attributes)
+      if t not in data or data[t].empty:
+        columns = shared_cols + list(self.schema.per_type_schemas[t].attributes)
         data[t] = pd.DataFrame(columns=columns)
 
     shared_dfs = [
@@ -167,10 +167,10 @@ class NestedTabularMechanism(api.CalibratedMechanism):
 
     synthetic_details: dict[str, pd.DataFrame] = {}
     detail_results: dict[str, data_generation_v3.DataGenerationResult] = {}
-    for type_name in types:
+    for type_name, synth in self.detail_synths.items():
       detail_cols = list(self.schema.per_type_schemas[type_name].attributes)
-      sub_df = data[type_name][detail_cols]
-      res = self.detail_synths[type_name](rng, sub_df)
+      sub_df = data[type_name].reindex(columns=detail_cols)
+      res = synth(rng, sub_df)
       synthetic_details[type_name] = res.synthetic_data
       detail_results[type_name] = res
 
@@ -219,7 +219,7 @@ class NestedTabularConfig(api.MechanismConfig):
   ...     },
   ... )
   >>> synth = nested.NestedTabularConfig()
-  >>> calibrated = synth.configure(schema, zcdp_rho=1.0)
+  >>> calibrated = synth.configure(schema, budget=1.0)
   >>> rng = np.random.default_rng(42)
   >>> rows = {'platform': ['web', 'mobile'] * 20}
   >>> click_df = pd.DataFrame({**rows, 'element': ['button', 'link'] * 20})
@@ -234,17 +234,6 @@ class NestedTabularConfig(api.MechanismConfig):
     shared_mechanism: Discrete mechanism for the shared model.
     detail_mechanism: Discrete mechanism for per-type models.
     init_budget_fraction: Within each TabularConfig, fraction for initializers.
-    _allow_multiple_records_per_user: If True, bypass the check that
-      max_records_per_user == 1 in configure / calibrate. The current privacy
-      analysis relies on parallel composition, and hence assumes each user
-      contributes at most 1 record overall.  If users can contribute multiple
-      records to different type tables, that analysis no longer applies
-      directly. We conjecture by plumbing through the same max_records_per_user
-      parameter to all sub-mechanisms, the accounting should still go through
-      the same, but we do not yet have a formal proof for this. To unblock
-      development and evaluation under this conjecture, we allow users to bypass
-      this check, with this explicit warning.  This field will be removed once
-      the conjecture is proven or disproven.
   """
 
   shared_budget_fraction: float = 0.5
@@ -255,30 +244,22 @@ class NestedTabularConfig(api.MechanismConfig):
       default_factory=discrete_mechanisms.MSTConfig
   )
   init_budget_fraction: float = 0.1
-  _allow_multiple_records_per_user: bool = False
 
   def configure(  # pyrefly: ignore[bad-override]
       self,
       schema: NestedSchema,
       *,
-      zcdp_rho: float,
+      budget: float,
       delta: float = 0.0,
-      max_records_per_user: int = 1,
   ) -> NestedTabularMechanism:
-    """Returns a configured NestedTabularMechanism with the given zCDP budget."""
+    """Returns a configured NestedTabularMechanism with the given budget."""
     if not isinstance(schema, NestedSchema):
       raise TypeError(f"Expected NestedSchema, got {type(schema).__name__}")
-    if not self._allow_multiple_records_per_user and max_records_per_user != 1:
-      raise ValueError(
-          "max_records_per_user must be 1 under parallel composition across"
-          f" detail models, got {max_records_per_user}. Set bypass_check=True"
-          " on NestedTabularConfig to bypass this check."
-      )
 
     # Additive zCDP split; each type gets full rho_detail
     # (parallel composition over disjoint type partitions).
-    rho_shared = self.shared_budget_fraction * zcdp_rho
-    rho_detail = (1 - self.shared_budget_fraction) * zcdp_rho
+    rho_shared = self.shared_budget_fraction * budget
+    rho_detail = (1 - self.shared_budget_fraction) * budget
     delta_shared = delta * self.shared_budget_fraction
     delta_detail = delta * (1 - self.shared_budget_fraction)
 
@@ -292,22 +273,22 @@ class NestedTabularConfig(api.MechanismConfig):
         init_budget_fraction=self.init_budget_fraction,
     )
     shared_synth = shared_config.configure(
-        zcdp_rho=rho_shared,
+        budget=rho_shared,
         delta=delta_shared,
-        max_records_per_user=max_records_per_user,
     )
 
     detail_synths = {}
     for type_name, type_schema in schema.per_type_schemas.items():
+      if not type_schema.attributes:
+        continue
       config = data_generation_v3.TabularConfig(
           domains=type_schema.attributes,
           discrete_mechanism=self.detail_mechanism,
           init_budget_fraction=self.init_budget_fraction,
       )
       detail_synths[type_name] = config.configure(
-          zcdp_rho=rho_detail,
+          budget=rho_detail,
           delta=delta_detail,
-          max_records_per_user=max_records_per_user,
       )
 
     return NestedTabularMechanism(

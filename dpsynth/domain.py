@@ -188,6 +188,9 @@ class NumericalAttribute:
       interval (or returns the finite endpoint if the other is infinite).
       'interval' keeps the interval (string) in the output unchanged.
     description: An optional semantic description of the attribute.
+    bin_edges: Optional sequence of inner bin edges in [min_value, max_value).
+      When specified, fixed discretization using these edges is used instead of
+      computing DP quantiles.
   """
 
   min_value: float
@@ -197,6 +200,7 @@ class NumericalAttribute:
   dtype: str = 'float'
   interval_handling: str = 'midpoint'
   description: str | None = None
+  bin_edges: Sequence[float] | None = None
 
   def __post_init__(self):
     # Coerce to float to preserve the former attrs ``converter=float`` behavior;
@@ -230,6 +234,18 @@ class NumericalAttribute:
             f' interval_handling={self.interval_handling!r}, got'
             f' sentinel={self.sentinel!r}.'
         )
+    if self.bin_edges is not None:
+      edges = [float(e) for e in self.bin_edges]
+      object.__setattr__(self, 'bin_edges', edges)
+      if not all(math.isfinite(e) for e in edges):
+        raise ValueError(f'bin_edges must contain finite numbers, got {edges}.')
+      lo, hi = self.min_value, self.max_value
+      if edges and (edges[0] < lo or edges[-1] >= hi):
+        raise ValueError(f'bin_edges must be in [{lo}, {hi}), got {edges}.')
+      if any(a >= b for a, b in zip(edges, edges[1:])):
+        raise ValueError(f'bin_edges must be strictly increasing: {edges}.')
+      if self.dtype == 'int' and not all(e.is_integer() for e in edges):
+        raise ValueError(f'bin_edges must be integers: {edges}.')
 
   @property
   def resolved_sentinel(self) -> float | int | str:

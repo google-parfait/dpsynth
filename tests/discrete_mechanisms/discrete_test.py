@@ -35,7 +35,7 @@ class DiscreteConfigTest(absltest.TestCase):
         mechanism=MSTConfig(pgm_iters=500),
         one_way_budget_fraction=0.25,
     )
-    synth = config.configure(zcdp_rho=100.0)
+    synth = config.configure(budget=100.0)
     self.assertIsInstance(synth, DiscreteMechanism)
     self.assertAlmostEqual(
         synth.one_way_gdp_budget,
@@ -47,7 +47,7 @@ class DiscreteConfigTest(absltest.TestCase):
         mechanism=MSTConfig(pgm_iters=500),
         one_way_budget_fraction=0.0,
     )
-    synth = config.configure(zcdp_rho=100.0)
+    synth = config.configure(budget=100.0)
     self.assertAlmostEqual(synth.one_way_gdp_budget, 0.0)
 
 
@@ -61,7 +61,7 @@ class DiscreteMechanismTest(absltest.TestCase):
     config = DiscreteConfig(
         mechanism=MSTConfig(pgm_iters=500),
     )
-    synth = config.configure(zcdp_rho=10000)
+    synth = config.configure(budget=10000)
     result = synth(rng, data)
 
     self.assertIsInstance(result, common.DiscreteMechanismResult)
@@ -78,7 +78,7 @@ class DiscreteMechanismTest(absltest.TestCase):
     config = DiscreteConfig(
         mechanism=MSTConfig(pgm_iters=500),
     )
-    synth = config.configure(zcdp_rho=10000)
+    synth = config.configure(budget=10000)
     result = synth(rng, data, initial_measurements=measurements)
 
     self.assertIsInstance(result, common.DiscreteMechanismResult)
@@ -94,7 +94,7 @@ class DiscreteMechanismTest(absltest.TestCase):
         mechanism=MSTConfig(pgm_iters=500),
         compress_columns=True,
     )
-    synth = config.configure(zcdp_rho=10000)
+    synth = config.configure(budget=10000)
     result = synth(rng, data)
 
     self.assertEqual(result.synthetic_data.domain, domain)
@@ -104,7 +104,7 @@ class DiscreteMechanismTest(absltest.TestCase):
         mechanism=MSTConfig(pgm_iters=500),
         one_way_budget_fraction=0.25,
     )
-    synth = config.configure(zcdp_rho=100.0)
+    synth = config.configure(budget=100.0)
     event = synth.dp_event
     self.assertIsNotNone(event)
 
@@ -122,7 +122,7 @@ class DiscreteMechanismTest(absltest.TestCase):
 
   def test_converts_dataset_to_clique_vector(self):
     config = DiscreteConfig(mechanism=MSTConfig(pgm_iters=500))
-    synth = config.configure(zcdp_rho=100.0)
+    synth = config.configure(budget=100.0)
     domain = mbi.Domain(['a', 'b'], [3, 4])
     data = mbi.Dataset.synthetic(domain, N=20)
     with mock.patch.object(
@@ -139,7 +139,7 @@ class DiscreteMechanismTest(absltest.TestCase):
     domain = mbi.Domain(['a', 'b'], [3, 4])
     data = mbi.Dataset.synthetic(domain, N=200)
     rng = np.random.default_rng(0)
-    synth = config.configure(zcdp_rho=100.0)
+    synth = config.configure(budget=100.0)
     result = synth(rng, data)
     self.assertEqual(result.synthetic_data.domain, domain)
     self.assertEqual(result.synthetic_data.records, 200)
@@ -153,7 +153,7 @@ class DiscreteMechanismTest(absltest.TestCase):
     domain = mbi.Domain(['a', 'b'], [3, 4])
     data = mbi.Dataset.synthetic(domain, N=200)
     rng = np.random.default_rng(0)
-    synth = config.configure(zcdp_rho=100.0)
+    synth = config.configure(budget=100.0)
     result = synth(rng, data)
     self.assertEqual(result.synthetic_data.domain, domain)
     self.assertEqual(result.synthetic_data.records, 200)

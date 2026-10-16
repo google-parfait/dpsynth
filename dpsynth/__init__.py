@@ -26,6 +26,7 @@ from dpsynth import relational
 from dpsynth import reporting
 from dpsynth import serialize
 from dpsynth._calibration import calibrate
+from dpsynth._calibration import with_group_size
 from dpsynth._checkpoint import checkpoint
 from dpsynth.data_generation_v3 import TabularConfig
 from dpsynth.data_generation_v3 import TabularMechanism
@@ -80,4 +81,5 @@ __all__ = [
     'reporting',
     'serialize',
     'to_yaml',
+    'with_group_size',
 ]

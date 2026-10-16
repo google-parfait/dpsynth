@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import doctest
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import dp_accounting
@@ -45,6 +47,13 @@ class ReportingTest(parameterized.TestCase):
     self.assertIsNotNone(self.report.gdp_estimate)
     assert self.report.gdp_estimate is not None
     self.assertAlmostEqual(self.report.gdp_estimate, 0.5, delta=1e-2)
+    self.assertIsNotNone(self.report.trade_off_curve)
+    assert self.report.trade_off_curve is not None
+    self.assertLen(
+        self.report.trade_off_curve,
+        len(reporting.DEFAULT_TARGET_FPRS),
+    )
+    self.assertIsNone(self.report.notes)
 
   @parameterized.parameters(
       (1e-10, 3.0994303302431994),
@@ -59,6 +68,54 @@ class ReportingTest(parameterized.TestCase):
   def test_from_dp_event_gaussian_epsilons(self, delta, expected_eps):
     eps_map = dict((d, eps) for eps, d in self.report.epsilon_deltas)
     self.assertAlmostEqual(eps_map[delta], expected_eps, delta=1e-5)
+
+  def test_from_dp_event_trade_off_curve_properties(self):
+    trade_off = self.report.trade_off_curve
+    assert trade_off is not None
+    prev_tpr, prev_fpr = 0.0, 0.0
+    for tpr, fpr in trade_off:
+      self.assertGreaterEqual(fpr, 0.0)
+      self.assertLessEqual(fpr, 1.0)
+      self.assertGreaterEqual(tpr, 0.0)
+      self.assertLessEqual(tpr, 1.0)
+      self.assertGreaterEqual(tpr, fpr)
+      self.assertGreaterEqual(fpr, prev_fpr)
+      self.assertGreaterEqual(tpr, prev_tpr)
+      prev_tpr, prev_fpr = tpr, fpr
+
+  def test_from_dp_event_trade_off_curve_custom_fprs(self):
+    event = dp_accounting.GaussianDpEvent(noise_multiplier=2.0)
+    report_single = reporting.PrivacyReport.from_dp_event(
+        event,
+        value_discretization_interval=0.1,
+        target_false_positive_rates=[0.05],
+    )
+    assert report_single.trade_off_curve is not None
+    self.assertLen(report_single.trade_off_curve, 1)
+    self.assertAlmostEqual(report_single.trade_off_curve[0][1], 0.05)
+
+    report_none = reporting.PrivacyReport.from_dp_event(
+        event,
+        value_discretization_interval=0.1,
+        target_false_positive_rates=None,
+    )
+    self.assertIsNone(report_none.trade_off_curve)
+
+  def test_from_dp_event_notes(self):
+    event = dp_accounting.GaussianDpEvent(noise_multiplier=2.0)
+    report = reporting.PrivacyReport.from_dp_event(
+        event,
+        value_discretization_interval=0.1,
+        notes='Column bounds were computed from raw data without DP.',
+    )
+    self.assertEqual(
+        report.notes,
+        'Column bounds were computed from raw data without DP.',
+    )
+
+    yaml_str = serialize.to_yaml(report)
+    loaded = serialize.from_yaml(yaml_str)
+    self.assertEqual(loaded, report)
 
   def test_from_dp_event_custom_accountant_args(self):
     event = dp_accounting.GaussianDpEvent(noise_multiplier=2.0)
@@ -84,6 +141,7 @@ class ReportingTest(parameterized.TestCase):
         UnknownEvent(), target_deltas=1e-6
     )
     self.assertEqual(report.epsilon_deltas[0][0], float('inf'))
+    self.assertIsNone(report.trade_off_curve)
 
   def test_serialize_yaml_roundtrip(self):
     yaml_str = serialize.to_yaml(self.report)
@@ -92,6 +150,14 @@ class ReportingTest(parameterized.TestCase):
 
   def test_public_reexport(self):
     self.assertIs(dpsynth.PrivacyReport, reporting.PrivacyReport)
+
+
+def load_tests(loader, tests, ignore):
+  del loader, ignore  # Unused.
+  tests.addTests(
+      doctest.DocTestSuite(reporting, optionflags=doctest.NORMALIZE_WHITESPACE)
+  )
+  return tests
 
 
 if __name__ == '__main__':

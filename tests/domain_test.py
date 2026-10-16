@@ -15,11 +15,12 @@
 import math
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from dpsynth import domain
 import numpy as np
 
 
-class TestDomain(absltest.TestCase):
+class TestDomain(parameterized.TestCase):
 
   def test_valid_attribute(self):
     attribute = domain.CategoricalAttribute(
@@ -79,6 +80,43 @@ class TestDomain(absltest.TestCase):
   def test_invalid_interval_handling(self):
     with self.assertRaises(ValueError):
       domain.NumericalAttribute(0, 10, interval_handling='bad')
+
+  def test_numerical_attribute_bin_edges_float(self):
+    attr = domain.NumericalAttribute(0, 10, bin_edges=(2, 5.5, 8))
+    self.assertEqual(attr.bin_edges, [2.0, 5.5, 8.0])
+
+  def test_numerical_attribute_bin_edges_int(self):
+    int_attr = domain.NumericalAttribute(
+        0, 10, dtype='int', bin_edges=[2, 5, 8]
+    )
+    self.assertEqual(int_attr.bin_edges, [2.0, 5.0, 8.0])
+
+  def test_numerical_attribute_bin_edges_yaml_roundtrip(self):
+    original = {
+        'float_num': domain.NumericalAttribute(0, 10, bin_edges=(2, 5.5, 8)),
+        'int_num': domain.NumericalAttribute(
+            0, 10, dtype='int', bin_edges=[2, 5, 8]
+        ),
+    }
+    temp_file = self.create_tempfile('bin_edges.yaml', mode='w+')
+    domain.to_yaml_file(original, temp_file.full_path)
+    loaded = domain.from_yaml_file(temp_file.full_path)
+    self.assertEqual(loaded, original)
+
+  @parameterized.named_parameters(
+      dict(testcase_name='below_min', bin_edges=[-1.0, 5.0]),
+      dict(testcase_name='above_max', bin_edges=[2.0, 10.0]),
+      dict(testcase_name='duplicate', bin_edges=[5.0, 5.0]),
+      dict(testcase_name='unsorted', bin_edges=[6.0, 4.0]),
+      dict(testcase_name='non_int_for_int', bin_edges=[2.5, 5.0], dtype='int'),
+      dict(testcase_name='nan', bin_edges=[math.nan, 5.0]),
+      dict(testcase_name='inf', bin_edges=[2.0, math.inf]),
+  )
+  def test_numerical_attribute_bin_edges_invalid(
+      self, bin_edges, dtype='float'
+  ):
+    with self.assertRaises(ValueError):
+      domain.NumericalAttribute(0, 10, dtype=dtype, bin_edges=bin_edges)
 
   def test_standardize_categorical(self):
     attribute = domain.CategoricalAttribute(

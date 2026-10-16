@@ -20,13 +20,13 @@ DP-SGD training via ``DPTrainer``.
 
 Example usage::
 
-  config = execution_plan.BandMFConfig.default(
+  config = jax_privacy.execution_plan.BandMFConfig.default(
       num_bands=1, iterations=100, expected_participations=1.0,
   )
   fine_tuner = DPFineTuner(
-      model_variant=model.GemmaModel.default('gemma3_270m_it'),
+      model_variant=model.GemmaModel.default('gemma4_e2b_it'),
       mechanism_config=config,
-  ).configure(zcdp_rho=0.5)
+  ).configure(budget=0.5)
 
   data = [("What is 2+2?", "4"), ("Capital of France?", "Paris")]
   final_state = fine_tuner(rng=42, data=data)
@@ -45,10 +45,11 @@ import dp_accounting
 from dpsynth import api
 from dpsynth.text import dp_trainer
 from dpsynth.text import model
-from gemma import gm
-from gemma import peft
+from flax import nnx
+import jax
+import jax.numpy as jnp
 from jax_privacy import execution_plan
-from jax_privacy import training
+from jax_privacy import noise_addition
 import optax
 
 
@@ -60,12 +61,10 @@ class FineTuneResult:
   excluded.
 
   Attributes:
-    model: The LoRA-wrapped model architecture.
-    params: Pretrained and trained LoRA parameters merged into a single tree.
+    model: The LoRA-wrapped model with trained parameters merged in.
   """
 
-  model: gm.nn.LoRA
-  params: training.Params
+  model: nnx.Module
 
 
 @dataclasses.dataclass(frozen=True)
@@ -85,16 +84,16 @@ class DPFineTuner(api.DPMechanism):
   optimizer: optax.GradientTransformation = dataclasses.field(
       default_factory=lambda: optax.adamw(1e-4)
   )
-  performance_flags: execution_plan.PerformanceFlags | None = None
+  microbatch_size: int | None = None
 
-  def configure(self, _=None, *, zcdp_rho, delta=0.0, max_records_per_user=1):
+  def configure(self, _=None, *, budget, delta=0.0):
     """Returns a copy with noise_multiplier calibrated to the zCDP budget.
 
-    Sets the noise_multiplier to satisfy ``zcdp_rho`` under a **loose upper
+    Sets the noise_multiplier to satisfy ``budget`` under a **loose upper
     bound** that ignores Poisson subsampling amplification: the unamplified
     composition of ``T`` Gaussian mechanisms with noise_multiplier ``sigma``
     has zCDP cost ``T / (2 * sigma**2)``, so we set
-    ``sigma = sqrt(T / (2 * rho))``.
+    ``sigma = sqrt(T / (2 * budget))``.
 
     This is deliberately conservative. The ``dp_event`` property returns the
     **full** event including subsampling amplification, so downstream callers
@@ -103,19 +102,16 @@ class DPFineTuner(api.DPMechanism):
     raw events -- not from this loose zCDP bound.
 
     Args:
-      zcdp_rho: The zCDP privacy budget (rho).
+      budget: The privacy budget.
       delta: Unused. Accepted for interface compatibility.
-      max_records_per_user: Maximum number of records per user.
 
     Returns:
       A new ``DPFineTuner`` with calibrated
       ``mechanism_config.noise_multiplier``.
     """
-    assert max_records_per_user == 1, 'max_records_per_user > 1 not supported.'
-
     num_bands = len(self.mechanism_config.strategy)  # pyrefly: ignore[bad-argument-type]
     rounds = math.ceil(self.mechanism_config.iterations / num_bands)
-    noise_multiplier = math.sqrt(rounds / (2.0 * zcdp_rho))
+    noise_multiplier = math.sqrt(rounds / (2.0 * budget))
     calibrated_config = dataclasses.replace(
         self.mechanism_config,
         noise_multiplier=noise_multiplier,
@@ -127,9 +123,7 @@ class DPFineTuner(api.DPMechanism):
     """The DpEvent characterizing the privacy cost of DP-SGD training."""
     if self.mechanism_config.noise_multiplier is None:
       raise ValueError('noise_multiplier is not set. Call calibrate() first.')
-    return self.mechanism_config.make(
-        performance_flags=self.performance_flags
-    ).dp_event
+    return self.mechanism_config.make().dp_event
 
   def __call__(
       self,
@@ -148,29 +142,48 @@ class DPFineTuner(api.DPMechanism):
     """
     dataset = model.tokenize_texts(
         data,
-        model_variant=self.model_variant,
         max_seq_length=self.max_seq_length,
     )
 
     lora_config = model.LoraConfig(rank=self.lora_rank)
-    module, frozen_params, trainable_params = model.load_gemma(
+    loaded_model = model.load_gemma(
         self.model_variant,
         lora_config,
     )
+    graphdef, trainable_params, frozen_params = nnx.split(
+        loaded_model, nnx.LoRAParam, ...
+    )
 
-    def loss_fn(trainable_params, batch, prng):
+    def loss_fn(params, data, prng):
       del prng  # Deterministic forward pass (no dropout during DP training).
-      full_params = peft.merge_params(frozen_params, trainable_params)
-      return model.sft_loss_fn(module, full_params, batch)
+      bf16_params = optax.tree.cast(params, jnp.bfloat16)
+      merged = nnx.merge(graphdef, bf16_params, frozen_params)
+      return model.sft_loss_fn(merged, data)
+
+    mesh = jax.sharding.get_mesh()
+    if not mesh.empty and 'replica' in mesh.axis_names:
+      perf = execution_plan.PerformanceFlags(
+          noise_seed=rng,
+          microbatch_size=self.microbatch_size,
+          batch_axis_name='replica',
+          intermediate_strategy=noise_addition.SupportedStrategies.ZERO,
+          param_specs=jax.tree.map(lambda x: x.sharding, trainable_params),
+      )
+    else:
+      perf = execution_plan.PerformanceFlags(
+          noise_seed=rng,
+          microbatch_size=self.microbatch_size,
+      )
 
     trainer = dp_trainer.DPTrainer(
         mechanism_config=self.mechanism_config,
-        init_params=trainable_params,
-        loss_fn=loss_fn,  # pyrefly: ignore[bad-argument-type]
+        init_params=optax.tree.cast(trainable_params, jnp.float32),
+        loss_fn=loss_fn,
         optimizer=self.optimizer,
-        performance_flags=self.performance_flags,
+        performance_flags=perf,
     )
     state = trainer(rng=rng, data=dataset)
 
-    merged = peft.merge_params(frozen_params, state.params)  # pyrefly: ignore[bad-argument-type]
-    return FineTuneResult(model=module, params=merged)
+    bf16_params = optax.tree.cast(state.params, jnp.bfloat16)
+    merged = nnx.merge(graphdef, bf16_params, frozen_params)
+    return FineTuneResult(model=merged)

@@ -47,10 +47,8 @@ class TabularTransformerConfig(api.MechanismConfig):
   emb_dim: int = 64
   dropout: float = 0.0
 
-  def configure(
-      self, _=None, *, zcdp_rho, delta=0, max_records_per_user=1
-  ) -> "TabularTransformer":
-    return TabularTransformer(config=self, zcdp_rho=zcdp_rho)
+  def configure(self, _=None, *, budget, delta=0) -> "TabularTransformer":
+    return TabularTransformer(config=self, zcdp_rho=budget)
 
   def __post_init__(self):
     if self.num_elements_per_feature is not None:
@@ -172,7 +170,7 @@ class TabularTransformerModel:
         mechanism_config=mechanism_config,
         optimizer=optax.adam(learning_rate),
         performance_flags=performance_flags,
-    ).configure(zcdp_rho=zcdp_rho if use_dp_sgd else float("inf"))
+    ).configure(budget=zcdp_rho if use_dp_sgd else float("inf"))
 
     final_state = trainer(rng=seed, data={"x": x_batch})
 
@@ -313,11 +311,11 @@ class TabularTransformer(api.CalibratedMechanism):
   )
 
   def configure(
-      self, _=None, *, zcdp_rho: float, delta: float = 0.0, **kwargs: typing.Any
+      self, _=None, *, budget: float, delta: float = 0.0, **kwargs: typing.Any
   ) -> "TabularTransformer":
     del delta, kwargs
-    new_obj = dataclasses.replace(self, zcdp_rho=zcdp_rho)
-    if zcdp_rho == float("inf"):
+    new_obj = dataclasses.replace(self, zcdp_rho=budget)
+    if budget == float("inf"):
       object.__setattr__(new_obj, "_configured_trainer", None)  # pylint: disable=protected-access
       return new_obj
 
@@ -337,7 +335,7 @@ class TabularTransformer(api.CalibratedMechanism):
         loss_fn=dummy_loss_fn,
         mechanism_config=mechanism_config,
         optimizer=optax.identity(),
-    ).configure(zcdp_rho=zcdp_rho)
+    ).configure(budget=budget)
 
     object.__setattr__(new_obj, "_configured_trainer", trainer)  # pylint: disable=protected-access
     return new_obj

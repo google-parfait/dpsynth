@@ -87,8 +87,8 @@ def main(argv):
       discrete_mechanism=discrete_mechanism,
       numerical_bins=8,
   )
-  # Configure with zcdp_rho = np.inf for non-DP mode.
-  calibrated_synth = synth.configure(domain_spec, zcdp_rho=np.inf)
+  # Configure with budget = np.inf for non-DP mode.
+  calibrated_synth = synth.configure(domain_spec, budget=np.inf)
 
   # 5. RUN SYNTHESIZER
   print(

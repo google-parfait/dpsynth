@@ -63,7 +63,7 @@ class SupportingCliquesSufficiencyTest(parameterized.TestCase):
     data = mbi.Dataset.synthetic(domain, N=500)
     rng = np.random.default_rng(42)
 
-    calibrated = mechanism.configure(zcdp_rho=_ZCDP_RHO)
+    calibrated = mechanism.configure(budget=_ZCDP_RHO)
     cliques = mechanism.supporting_cliques(domain)
 
     precomputed = common.precompute_marginals(data, cliques)
@@ -86,7 +86,7 @@ class CompressionPropertyTest(parameterized.TestCase):
     data = _make_skewed_dataset(rng)
     original_domain = data.domain
 
-    result = synth_config.configure(zcdp_rho=_ZCDP_RHO)(rng, data)
+    result = synth_config.configure(budget=_ZCDP_RHO)(rng, data)
 
     self.assertEqual(result.synthetic_data.domain, original_domain)
 
@@ -103,7 +103,7 @@ class CompressionPropertyTest(parameterized.TestCase):
         rng, data, [('a',), ('b',)], gdp_sigma=1.0
     )
 
-    mechanism = synth_config.configure(zcdp_rho=_ZCDP_RHO)
+    mechanism = synth_config.configure(budget=_ZCDP_RHO)
     result = mechanism(rng, data, initial_measurements=initial_measurements)
 
     self.assertEqual(result.synthetic_data.domain, original_domain)
@@ -121,39 +121,6 @@ class CalibrationTest(parameterized.TestCase):
     data = _make_skewed_dataset(rng)
     result = mechanism.calibrate(epsilon=1e-3, delta=1e-5)(rng, data)
     self.assertIsInstance(result, common.DiscreteMechanismResult)
-
-
-class MaxRecordsPerUserTest(parameterized.TestCase):
-  """Tests the user-level DP knob ``max_records_per_user``."""
-
-  @parameterized.named_parameters(*_MECHANISMS.items())
-  def test_dp_event_invariant_to_max_records_per_user(self, mechanism):
-    base = mechanism.configure(zcdp_rho=_ZCDP_RHO)
-    scaled = mechanism.configure(zcdp_rho=_ZCDP_RHO, max_records_per_user=4)
-    self.assertEqual(repr(scaled.dp_event), repr(base.dp_event))
-
-  @parameterized.named_parameters(
-      ('MST', _MECHANISMS['MST']),
-      ('Direct', _MECHANISMS['Direct']),
-  )
-  def test_measurement_stddev_scales_with_k(self, mechanism):
-    k = 4
-    data = _make_skewed_dataset(np.random.default_rng(0))
-    base = mechanism.configure(zcdp_rho=_ZCDP_RHO)(
-        np.random.default_rng(1), data
-    )
-    scaled = mechanism.configure(zcdp_rho=_ZCDP_RHO, max_records_per_user=k)(
-        np.random.default_rng(1), data
-    )
-    self.assertNotEmpty(base.measurements)
-    self.assertLen(scaled.measurements, len(base.measurements))
-    for base_m, scaled_m in zip(base.measurements, scaled.measurements):
-      self.assertAlmostEqual(scaled_m.stddev, k * base_m.stddev)
-
-  @parameterized.named_parameters(('zero', 0), ('negative', -3))
-  def test_invalid_k_raises(self, k):
-    with self.assertRaises(ValueError):
-      mst.MSTConfig().configure(zcdp_rho=_ZCDP_RHO, max_records_per_user=k)
 
 
 if __name__ == '__main__':

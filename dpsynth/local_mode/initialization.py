@@ -25,25 +25,36 @@ from dpsynth import domain
 from dpsynth.local_mode import primitives
 from dpsynth.local_mode import vectorized_transformations as vtx
 import numpy as np
-import scipy.stats
 
 
-def encode_to_grid(values, lower, upper, delta, **_):
+def encode_to_grid(values, lower, upper, delta, attribute=None, **_):
   """Maps finite value(s) to quantile-grid index/indices in [0, grid_size - 1].
 
   Clipping to ``[lower, upper]`` folds out-of-grid values into the boundary bins
   and guarantees the returned index stays in range. Polymorphic over scalars and
-  NumPy arrays; callers must handle NaN / out-of-domain filtering beforehand.
+  NumPy arrays; if ``attribute`` is provided, applies its ``standardize``
+  semantics in a vectorized manner first.
 
   Args:
-    values: A finite scalar or NumPy array of standardized numerical values.
+    values: A scalar or sequence/array of numerical values.
     lower: The inclusive lower bound of the candidate grid.
     upper: The inclusive upper bound of the candidate grid.
     delta: The spacing between adjacent grid points.
+    attribute: Optional ``NumericalAttribute`` used to standardize ``values``.
 
   Returns:
     The nearest grid index (or array of indices) as ``np.int64``.
   """
+  if attribute is not None:
+    values = np.asarray(values, dtype=float)
+    if attribute.clip_to_range:
+      values = np.where(np.isnan(values), attribute.min_value, values)
+    elif values.ndim > 0:
+      values = values[
+          (values >= attribute.min_value) & (values <= attribute.max_value)
+      ]
+    if attribute.dtype == 'int':
+      values = np.round(values)
   clamped = np.clip(values, lower, upper)
   return np.round((clamped - lower) / delta).astype(np.int64)
 
@@ -110,37 +121,50 @@ class NumericalInitializerConfig(api.MechanismConfig):
       deeper level of recursive bisection. Defaults to 1.0 (uniform budget split
       across levels). Setting to sqrt(2) approx 1.414 can provide minor accuracy
       gains on smooth continuous data.
+    quantile_budget_fraction: Fraction of the zCDP budget allocated to the
+      quantile tree; the remainder is allocated to the Gaussian mechanism for
+      measuring discretized bin counts. Defaults to 0.5.
   """
 
   num_partitions: int
   max_grid_size: int = 10_000_000
   epsilon_ratio: float = 1.0
+  quantile_budget_fraction: float = 0.5
 
   def __post_init__(self):
     if self.max_grid_size < 2:
       raise ValueError(f'max_grid_size must be >= 2, got {self.max_grid_size}.')
     if self.num_partitions >= self.max_grid_size:
       raise ValueError(f'{self.num_partitions=} >= {self.max_grid_size=}')
+    if not 0.0 < self.quantile_budget_fraction < 1.0:
+      raise ValueError(
+          'quantile_budget_fraction must be in (0, 1), got'
+          f' {self.quantile_budget_fraction}.'
+      )
 
-  def configure(
-      self, attribute=None, *, zcdp_rho, delta=0, max_records_per_user=1
-  ):
+  def configure(self, attribute=None, *, budget, delta=0):
     assert attribute is not None
-    api.validate_max_records_per_user(max_records_per_user)
 
     levels = int(np.log2(self.num_partitions))
     if 2**levels != self.num_partitions:
       raise ValueError(f'{self.num_partitions=} must be a power of 2.')
 
+    quantile_rho = budget * self.quantile_budget_fraction
+    count_rho = budget * (1.0 - self.quantile_budget_fraction)
     rho_ratio = self.epsilon_ratio**2
     budget_weights = rho_ratio ** np.arange(levels)[::-1]
-    rho_levels = zcdp_rho * budget_weights / budget_weights.sum()
+    rho_levels = quantile_rho * budget_weights / budget_weights.sum()
     eps = np.sqrt(8.0 * rho_levels)
+    if attribute.bin_edges is not None:
+      # Skip DP quantiles and allocate the full budget to bin counts.
+      eps = np.array([])
+      count_rho = budget
+    sigma = math.sqrt(0.5 / count_rho)
     return NumericalInitializer(
         config=self,
         attribute=attribute,
         epsilon_levels=tuple(eps.tolist()),
-        max_records_per_user=max_records_per_user,
+        sigma=sigma,
     )
 
 
@@ -151,11 +175,7 @@ class NumericalInitializer(api.CalibratedMechanism):
   config: NumericalInitializerConfig
   attribute: domain.NumericalAttribute
   epsilon_levels: tuple[float, ...]
-  max_records_per_user: int = 1
-
-  def __post_init__(self):
-    if self.max_records_per_user != 1:
-      raise NotImplementedError('max_records_per_user != 1 not yet supported.')
+  sigma: float
 
   @property
   def _num_levels(self) -> int:
@@ -172,43 +192,34 @@ class NumericalInitializer(api.CalibratedMechanism):
     return self.grid_spec[2]
 
   @property
-  def zcdp_rho(self) -> float:
-    return sum(e**2 / 8.0 for e in self.epsilon_levels)
-
-  @property
   def dp_event(self) -> dp_accounting.DpEvent:
-    """Returns the composed privacy event for the quantile computation."""
-    return dp_accounting.ComposedDpEvent([
+    """Returns the composed privacy event for quantiles and bin counts."""
+    events: list[dp_accounting.DpEvent] = [
         dp_accounting.ExponentialMechanismDpEvent(epsilon=float(eps))
         for eps in self.epsilon_levels
-    ])
+    ]
+    events.append(dp_accounting.GaussianDpEvent(noise_multiplier=self.sigma))
+    return dp_accounting.ComposedDpEvent(events)
 
   def __call__(
       self,
       rng: np.random.Generator,
       data: np.ndarray,
-      *,
-      estimated_total: float | None = None,
   ) -> NumericalMeasurement:
-    """Returns a NumericalMeasurement with the discretization transform."""
+    """Returns a NumericalMeasurement with the discretization and noisy counts."""
     counts = self._grid_histogram(data)
-    return self.from_summary(rng, counts, estimated_total=estimated_total)
+    ood_count = (
+        float(len(data) - counts.sum())
+        if not self.attribute.clip_to_range
+        else 0.0
+    )
+    return self.from_summary(rng, counts, ood_count=ood_count)
 
   def _grid_histogram(self, data):
     """Returns the quantile candidate-grid histogram (length grid_size)."""
-    # Applies NumericalAttribute.standardize semantics in a vectorized manner.
     lower, upper, gs = self.grid_spec
     delta = (upper - lower) / (gs - 1)
-    attr = self.attribute
-    values = np.asarray(data, dtype=float)
-    if attr.clip_to_range:
-      values = np.where(np.isnan(values), attr.min_value, values)
-    else:
-      in_domain = (values >= attr.min_value) & (values <= attr.max_value)
-      values = values[in_domain]
-    if attr.dtype == 'int':
-      values = np.round(values)
-    indices = encode_to_grid(values, lower, upper, delta)
+    indices = encode_to_grid(data, lower, upper, delta, self.attribute)
     return np.bincount(indices, minlength=gs)
 
   def from_summary(
@@ -216,36 +227,48 @@ class NumericalInitializer(api.CalibratedMechanism):
       rng: np.random.Generator,
       counts: np.ndarray,
       *,
-      estimated_total: float | None = None,
+      ood_count: float = 0.0,
   ) -> NumericalMeasurement:
     """Returns a NumericalMeasurement from pre-aggregated histogram counts."""
-    jitter_strategy = 'refine' if self.attribute.dtype == 'int' else 'symmetric'
-    indices = primitives.quantiles_from_histogram(
-        rng,
-        counts,
-        epsilon_levels=np.asarray(self.epsilon_levels),
-        jitter_strategy=jitter_strategy,
-        max_records_per_user=self.max_records_per_user,
-    )
     lower, upper, _ = self.grid_spec
     delta = (upper - lower) / max(1, np.asarray(counts).size - 1)
-    raw_edges = [lower + i * delta for i in indices]
+    if self.attribute.bin_edges is not None:
+      # Skip DP quantiles and aggregate the grid histogram at bin_edges.
+      raw_edges = self.attribute.bin_edges
+    else:
+      jitter_strategy = (
+          'refine' if self.attribute.dtype == 'int' else 'symmetric'
+      )
+      indices = primitives.quantiles_from_histogram(
+          rng,
+          counts,
+          epsilon_levels=np.asarray(self.epsilon_levels),
+          jitter_strategy=jitter_strategy,
+      )
+      raw_edges = [lower + i * delta for i in indices]
 
-    return edges_to_column_measurement(
+    cm = edges_to_column_measurement(
         raw_edges=raw_edges,
         attribute=self.attribute,
-        zcdp_rho=self.zcdp_rho,
-        estimated_total=estimated_total,
-        max_records_per_user=self.max_records_per_user,
+    )
+    splits = np.round((cm.bin_edges - lower) / delta).astype(np.int64) + 1
+    segments = np.split(np.asarray(counts, dtype=float), splits)
+    in_domain_counts = np.array([seg.sum() for seg in segments], dtype=float)
+    if self.attribute.clip_to_range:
+      bin_counts = in_domain_counts
+    else:
+      bin_counts = np.r_[ood_count, in_domain_counts]
+    noisy = primitives.gaussian_mechanism(
+        rng, bin_counts, sigma=self.sigma, l2_sensitivity=1.0
+    )
+    return dataclasses.replace(
+        cm, noisy_counts=np.asarray(noisy), stddev=self.sigma
     )
 
 
 def edges_to_column_measurement(
     raw_edges,
     attribute,
-    zcdp_rho,
-    estimated_total=None,
-    max_records_per_user=1,
 ) -> NumericalMeasurement:
   """Converts raw quantile edges into a NumericalMeasurement.
 
@@ -255,53 +278,28 @@ def edges_to_column_measurement(
   Args:
     raw_edges: Quantile edge values (unsorted duplicates are fine).
     attribute: The ``NumericalAttribute`` defining the data domain.
-    zcdp_rho: Total zCDP rho consumed by the quantile mechanism.
-    estimated_total: If provided, a heuristic one-way measurement is included.
-    max_records_per_user: Assumed upper bound on the number of records a single
-      user contributes.
 
   Returns:
-    A ``NumericalMeasurement`` with bin edges and optionally noisy counts.
+    A ``NumericalMeasurement`` with deduplicated bin edges.
   """
   raw_edges = np.asarray(raw_edges, dtype=float)
-  bin_edges, edge_counts = np.unique(raw_edges, return_counts=True)
-  max_val = attribute.max_value
-  if len(bin_edges) > 0 and bin_edges[-1] >= max_val:
-    tail_count = edge_counts[-1]
+  bin_edges = np.unique(raw_edges)
+  if len(bin_edges) > 0 and bin_edges[-1] >= attribute.max_value:
     bin_edges = bin_edges[:-1]
-    edge_counts = edge_counts[:-1]
-    bin_weights = np.append(edge_counts, tail_count + 1)
-  else:
-    bin_weights = np.append(edge_counts, 1)
   cat_attr = vtx.categorical_attribute_from_edges(bin_edges, attribute)
-
-  noisy_counts = None
-  stddev = np.nan
-  if estimated_total is not None:
-    if not attribute.clip_to_range:
-      bin_weights = np.r_[0, bin_weights]
-    noisy_counts = estimated_total * bin_weights / bin_weights.sum()
-    stddev = max_records_per_user / np.sqrt(zcdp_rho)
-
-  return NumericalMeasurement(
-      cat_attr, bin_edges, noisy_counts=noisy_counts, stddev=stddev
-  )
+  return NumericalMeasurement(cat_attr, bin_edges)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CategoricalInitializerConfig(api.MechanismConfig):
   """Configuration for initializing categorical attributes."""
 
-  def configure(
-      self, attribute=None, *, zcdp_rho, delta=0, max_records_per_user=1
-  ):
+  def configure(self, attribute=None, *, budget, delta=0):
     assert attribute is not None
-    api.validate_max_records_per_user(max_records_per_user)
     return CategoricalInitializer(
         config=self,
         attribute=attribute,
-        sigma=math.sqrt(0.5 / zcdp_rho),
-        max_records_per_user=max_records_per_user,
+        sigma=math.sqrt(0.5 / budget),
     )
 
 
@@ -312,7 +310,6 @@ class CategoricalInitializer(api.CalibratedMechanism):
   config: CategoricalInitializerConfig
   attribute: domain.CategoricalAttribute
   sigma: float
-  max_records_per_user: int = 1
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -331,12 +328,11 @@ class CategoricalInitializer(api.CalibratedMechanism):
       self, rng: np.random.Generator, counts: np.ndarray
   ) -> CategoricalMeasurement:
     """Returns a CategoricalMeasurement from pre-aggregated counts."""
-    noisy = primitives.add_gaussian_noise(
-        rng, counts, self.sigma, self.max_records_per_user
+    noisy = primitives.gaussian_mechanism(
+        rng, counts, sigma=self.sigma, l2_sensitivity=1.0
     )
-    stddev = self.max_records_per_user * self.sigma
     return CategoricalMeasurement(
-        self.attribute, noisy_counts=np.asarray(noisy), stddev=stddev
+        self.attribute, noisy_counts=np.asarray(noisy), stddev=self.sigma
     )
 
 
@@ -346,16 +342,12 @@ class OpenSetInitializerConfig(api.MechanismConfig):
 
   min_count: int = 1
 
-  def configure(
-      self, attribute=None, *, zcdp_rho, delta=0, max_records_per_user=1
-  ):
+  def configure(self, attribute=None, *, budget, delta=0):
     assert attribute is not None
-    api.validate_max_records_per_user(max_records_per_user)
     return OpenSetInitializer(
         config=self,
         attribute=attribute,
-        max_records_per_user=max_records_per_user,
-        sigma=math.sqrt(0.5 / zcdp_rho),
+        sigma=math.sqrt(0.5 / budget),
         delta=delta,
     )
 
@@ -366,7 +358,6 @@ class OpenSetInitializer(api.CalibratedMechanism):
 
   config: OpenSetInitializerConfig
   attribute: domain.OpenSetCategoricalAttribute
-  max_records_per_user: int = 1
   sigma: float
   delta: float
 
@@ -393,23 +384,15 @@ class OpenSetInitializer(api.CalibratedMechanism):
       counts: np.ndarray,
   ) -> OpenSetMeasurement:
     """Returns an OpenSetMeasurement from pre-aggregated value counts."""
-    above_min = counts >= self.config.min_count
-    eligible_idx = np.where(above_min)[0]
-    eligible_counts = counts[above_min].astype(float)
-
-    noisy = primitives.add_gaussian_noise(
-        rng, eligible_counts, self.sigma, self.max_records_per_user
+    selected_partitions, estimated_counts = primitives.gaussian_thresholding(
+        rng,
+        counts,
+        sigma=self.sigma,
+        delta=self.delta,
+        l2_sensitivity=1.0,
+        linf_sensitivity=1.0,
+        min_count=self.config.min_count,
     )
-    noisy_counts = np.asarray(noisy)
-
-    stddev = self.max_records_per_user * self.sigma
-    base = float(self.max_records_per_user + self.config.min_count - 1)
-    threshold = base + stddev * scipy.stats.norm.ppf(1.0 - self.delta)
-    passed = noisy_counts >= threshold
-
-    selected_partitions = eligible_idx[passed]
-    estimated_counts = noisy_counts[passed]
-
     selected_values = np.array(
         [str(v) for v in unique_values[selected_partitions]]
     )
@@ -420,7 +403,7 @@ class OpenSetInitializer(api.CalibratedMechanism):
           rng,
           selected_values,
           estimated_counts,
-          stddev,
+          self.sigma,
           pub,
       )
 
@@ -429,5 +412,5 @@ class OpenSetInitializer(api.CalibratedMechanism):
     cat_attr = domain.CategoricalAttribute(possible_values)
 
     return OpenSetMeasurement(
-        cat_attr, noisy_counts=estimated_counts, stddev=stddev
+        cat_attr, noisy_counts=estimated_counts, stddev=self.sigma
     )

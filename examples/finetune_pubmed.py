@@ -36,20 +36,14 @@ import datasets
 from dpsynth.text import dp_sft
 from dpsynth.text import model
 from etils import epath
-from gemma import gm
-from gemma import peft
 import jax
 from jax_privacy import execution_plan
-from kauldron import kd
 import optax
 
 _MODEL = flags.DEFINE_enum(
     'model',
-    'gemma3_270m_it',
+    'gemma4_e2b_it',
     [
-        'gemma3_270m_it',
-        'gemma3_1b_it',
-        'gemma3_4b_it',
         'gemma4_e2b_it',
         'gemma4_e4b_it',
     ],
@@ -133,9 +127,7 @@ def train() -> dp_sft.FineTuneResult:
       lora_rank=_LORA_RANK.value,
       max_seq_length=_MAX_SEQ_LENGTH.value,
       optimizer=optax.adamw(_LEARNING_RATE.value),
-      performance_flags=execution_plan.PerformanceFlags(
-          microbatch_size=_MICROBATCH_SIZE.value
-      ),
+      microbatch_size=_MICROBATCH_SIZE.value,
   ).calibrate(epsilon=_EPSILON.value, delta=_DELTA.value)
 
   logging.info('DP fine-tuning on %d abstracts...', len(train_data))
@@ -151,23 +143,19 @@ def load_finetuned() -> dp_sft.FineTuneResult:
   Returns:
     A FineTuneResult holding the reconstructed model and loaded params.
   """
-  module, base_params, lora_params = model.load_gemma(
+  loaded = model.load_gemma(
       _model_variant(),
       model.LoraConfig(rank=_LORA_RANK.value),
       checkpoint_path=_ckpt_dir(),
-      sharding=kd.sharding.FSDPSharding(),
   )
-  return dp_sft.FineTuneResult(
-      model=module,
-      params=peft.merge_params(base_params, lora_params),
-  )
+  return dp_sft.FineTuneResult(model=loaded)
 
 
 def sample(result: dp_sft.FineTuneResult) -> None:
   """Generates synthetic abstracts and writes them to <workdir> as JSONL."""
   sampler = model.GemmaSampler(
       model=result.model,
-      params=result.params,
+      model_variant=_model_variant(),
       max_seq_length=_MAX_SEQ_LENGTH.value,
       temperature=_TEMPERATURE.value,
   )
@@ -200,11 +188,7 @@ def main(_) -> None:
 
   if _TRAIN.value:
     result = train()
-    gm.ckpts.save_params(
-        typing.cast(typing.Mapping[str, typing.Any], result.params),
-        _ckpt_dir(),
-        wait_until_finished=True,
-    )
+    model.save_lora_params(result.model, _ckpt_dir())
     logging.info('Saved fine-tuned model to %s.', _ckpt_dir())
   else:
     result = load_finetuned()

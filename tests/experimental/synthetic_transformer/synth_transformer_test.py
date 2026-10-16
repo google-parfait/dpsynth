@@ -330,7 +330,7 @@ class TabularTransformerTest(absltest.TestCase):
     )
 
     # Calibrate it
-    mechanism = mechanism.configure(zcdp_rho=1.0)
+    mechanism = mechanism.configure(budget=1.0)
     self.assertEqual(mechanism.zcdp_rho, 1.0)
 
     # Run the mechanism
@@ -431,13 +431,13 @@ class TabularTransformerTest(absltest.TestCase):
     )
 
     # 1. Non-private configuration
-    non_private_mechanism = mechanism.configure(zcdp_rho=float("inf"))
+    non_private_mechanism = mechanism.configure(budget=float("inf"))
     self.assertIsInstance(
         non_private_mechanism.dp_event, dp_accounting.NonPrivateDpEvent
     )
 
     # 2. Private configuration
-    private_mechanism = mechanism.configure(zcdp_rho=1.0)
+    private_mechanism = mechanism.configure(budget=1.0)
     # The returned event should be the precise composed event from JAX Privacy,
     # which is not a simple ZCDpEvent.
     self.assertIsInstance(private_mechanism.dp_event, dp_accounting.DpEvent)

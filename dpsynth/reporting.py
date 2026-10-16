@@ -19,10 +19,15 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 import dataclasses
 import functools
+from typing import TypeAlias
 
 import dp_accounting
+import numpy as np
+
+Pair: TypeAlias = tuple[float, float]
 
 DEFAULT_TARGET_DELTAS = (1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3)
+DEFAULT_TARGET_FPRS = (1e-5, 1e-4, 1e-3, 1e-2, 0.05, 0.1, 0.2, 0.5)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -30,15 +35,17 @@ class PrivacyReport:
   """Privacy guarantees computed from a differential privacy event.
 
   This dataclass is intended to provide a comprehensive summary of the privacy
-  guarantees of a given mechanism, rather than distilling the the guarantees to
-  a single (epsilon, delta) pair. This dataclass is likely to expand over time
-  to include additional metrics, trade-off curves, and other information that is
+  guarantees of a given mechanism, rather than distilling the guarantees to a
+  single (epsilon, delta) pair. This dataclass is likely to expand over time to
+  include additional metrics, trade-off curves, and other information that is
   helpful to characterize the privacy properties of a mechanism.
   """
 
   dp_event: dp_accounting.DpEvent
-  epsilon_deltas: tuple[tuple[float, float], ...]
+  epsilon_deltas: tuple[Pair, ...]
   gdp_estimate: float | None = None
+  trade_off_curve: tuple[Pair, ...] | None = None
+  notes: str | None = None
   # All mechanisms in dpsynth assume the ADD_OR_REMOVE_ONE neighboring relation.
   neighboring_relation: str = 'ADD_OR_REMOVE_ONE'
 
@@ -48,22 +55,37 @@ class PrivacyReport:
       event: dp_accounting.DpEvent,
       *,
       target_deltas: float | Sequence[float] = DEFAULT_TARGET_DELTAS,
+      target_false_positive_rates: Sequence[float] | None = DEFAULT_TARGET_FPRS,
       orders: Sequence[float] | None = None,
       value_discretization_interval: float | None = None,
+      notes: str | None = None,
   ) -> 'PrivacyReport':
     """Computes a PrivacyReport from a DpEvent.
 
     Evaluates privacy guarantees across multiple evaluation points taking the
     tightest (minimum) epsilon across supported accountants (PLD and RDP).
-    Computes the Gaussian Differential Privacy (GDP) parameter estimate via PLD
-    when supported.
+    Computes the Gaussian Differential Privacy (GDP) parameter estimate and
+    hypothesis testing trade-off curve (TPR vs. FPR) via PLD when supported.
+
+    Example:
+      >>> event = dp_accounting.GaussianDpEvent(noise_multiplier=10.0)
+      >>> report = PrivacyReport.from_dp_event(
+      ...     event,
+      ...     notes='Column bounds were computed from raw data without DP.',
+      ... )
+      >>> report.notes
+      'Column bounds were computed from raw data without DP.'
 
     Args:
       event: The DpEvent to analyze.
       target_deltas: Evaluation delta(s) for (epsilon, delta)-DP.
+      target_false_positive_rates: Optional evaluation FPRs for hypothesis
+        testing trade-off curve (TPR vs. FPR).
       orders: Optional Renyi differential privacy orders for RdpAccountant.
       value_discretization_interval: Optional discretization interval for
         PLDAccountant.
+      notes: Optional string capturing custom notes or non-DP disclosures about
+        the privacy guarantee.
 
     Returns:
       A PrivacyReport containing computed privacy guarantees.
@@ -94,15 +116,29 @@ class PrivacyReport:
     best_epsilons = [min(e) for e in zip(rdp_epsilons, pld_epsilons)]
 
     try:
-      gdp_estimate = pld_acc().compose(event).get_gdp_parameter_estimate()
+      pld_accountant = pld_acc().compose(event)
+      gdp_estimate = pld_accountant.get_gdp_parameter_estimate()
     except (dp_accounting.UnsupportedEventError, NotImplementedError):
+      pld_accountant = None
       gdp_estimate = None
 
+    trade_off_curve = None
+    if pld_accountant is not None and target_false_positive_rates is not None:
+      target_fprs = [float(x) for x in target_false_positive_rates]
+      assert all(0 <= f <= 1 for f in target_fprs), 'FPRs must be in [0, 1]'
+      try:
+        tprs = pld_accountant.get_true_positive_rates(np.asarray(target_fprs))
+        tpr_list = [float(t) for t in tprs]
+        trade_off_curve = tuple(zip(tpr_list, target_fprs))
+      except (dp_accounting.UnsupportedEventError, NotImplementedError):
+        trade_off_curve = None
 
     return cls(
         dp_event=event,
         epsilon_deltas=tuple(zip(best_epsilons, target_deltas)),
-        gdp_estimate=float(gdp_estimate) if gdp_estimate else None,
+        gdp_estimate=float(gdp_estimate) if gdp_estimate is not None else None,
+        trade_off_curve=trade_off_curve,
+        notes=notes,
     )
 
 

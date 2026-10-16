@@ -50,11 +50,6 @@ jax.tree_util.register_dataclass(
     data_fields=["bin_edges", "noisy_counts"],
     meta_fields=["categorical_attribute", "stddev"],
 )
-jax.tree_util.register_dataclass(
-    mbi.Dataset,
-    data_fields=["data", "weights"],
-    meta_fields=["domain"],
-)
 
 
 @contextlib.contextmanager

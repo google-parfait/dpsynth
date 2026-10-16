@@ -78,7 +78,7 @@ class MSTTest(absltest.TestCase):
     """MST + externally-supplied 1-ways should recover all one-way marginals."""
     data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
 
-    calibrated = mst.MSTConfig(pgm_iters=500).configure(zcdp_rho=10000)
+    calibrated = mst.MSTConfig(pgm_iters=500).configure(budget=10000)
 
     # One-way marginals are now supplied externally by the synthesizer layer.
     # Simulate that by constructing them here with near-zero noise.
@@ -109,7 +109,7 @@ class MSTTest(absltest.TestCase):
       np.testing.assert_allclose(actual, expected, atol=1)
 
   def test_dp_event_returns_zcdp(self):
-    config = mst.MSTConfig().configure(zcdp_rho=1.0)
+    config = mst.MSTConfig().configure(budget=1.0)
     event = config.dp_event
     self.assertIsInstance(event, dp_accounting.ZCDpEvent)
 

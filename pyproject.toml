@@ -57,8 +57,9 @@ dev = [
 ]
 text = [
     "flax",
-    "gemma",
-    "google-genai",
+    "google-tunix",
+    "qwix",
+    "google-genai>=2.0",
     "jax-privacy @ git+https://github.com/google-deepmind/jax_privacy.git",
     "optax",
 ]
@@ -95,3 +96,9 @@ project-includes = [
 ]
 preset = "basic"
 
+
+[tool.uv]
+override-dependencies = [
+    "typing-extensions>=4.14.0",
+    "tokenizers>=0.20.0",
+]

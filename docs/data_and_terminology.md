@@ -5,17 +5,17 @@
 [TOC]
 
 To generate high-fidelity synthetic data while satisfying differential privacy,
-**DPSynth** relies on precise metadata definitions for every column in your
-dataset. This page introduces core terminology, explains the three attribute
-types supported by the mathematical engine, and details how to structure a
-`domain.yaml` specification.
+**DPSynth** relies on precise metadata definitions for every attribute in your
+dataset. This page introduces core terminology for structured schemas, explains
+the attribute types supported by `dpsynth.domain`, and details how to structure
+a `domain.yaml` specification.
 
 --------------------------------------------------------------------------------
 
 ## Core Terminology
 
-*   **Record**: A single entity or tuple of values in a tabular dataset (e.g., a
-    row in a CSV file or SQL table, or an individual Protocol Buffer message).
+*   **Record**: A single entity or tuple of values in a dataset (e.g., a row in
+    a CSV file or SQL table, or an individual Protocol Buffer message).
 *   **Attribute (Column)**: A distinct feature across records (e.g., `age`,
     `education`, `income`).
 *   **Domain**: The mathematical support or set of valid values for an
@@ -27,18 +27,23 @@ types supported by the mathematical engine, and details how to structure a
 
 --------------------------------------------------------------------------------
 
-## Input Data Format
+## Input Data Format (Single-Table Tabular APIs)
 
-DPSynth works with the structured data with the following requirements:
+While DPSynth also provides dedicated mechanisms for multi-table relational
+data (`dpsynth.relational`) and hierarchical nested data
+(`dpsynth.experimental.nested`), the single-table tabular APIs
+(`dpsynth.TabularConfig` and `dpsynth.data_generation`) work with structured
+data satisfying the following requirements:
 
 ### 1. Flat Tabular Structure
 
-*   **Single-Table**: The dataset must represent a single flat table of records.
-    Multi-table relationships or star-schemas must be pre-flattened/joined
-    before ingestion.
-*   **No Hierarchical Arrays**: Columns containing **repeated fields, arrays, or
-    lists** (e.g., a repeated proto field or JSON lists) are **strictly
-    unsupported** and will be ignored during parsing.
+*   **Single-Table**: For the single-table tabular APIs, the dataset must
+    represent a single flat table of records (for multi-table star or snowflake
+    schemas, use `dpsynth.relational.MultiTableConfig`).
+*   **No Hierarchical Arrays**: In the distributed tabular pipeline, columns
+    containing **repeated fields, arrays, or lists** (e.g., a repeated proto
+    field or JSON lists) are ignored during parsing (for 1-to-many nested lists,
+    see `dpsynth.experimental.nested`).
 *   **No Unions**: Protobuf `oneof` fields or dynamically typed union columns
     are **unsupported**.
 
@@ -47,8 +52,9 @@ DPSynth works with the structured data with the following requirements:
 Each column must map to one of the following supported scalar data types: *
 **Integer (`INT`)**: Ordinal or discrete integer keys. * **Float (`FLOAT`)**:
 Continuous floating-point values. * **String (`STR`)**: Closed-set or open-set
-string categories. * **Boolean (`BOOL`)**: True/False binary flags. * **Enum
-(`ENUM`)**: Named integer-backed categorical categories (Protobuf enums).
+string categories, or free-form text. * **Boolean (`BOOL`)**: True/False binary
+flags. * **Enum (`ENUM`)**: Named integer-backed categorical categories
+(Protobuf enums).
 
 ### 3. Record Independence (Differential Privacy Assumption)
 
@@ -56,7 +62,7 @@ It is assumed that each **record** comes from different **privacy unit**.
 
 ## Supported Attribute Classifications
 
-DPSynth classifies every attribute into one of three types:
+DPSynth classifies attributes in `dpsynth.domain` into four types:
 
 ### 1. `CategoricalAttribute` (Known Finite Domain)
 
@@ -73,6 +79,12 @@ DPSynth can deduce values with Differential Privacy.
 
 Used for continuous floating-point values or ordered integers (e.g., age,
 salary, transaction amounts).
+
+### 4. `FreeFormTextAttribute` (Unstructured Text)
+
+Used for unstructured natural language fields (e.g., reviews, messages, or
+notes) that can be synthesized alone or jointly alongside structured tabular
+attributes.
 
 --------------------------------------------------------------------------------
 

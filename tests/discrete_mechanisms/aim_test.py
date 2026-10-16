@@ -36,13 +36,13 @@ def _normalized_l1(data, model, clique):
 
 
 def _correlated_workload_mechanism_baseline_errors(
-    config, baseline_config, workload, zcdp_rho=5.0
+    config, baseline_config, workload, budget=5.0
 ):
   rng = np.random.default_rng(0)
   data = _make_correlated_dataset(rng)
 
-  mechanism_result = config.configure(zcdp_rho=zcdp_rho)(rng, data)
-  baseline_result = baseline_config.configure(zcdp_rho=zcdp_rho)(rng, data)
+  mechanism_result = config.configure(budget=budget)(rng, data)
+  baseline_result = baseline_config.configure(budget=budget)(rng, data)
 
   mechanism_error = np.mean([
       _normalized_l1(data, mechanism_result.model, clique)
@@ -61,7 +61,7 @@ class AIMTest(absltest.TestCase):
     workload = [("a",), ("b",), ("c",)]
     config = aim.AIMConfig(workload=workload, max_rounds=4, pgm_iters=500)
 
-    calibrated = config.configure(zcdp_rho=10000)
+    calibrated = config.configure(budget=10000)
     result = calibrated(np.random.default_rng(0), data)
 
     self.assertIsInstance(result, common.DiscreteMechanismResult)
@@ -74,6 +74,14 @@ class AIMTest(absltest.TestCase):
   def test_default_configuration_values(self):
     config = aim.AIMConfig()
     self.assertEqual(config.pgm_iters, 1000)
+
+  def test_workload_degree(self):
+    domain = mbi.Domain(["a", "b", "c"], [3, 3, 3])
+    config = aim.AIMConfig(degree=2)
+    self.assertCountEqual(
+        config.supporting_cliques(domain),
+        [("a", "b"), ("a", "c"), ("b", "c")],
+    )
 
 
 if __name__ == "__main__":

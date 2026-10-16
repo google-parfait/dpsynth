@@ -62,7 +62,7 @@ class DPTrainerTest(absltest.TestCase):
         loss_fn=loss_fn,
         mechanism_config=self.dpsgd_config,
         optimizer=optax.adamw(1e-4),
-    ).configure(zcdp_rho=0.5)
+    ).configure(budget=0.5)
     # Single band: sigma = sqrt(T / (2 * rho)) = 10.
     self.assertAlmostEqual(trainer.mechanism_config.noise_multiplier, 10.0)
     self.assertIsNotNone(trainer.dp_event)
@@ -105,7 +105,7 @@ class DPTrainerTest(absltest.TestCase):
         loss_fn=loss_fn,
         mechanism_config=full_batch_config,
         optimizer=optax.adamw(1e-4),
-    ).configure(zcdp_rho=1.0)
+    ).configure(budget=1.0)
 
     train_state = trainer(rng=42, data={'x': jnp.ones((10, 4, 4))})
     self.assertIsNotNone(train_state)
@@ -121,7 +121,7 @@ class DPTrainerTest(absltest.TestCase):
         loss_fn=loss_fn,
         mechanism_config=non_private_config,
         optimizer=optax.adamw(1e-4),
-    ).configure(zcdp_rho=float('inf'))
+    ).configure(budget=float('inf'))
 
     self.assertIsInstance(trainer.dp_event, dp_accounting.NonPrivateDpEvent)
     train_state = trainer(rng=42, data={'x': jnp.ones((10, 4, 4))})
