@@ -13,8 +13,11 @@
 # limitations under the License.
 
 
+import dataclasses
+
 from absl.testing import absltest
 import dp_accounting
+import dpsynth
 from dpsynth.text import dp_trainer
 from flax import nnx
 import grain.python as grain
@@ -145,6 +148,90 @@ class DPTrainerTest(absltest.TestCase):
     ds = grain.MapDataset.source([{'x': np.ones((4, 4))} for _ in range(6)])
     train_state = trainer(rng=42, data=ds)
     self.assertIsNotNone(train_state)
+
+  def test_checkpoint_resumes_mid_training_and_skips_completed(self):
+    ckpt_dir = self.create_tempdir().full_path
+    params, loss_fn = _dummy_params_and_loss()
+    data = {'x': jnp.arange(128, dtype=jnp.float32).reshape((8, 4, 4))}
+    mech_config = jax_privacy.execution_plan.BandMFConfig.default(
+        num_bands=2,
+        iterations=6,
+        expected_participations=3,
+        l2_clip_norm=1.0,
+    )
+    base_trainer = dp_trainer.DPTrainer(
+        init_params=params,
+        loss_fn=loss_fn,
+        mechanism_config=mech_config,
+        optimizer=optax.adamw(1e-2),
+        checkpoint_every=2,
+    ).configure(budget=1.0)
+
+    # Uninterrupted reference run without checkpointing.
+    expected = base_trainer(rng=42, data=data)
+
+    # First run inside dpsynth.checkpoint: simulate preemption after step 4.
+    steps_run_1 = []
+
+    def interrupt_at_4(step, state, aux):
+      del state, aux
+      steps_run_1.append(step)
+      if step == 4:
+        raise RuntimeError('Simulated preemption at step 4')
+
+    interrupted_trainer = dataclasses.replace(
+        base_trainer, callback=interrupt_at_4
+    )
+    with self.assertRaises(RuntimeError):
+      with dpsynth.checkpoint(ckpt_dir):
+        interrupted_trainer(rng=42, data=data)
+    self.assertEqual(steps_run_1, [1, 2, 3, 4])
+
+    # Second run: resumes from step 4 checkpoint and executes only steps 5..6.
+    steps_run_2 = []
+    resumed_trainer = dataclasses.replace(
+        base_trainer, callback=lambda step, s, a: steps_run_2.append(step)
+    )
+    with dpsynth.checkpoint(ckpt_dir):
+      resumed = resumed_trainer(rng=42, data=data)
+    self.assertEqual(steps_run_2, [5, 6])
+    np.testing.assert_allclose(
+        resumed.params['w'], expected.params['w'], rtol=1e-5
+    )
+
+    # Third run: restores final step 6 checkpoint and executes 0 steps.
+    steps_run_3 = []
+    cached_trainer = dataclasses.replace(
+        base_trainer, callback=lambda step, s, a: steps_run_3.append(step)
+    )
+    with dpsynth.checkpoint(ckpt_dir):
+      cached = cached_trainer(rng=42, data=data)
+    self.assertEqual(steps_run_3, [])
+    np.testing.assert_allclose(
+        cached.params['w'], expected.params['w'], rtol=1e-5
+    )
+
+  def test_checkpoint_single_band_zero_size_noise_state(self):
+    ckpt_dir = self.create_tempdir().full_path
+    params, loss_fn = _dummy_params_and_loss()
+    data = {'x': jnp.ones((4, 4, 4))}
+    mech_config = jax_privacy.execution_plan.BandMFConfig.default(
+        num_bands=1,
+        iterations=3,
+        expected_participations=3,
+        l2_clip_norm=1.0,
+    )
+    trainer = dp_trainer.DPTrainer(
+        init_params=params,
+        loss_fn=loss_fn,
+        mechanism_config=mech_config,
+        optimizer=optax.adamw(1e-2),
+        checkpoint_every=2,
+    ).configure(budget=1.0)
+    with dpsynth.checkpoint(ckpt_dir):
+      first = trainer(rng=7, data=data)
+      second = trainer(rng=7, data=data)
+    np.testing.assert_allclose(first.params['w'], second.params['w'], rtol=1e-5)
 
 
 if __name__ == '__main__':

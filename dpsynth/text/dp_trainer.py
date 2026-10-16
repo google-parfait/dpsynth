@@ -55,6 +55,7 @@ import typing
 
 from absl import logging
 import dp_accounting
+from dpsynth import _checkpoint
 from dpsynth import api
 import grain.python as grain
 from jax_privacy import execution_plan
@@ -90,6 +91,8 @@ class DPTrainer(api.DPMechanism):
     performance_flags: Optional ``PerformanceFlags`` for microbatching, SPMD,
       compute dtype, and noise generation.
     callback: Optional ``(step, state, aux) -> None`` called after each step.
+    checkpoint_every: Step interval for saving Orbax training checkpoints when
+      running inside a ``dpsynth.checkpoint(...)`` context.
   """
 
   init_params: training.Params
@@ -98,6 +101,7 @@ class DPTrainer(api.DPMechanism):
   optimizer: optax.GradientTransformation
   performance_flags: execution_plan.PerformanceFlags | None = None
   callback: training.CallbackFn | None = None
+  checkpoint_every: int = 100
 
   def configure(self, _=None, *, budget, delta=0.0):
     """Returns a copy with noise calibrated to the zCDP budget.
@@ -165,17 +169,25 @@ class DPTrainer(api.DPMechanism):
       d['strategy'] = [float(x) for x in cfg.strategy]
     logging.info('DPTrainer config:\n%s', json.dumps(d, indent=2))
 
-    dp_trainer = training.DPTrainer(
+    perf = self.performance_flags or execution_plan.PerformanceFlags()
+    if perf.noise_seed is None:
+      perf = dataclasses.replace(perf, noise_seed=rng)
+
+    trainer = training.DPTrainer(
         config=self.mechanism_config,
-        performance_flags=(
-            self.performance_flags or execution_plan.PerformanceFlags()
-        ),
+        performance_flags=perf,
         loss_fn=self.loss_fn,
         optimizer=self.optimizer,
     )
-    return dp_trainer.fit(
-        data,
+    with _checkpoint.orbax_session(
+        trainer.init,
         self.init_params,
+        checkpoint_every=self.checkpoint_every,
         callback=self.callback,
-        rng_or_seed=rng,
-    )
+    ) as (initial_state, callback):
+      return trainer.fit(
+          data,
+          initial_state,
+          callback=callback,
+          rng_or_seed=rng,
+      )

@@ -88,6 +88,7 @@ class DPFineTuner(api.DPMechanism):
       default_factory=lambda: optax.adamw(1e-4)
   )
   microbatch_size: int | None = None
+  checkpoint_every: int = 100
 
   def configure(self, _=None, *, budget, delta=0.0):
     """Returns a copy with noise_multiplier calibrated to the zCDP budget.
@@ -172,7 +173,6 @@ class DPFineTuner(api.DPMechanism):
     mesh = jax.sharding.get_mesh()
     if not mesh.empty and 'replica' in mesh.axis_names:
       perf = execution_plan.PerformanceFlags(
-          noise_seed=rng,
           microbatch_size=self.microbatch_size,
           batch_axis_name='replica',
           intermediate_strategy=noise_addition.SupportedStrategies.ZERO,
@@ -180,7 +180,6 @@ class DPFineTuner(api.DPMechanism):
       )
     else:
       perf = execution_plan.PerformanceFlags(
-          noise_seed=rng,
           microbatch_size=self.microbatch_size,
       )
 
@@ -190,6 +189,7 @@ class DPFineTuner(api.DPMechanism):
         loss_fn=loss_fn,
         optimizer=self.optimizer,
         performance_flags=perf,
+        checkpoint_every=self.checkpoint_every,
     )
     state = trainer(rng=rng, data=dataset)
 
