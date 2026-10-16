@@ -74,12 +74,25 @@ def make_mesh(tp: int = 1) -> jax.sharding.Mesh:
   if n % tp != 0:
     raise ValueError(f'device_count {n} must be divisible by tp={tp}.')
   shape = (n // tp, 1, tp)
+  raw_devices = jax.devices()
+  # On multi-slice topologies, create_device_mesh fails because device coords
+  # repeat across slices; create_hybrid_device_mesh keeps tensor parallelism
+  # ('tp') within each slice and spans data-parallel replicas across slices.
+  num_slices = len({getattr(d, 'slice_index', 0) for d in raw_devices})
   try:
-    devices = mesh_utils.create_device_mesh(
-        shape, allow_split_physical_axes=True
-    )
+    if num_slices > 1:
+      devices = mesh_utils.create_hybrid_device_mesh(
+          mesh_shape=(n // (num_slices * tp), 1, tp),
+          dcn_mesh_shape=(num_slices, 1, 1),
+          devices=raw_devices,
+          allow_split_physical_axes=True,
+      )
+    else:
+      devices = mesh_utils.create_device_mesh(
+          shape, raw_devices, allow_split_physical_axes=True
+      )
   except (ValueError, NotImplementedError, RuntimeError, AssertionError):
-    devices = np.asarray(jax.devices()).reshape(shape)
+    devices = np.asarray(raw_devices).reshape(shape)
   return jax.sharding.Mesh(devices, axis_names=('replica', 'fsdp', 'tp'))
 
 
