@@ -56,6 +56,7 @@ import typing
 from absl import logging
 import dp_accounting
 from dpsynth import api
+import grain.python as grain
 from jax_privacy import execution_plan
 from jax_privacy import training
 import optax
@@ -137,13 +138,17 @@ class DPTrainer(api.DPMechanism):
   def _make_plan(self) -> execution_plan.DPExecutionPlan:
     return self.mechanism_config.make(performance_flags=self.performance_flags)
 
-  def __call__(self, rng: int, data: training.Batch) -> training.TrainingState:
+  def __call__(
+      self,
+      rng: int,
+      data: optax.ArrayTree | grain.MapDataset,
+  ) -> training.TrainingState:
     """Runs DP-SGD training on the given dataset.
 
     Args:
       rng: Random seed for batch selection and noise generation.
-      data: Training data as a dict of JAX arrays. The first axis of each array
-        is the example axis.
+      data: Training data as a dict of JAX arrays or a ``grain.MapDataset``.
+        When passing arrays, the first axis of each array is the example axis.
 
     Returns:
       Final ``TrainingState`` containing the trained parameters.

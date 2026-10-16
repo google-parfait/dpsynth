@@ -39,6 +39,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 import dataclasses
+import functools
 import math
 
 import dp_accounting
@@ -46,10 +47,12 @@ from dpsynth import api
 from dpsynth.text import dp_trainer
 from dpsynth.text import model
 from flax import nnx
+import grain.python as grain
 import jax
 import jax.numpy as jnp
 from jax_privacy import execution_plan
 from jax_privacy import noise_addition
+import numpy as np
 import optax
 
 
@@ -128,22 +131,28 @@ class DPFineTuner(api.DPMechanism):
   def __call__(
       self,
       rng: int,
-      data: Sequence[tuple[str, str]],
+      data: Sequence[tuple[str, str]] | grain.MapDataset,
   ) -> FineTuneResult:
     """Tokenizes text, loads the model, and runs DP-SGD fine-tuning.
 
     Args:
       rng: Random seed for batch selection and noise generation.
-      data: Sequence of ``(prompt, response)`` string pairs.
+      data: Sequence or ``grain.MapDataset`` of ``(prompt, response)`` string
+        pairs.
 
     Returns:
       A ``FineTuneResult`` with the trained model and merged LoRA parameters.
       Private training state (noise, optimizer) is not exposed.
     """
-    dataset = model.tokenize_texts(
-        data,
-        max_seq_length=self.max_seq_length,
+    # 1-to-1 per-record mapping preserves record-level differential privacy.
+    tok_fn = functools.partial(
+        model.tokenize_example, max_seq_length=self.max_seq_length
     )
+    if isinstance(data, grain.MapDataset):
+      dataset = data.map(tok_fn)
+    else:
+      records = [tok_fn(ex) for ex in data]
+      dataset = jax.tree.map(lambda *xs: np.stack(xs), *records)
 
     lora_config = model.LoraConfig(rank=self.lora_rank)
     loaded_model = model.load_gemma(

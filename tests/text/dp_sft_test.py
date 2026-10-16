@@ -20,13 +20,16 @@ without loading any real model checkpoints.
 
 import dataclasses
 import math
+from unittest import mock
 
 from absl.testing import absltest
 from dpsynth.text import dp_sft
 from dpsynth.text import model
 from flax import nnx
+import grain.python as grain
 import jax
 import jax.numpy as jnp
+import jax_privacy
 from jax_privacy import execution_plan
 
 
@@ -198,6 +201,105 @@ class DPFineTunerTest(absltest.TestCase):
     ).configure(budget=0.5)
     event = mechanism.dp_event
     self.assertIsNotNone(event)
+
+  def test_map_dataset_lazy_tokenization(self):
+    class _TinyLoraModel(nnx.Module):
+
+      def __init__(self, rngs: nnx.Rngs):
+        self.embed = nnx.Embed(8, 4, rngs=rngs)
+        self.lora = nnx.LoRA(
+            4, 2, 8, base_module=nnx.Linear(4, 8, rngs=rngs), rngs=rngs
+        )
+
+      def __call__(self, tokens, *args):
+        del args
+        return self.lora(self.embed(tokens)), None
+
+    tiny_model = _TinyLoraModel(nnx.Rngs(0))
+    fake_example = {
+        'input_tokens': jnp.array([1, 2, 3, 4], dtype=jnp.int32),
+        'loss_mask': jnp.array([0, 1, 1, 1], dtype=jnp.int32),
+    }
+    config = execution_plan.BandMFConfig.default(
+        num_bands=1,
+        iterations=2,
+        expected_participations=1.0,
+    )
+    mechanism = dp_sft.DPFineTuner(
+        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
+        mechanism_config=config,
+    ).configure(budget=1.0)
+    orig_fit = jax_privacy.training.DPTrainer.fit
+
+    def fit_spy(self_trainer, batch_data, *args, **kwargs):
+      self.assertIsInstance(batch_data, grain.MapDataset)
+      mock_tok.assert_not_called()
+      return orig_fit(self_trainer, batch_data, *args, **kwargs)
+
+    ds = grain.MapDataset.source([('p1', 'r1'), ('p2', 'r2')])
+    with (
+        mock.patch.object(
+            model, 'load_gemma', return_value=tiny_model
+        ) as mock_load,
+        mock.patch.object(
+            model, 'tokenize_example', return_value=fake_example
+        ) as mock_tok,
+        mock.patch.object(
+            jax_privacy.training.DPTrainer,
+            'fit',
+            autospec=True,
+            side_effect=fit_spy,
+        ),
+    ):
+      result = mechanism(rng=0, data=ds)
+
+    mock_load.assert_called_once()
+    self.assertGreater(mock_tok.call_count, 0)
+    self.assertIsInstance(result, dp_sft.FineTuneResult)
+    self.assertIsInstance(result.model, _TinyLoraModel)
+
+  def test_sequence_tokenization(self):
+    class _TinyLoraModel(nnx.Module):
+
+      def __init__(self, rngs: nnx.Rngs):
+        self.embed = nnx.Embed(8, 4, rngs=rngs)
+        self.lora = nnx.LoRA(
+            4, 2, 8, base_module=nnx.Linear(4, 8, rngs=rngs), rngs=rngs
+        )
+
+      def __call__(self, tokens, *args):
+        del args
+        return self.lora(self.embed(tokens)), None
+
+    tiny_model = _TinyLoraModel(nnx.Rngs(0))
+    fake_example = {
+        'input_tokens': jnp.array([1, 2, 3, 4], dtype=jnp.int32),
+        'loss_mask': jnp.array([0, 1, 1, 1], dtype=jnp.int32),
+    }
+    config = execution_plan.BandMFConfig.default(
+        num_bands=1,
+        iterations=2,
+        expected_participations=1.0,
+    )
+    mechanism = dp_sft.DPFineTuner(
+        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
+        mechanism_config=config,
+    ).configure(budget=1.0)
+    examples = [('p1', 'r1'), ('p2', 'r2')]
+    with (
+        mock.patch.object(
+            model, 'load_gemma', return_value=tiny_model
+        ) as mock_load,
+        mock.patch.object(
+            model, 'tokenize_example', return_value=fake_example
+        ) as mock_tok,
+    ):
+      result = mechanism(rng=0, data=examples)
+
+    mock_load.assert_called_once()
+    self.assertEqual(mock_tok.call_count, 2)
+    self.assertIsInstance(result, dp_sft.FineTuneResult)
+    self.assertIsInstance(result.model, _TinyLoraModel)
 
 
 if __name__ == '__main__':
