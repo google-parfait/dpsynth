@@ -1,4 +1,4 @@
-# Contributor and Architecture Guide
+# Contributor Guide
 
 <!-- disableFinding(LINK_RELATIVE_G3DOC) -->
 

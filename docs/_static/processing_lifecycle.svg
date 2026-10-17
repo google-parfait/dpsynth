@@ -1,0 +1,319 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 660" width="100%" style="max-width: 1040px; font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;">
+  <defs>
+    <filter id="shadow" x="-4%" y="-5%" width="108%" height="114%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#202124" flood-opacity="0.07"/>
+    </filter>
+  </defs>
+
+  <!-- Background Zones -->
+  <!-- Left Zone: Private Data Access -->
+  <rect x="16" y="14" width="424" height="632" rx="14" fill="#F8FAFD" stroke="#D2E3FC" stroke-width="1.5"/>
+  <text x="34" y="38" font-size="11.5" font-weight="700" letter-spacing="0.6" fill="#1967D2">SENSITIVE DATA ZONE (PRIVATE)</text>
+
+  <!-- Right Zone: Public / DP Post-Processing -->
+  <rect x="600" y="14" width="424" height="632" rx="14" fill="#F6FBF7" stroke="#CEEAD6" stroke-width="1.5"/>
+  <text x="618" y="38" font-size="11.5" font-weight="700" letter-spacing="0.6" fill="#137333">DP POST-PROCESSING ZONE (PUBLIC)</text>
+
+  <!-- Center Vertical DP Privacy Boundary -->
+  <line x1="520" y1="20" x2="520" y2="640" stroke="#D93025" stroke-width="2" stroke-dasharray="6,5"/>
+  <rect x="456" y="42" width="128" height="22" rx="11" fill="#FCE8E6" stroke="#F6AEA9" stroke-width="1"/>
+  <text x="520" y="57" text-anchor="middle" font-size="10.5" font-weight="700" fill="#C5221F">DP Privacy Barrier</text>
+
+  <!-- ===================================================================== -->
+  <!-- ROW 1 (DATA STATE): Native Tabular Datasets (Left & Right Symmetric)  -->
+  <!-- ===================================================================== -->
+
+  <!-- Row 1 Left: Sensitive Tabular Data -->
+  <g filter="url(#shadow)">
+    <rect x="34" y="56" width="388" height="92" rx="10" fill="#FFFFFF" stroke="#80868B" stroke-width="1.5"/>
+    <rect x="50" y="68" width="76" height="18" rx="4" fill="#F1F3F4"/>
+    <text x="88" y="80" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="#5F6368">DATA STATE</text>
+    <text x="50" y="104" font-size="14" font-weight="700" fill="#202124">Sensitive Tabular Data</text>
+    <text x="50" y="122" font-size="11" fill="#3C4043">Raw input table + public schema</text>
+    <text x="50" y="138" font-size="10.5" font-family="monospace" fill="#5F6368">pd.DataFrame (cat, float, str)</text>
+
+    <!-- Mini Native Table (Left) -->
+    <g transform="translate(278, 66)">
+      <rect x="0" y="0" width="128" height="72" rx="5" fill="#F8F9FA" stroke="#BDC1C6" stroke-width="1.2"/>
+      <line x1="0" y1="18" x2="128" y2="18" stroke="#BDC1C6" stroke-width="1.2"/>
+      <line x1="0" y1="36" x2="128" y2="36" stroke="#E8EAED" stroke-width="1"/>
+      <line x1="0" y1="54" x2="128" y2="54" stroke="#E8EAED" stroke-width="1"/>
+      <line x1="42" y1="0" x2="42" y2="72" stroke="#BDC1C6" stroke-width="1"/>
+      <line x1="85" y1="0" x2="85" y2="72" stroke="#BDC1C6" stroke-width="1"/>
+      <text x="21" y="13" text-anchor="middle" font-size="9.5" font-weight="700" font-family="monospace" fill="#3C4043">col_1</text>
+      <text x="63" y="13" text-anchor="middle" font-size="9.5" font-weight="700" font-family="monospace" fill="#3C4043">col_2</text>
+      <text x="106" y="13" text-anchor="middle" font-size="9.5" font-weight="700" font-family="monospace" fill="#3C4043">col_3</text>
+      <text x="21" y="31" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">CA</text>
+      <text x="63" y="31" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">38.5</text>
+      <text x="106" y="31" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">cat</text>
+      <text x="21" y="49" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">NY</text>
+      <text x="63" y="49" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">24.1</text>
+      <text x="106" y="49" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">bird</text>
+      <text x="21" y="67" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">TX</text>
+      <text x="63" y="67" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">51.0</text>
+      <text x="106" y="67" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">dog</text>
+    </g>
+  </g>
+
+  <!-- Row 1 Right: Synthetic Tabular Data -->
+  <g filter="url(#shadow)">
+    <rect x="618" y="56" width="388" height="92" rx="10" fill="#FFFFFF" stroke="#188038" stroke-width="1.5"/>
+    <rect x="634" y="68" width="76" height="18" rx="4" fill="#E6F4EA"/>
+    <text x="672" y="80" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="#137333">DATA STATE</text>
+    <text x="634" y="104" font-size="14" font-weight="700" fill="#137333">Synthetic Tabular Data</text>
+    <text x="634" y="122" font-size="11" fill="#3C4043">DP output table in native schema</text>
+    <text x="634" y="138" font-size="10.5" font-family="monospace" fill="#188038">pd.DataFrame (cat, float, str)</text>
+
+    <!-- Mini Native Table (Right) -->
+    <g transform="translate(862, 66)">
+      <rect x="0" y="0" width="128" height="72" rx="5" fill="#F6FBF7" stroke="#A8DAB5" stroke-width="1.2"/>
+      <line x1="0" y1="18" x2="128" y2="18" stroke="#A8DAB5" stroke-width="1.2"/>
+      <line x1="0" y1="36" x2="128" y2="36" stroke="#CEEAD6" stroke-width="1"/>
+      <line x1="0" y1="54" x2="128" y2="54" stroke="#CEEAD6" stroke-width="1"/>
+      <line x1="42" y1="0" x2="42" y2="72" stroke="#A8DAB5" stroke-width="1"/>
+      <line x1="85" y1="0" x2="85" y2="72" stroke="#A8DAB5" stroke-width="1"/>
+      <text x="21" y="13" text-anchor="middle" font-size="9.5" font-weight="700" font-family="monospace" fill="#137333">col_1</text>
+      <text x="63" y="13" text-anchor="middle" font-size="9.5" font-weight="700" font-family="monospace" fill="#137333">col_2</text>
+      <text x="106" y="13" text-anchor="middle" font-size="9.5" font-weight="700" font-family="monospace" fill="#137333">col_3</text>
+      <text x="21" y="31" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">CA</text>
+      <text x="63" y="31" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">42.1</text>
+      <text x="106" y="31" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">cat</text>
+      <text x="21" y="49" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">NY</text>
+      <text x="63" y="49" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">19.4</text>
+      <text x="106" y="49" text-anchor="middle" font-size="8.5" font-family="monospace" fill="#B06000">OTHER</text>
+      <text x="21" y="67" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">TX</text>
+      <text x="63" y="67" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">28.7</text>
+      <text x="106" y="67" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#202124">dog</text>
+    </g>
+  </g>
+
+  <!-- Arrow Row 1 Left -> Row 2 Left (Downward) -->
+  <line x1="228" y1="148" x2="228" y2="170" stroke="#3C4043" stroke-width="1.75"/>
+  <polygon points="228,177 223.5,169 232.5,169" fill="#3C4043"/>
+
+  <!-- Arrow Row 2 Right -> Row 1 Right (Upward) -->
+  <line x1="812" y1="178" x2="812" y2="156" stroke="#188038" stroke-width="1.75"/>
+  <polygon points="812,149 807.5,157 816.5,157" fill="#188038"/>
+
+  <!-- ===================================================================== -->
+  <!-- ROW 2 (PROCESSING STEP): Per-Column Init/Encode vs. Schema Decoding   -->
+  <!-- ===================================================================== -->
+
+  <!-- Row 2 Left: 1. Per-Column Initialization & Encoding -->
+  <g filter="url(#shadow)">
+    <rect x="34" y="178" width="388" height="160" rx="10" fill="#FFFFFF" stroke="#1A73E8" stroke-width="1.75"/>
+    <rect x="34" y="178" width="7" height="160" rx="3.5" fill="#1A73E8"/>
+    <text x="52" y="201" font-size="13.5" font-weight="700" fill="#1A73E8">1. Per-Column Init &amp; Encoding</text>
+    <rect x="308" y="186" width="102" height="20" rx="10" fill="#E8F0FE"/>
+    <text x="359" y="200" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1967D2">DP Budget ρ_init</text>
+
+    <!-- Sub-block 1: Categorical -->
+    <rect x="48" y="212" width="112" height="96" rx="7" fill="#F8FAFD" stroke="#AECBFA" stroke-width="1.2"/>
+    <text x="104" y="228" text-anchor="middle" font-size="11" font-weight="700" fill="#1967D2">Categorical</text>
+    <line x1="62" y1="278" x2="146" y2="278" stroke="#80868B" stroke-width="1"/>
+    <rect x="68" y="248" width="14" height="30" rx="1.5" fill="#669DF6"/>
+    <line x1="75" y1="243" x2="75" y2="253" stroke="#174EA6" stroke-width="1.2"/>
+    <rect x="88" y="238" width="14" height="40" rx="1.5" fill="#1A73E8"/>
+    <line x1="95" y1="233" x2="95" y2="243" stroke="#174EA6" stroke-width="1.2"/>
+    <rect x="108" y="260" width="14" height="18" rx="1.5" fill="#669DF6"/>
+    <line x1="115" y1="255" x2="115" y2="265" stroke="#174EA6" stroke-width="1.2"/>
+    <rect x="128" y="252" width="14" height="26" rx="1.5" fill="#4285F4"/>
+    <line x1="135" y1="247" x2="135" y2="257" stroke="#174EA6" stroke-width="1.2"/>
+    <text x="104" y="296" text-anchor="middle" font-size="9.5" fill="#3C4043">Noisy 1-way counts</text>
+
+    <!-- Sub-block 2: Numerical -->
+    <rect x="172" y="212" width="112" height="96" rx="7" fill="#F8FAFD" stroke="#AECBFA" stroke-width="1.2"/>
+    <text x="228" y="228" text-anchor="middle" font-size="11" font-weight="700" fill="#1967D2">Numerical</text>
+    <path d="M 184 278 Q 198 276 208 252 T 228 238 T 248 256 T 272 278 Z" fill="#D2E3FC" stroke="#1A73E8" stroke-width="1.3"/>
+    <line x1="206" y1="235" x2="206" y2="278" stroke="#174EA6" stroke-width="1.2" stroke-dasharray="3,2"/>
+    <line x1="228" y1="235" x2="228" y2="278" stroke="#174EA6" stroke-width="1.2" stroke-dasharray="3,2"/>
+    <line x1="250" y1="235" x2="250" y2="278" stroke="#174EA6" stroke-width="1.2" stroke-dasharray="3,2"/>
+    <line x1="182" y1="278" x2="274" y2="278" stroke="#80868B" stroke-width="1"/>
+    <text x="228" y="296" text-anchor="middle" font-size="9.5" fill="#3C4043">DP bins + counts</text>
+
+    <!-- Sub-block 3: Open-Set -->
+    <rect x="296" y="212" width="112" height="96" rx="7" fill="#F8FAFD" stroke="#AECBFA" stroke-width="1.2"/>
+    <text x="352" y="228" text-anchor="middle" font-size="11" font-weight="700" fill="#1967D2">Open-Set</text>
+    <line x1="306" y1="278" x2="398" y2="278" stroke="#80868B" stroke-width="1"/>
+    <rect x="310" y="237" width="11" height="41" rx="1.5" fill="#1A73E8"/>
+    <rect x="324" y="245" width="11" height="33" rx="1.5" fill="#4285F4"/>
+    <rect x="338" y="253" width="11" height="25" rx="1.5" fill="#669DF6"/>
+    <rect x="352" y="266" width="10" height="12" rx="1.5" fill="#AECBFA"/>
+    <rect x="306" y="258" width="58" height="2.2" rx="1" fill="#D93025"/>
+    <rect x="366" y="250" width="28" height="28" rx="1.5" fill="#F29900" opacity="0.9"/>
+    <text x="380" y="267" text-anchor="middle" font-size="7.5" font-weight="700" fill="#FFFFFF">OTHER</text>
+    <text x="352" y="296" text-anchor="middle" font-size="9.5" fill="#3C4043">Threshold + counts</text>
+
+    <!-- Footer inside Step 1 -->
+    <text x="228" y="326" text-anchor="middle" font-size="11" font-weight="600" fill="#1967D2">Outputs TabularCodec + 1-Way Marginals y_i</text>
+  </g>
+
+  <!-- Bridge Arrow Row 2 Left -> Row 2 Right (TabularCodec) -->
+  <line x1="422" y1="258" x2="610" y2="258" stroke="#1A73E8" stroke-width="1.75" stroke-dasharray="5,4"/>
+  <polygon points="618,258 610,253.5 610,262.5" fill="#1A73E8"/>
+  <rect x="462" y="224" width="116" height="24" rx="6" fill="#E8F0FE" stroke="#AECBFA" stroke-width="1"/>
+  <text x="520" y="240" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1967D2">TabularCodec</text>
+
+  <!-- Row 2 Right: 4. Native Schema Decoding (Symmetric 3 attribute blocks) -->
+  <g filter="url(#shadow)">
+    <rect x="618" y="178" width="388" height="160" rx="10" fill="#FFFFFF" stroke="#188038" stroke-width="1.75"/>
+    <rect x="618" y="178" width="7" height="160" rx="3.5" fill="#188038"/>
+    <text x="636" y="201" font-size="13.5" font-weight="700" fill="#188038">4. Native Schema Decoding</text>
+    <rect x="896" y="186" width="98" height="20" rx="10" fill="#E6F4EA"/>
+    <text x="945" y="200" text-anchor="middle" font-size="10" font-weight="700" fill="#137333">Post-Processing</text>
+
+    <!-- Sub-block 1: Categorical Decode -->
+    <rect x="632" y="212" width="112" height="96" rx="7" fill="#F6FBF7" stroke="#A8DAB5" stroke-width="1.2"/>
+    <text x="688" y="228" text-anchor="middle" font-size="11" font-weight="700" fill="#137333">Categorical</text>
+    <text x="688" y="247" text-anchor="middle" font-size="10" font-family="monospace" fill="#202124">0 → CA</text>
+    <text x="688" y="262" text-anchor="middle" font-size="10" font-family="monospace" fill="#202124">1 → NY</text>
+    <text x="688" y="277" text-anchor="middle" font-size="10" font-family="monospace" fill="#202124">2 → TX</text>
+    <text x="688" y="296" text-anchor="middle" font-size="9.5" fill="#3C4043">Vocabulary lookup</text>
+
+    <!-- Sub-block 2: Numerical Decode -->
+    <rect x="756" y="212" width="112" height="96" rx="7" fill="#F6FBF7" stroke="#A8DAB5" stroke-width="1.2"/>
+    <text x="812" y="228" text-anchor="middle" font-size="11" font-weight="700" fill="#137333">Numerical</text>
+    <rect x="772" y="246" width="80" height="18" rx="3" fill="#CEEAD6" stroke="#188038" stroke-width="1.2"/>
+    <circle cx="818" cy="255" r="3.5" fill="#137333"/>
+    <text x="772" y="276" text-anchor="start" font-size="9" font-family="monospace" fill="#3C4043">b_k</text>
+    <text x="852" y="276" text-anchor="end" font-size="9" font-family="monospace" fill="#3C4043">b_{k+1}</text>
+    <text x="812" y="296" text-anchor="middle" font-size="9.5" fill="#3C4043">Uniform sample in bin</text>
+
+    <!-- Sub-block 3: Open-Set Decode -->
+    <rect x="880" y="212" width="112" height="96" rx="7" fill="#F6FBF7" stroke="#A8DAB5" stroke-width="1.2"/>
+    <text x="936" y="228" text-anchor="middle" font-size="11" font-weight="700" fill="#137333">Open-Set</text>
+    <text x="936" y="247" text-anchor="middle" font-size="9.5" font-family="monospace" fill="#B06000">0 → OTHER</text>
+    <text x="936" y="262" text-anchor="middle" font-size="10" font-family="monospace" fill="#202124">1 → cat</text>
+    <text x="936" y="277" text-anchor="middle" font-size="10" font-family="monospace" fill="#202124">2 → dog</text>
+    <text x="936" y="296" text-anchor="middle" font-size="9.5" fill="#3C4043">Vocab + OTHER</text>
+
+    <!-- Footer inside Step 4 -->
+    <text x="812" y="326" text-anchor="middle" font-size="11" font-weight="600" fill="#137333">Inverts integer indices via TabularCodec</text>
+  </g>
+
+  <!-- Arrow Row 2 Left -> Row 3 Left (Downward) -->
+  <line x1="228" y1="338" x2="228" y2="360" stroke="#3C4043" stroke-width="1.75"/>
+  <polygon points="228,367 223.5,359 232.5,359" fill="#3C4043"/>
+
+  <!-- Arrow Row 3 Right -> Row 2 Right (Upward) -->
+  <line x1="812" y1="368" x2="812" y2="346" stroke="#188038" stroke-width="1.75"/>
+  <polygon points="812,339 807.5,347 816.5,347" fill="#188038"/>
+
+  <!-- ===================================================================== -->
+  <!-- ROW 3 (DATA STATE): Integer-Encoded Datasets (Left & Right Symmetric) -->
+  <!-- ===================================================================== -->
+
+  <!-- Row 3 Left: Encoded Integer Dataset -->
+  <g filter="url(#shadow)">
+    <rect x="34" y="368" width="388" height="92" rx="10" fill="#FFFFFF" stroke="#80868B" stroke-width="1.5"/>
+    <rect x="50" y="380" width="76" height="18" rx="4" fill="#F1F3F4"/>
+    <text x="88" y="392" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="#5F6368">DATA STATE</text>
+    <text x="50" y="416" font-size="14" font-weight="700" fill="#202124">Encoded Integer Dataset</text>
+    <text x="50" y="434" font-size="11" fill="#3C4043">Discretized private records</text>
+    <text x="50" y="450" font-size="10.5" font-family="monospace" fill="#1967D2">mbi.Dataset {0, ..., k_i - 1}</text>
+
+    <!-- Mini Integer Table (Left) -->
+    <g transform="translate(278, 378)">
+      <rect x="0" y="0" width="128" height="72" rx="5" fill="#F8FAFD" stroke="#AECBFA" stroke-width="1.2"/>
+      <line x1="0" y1="18" x2="128" y2="18" stroke="#AECBFA" stroke-width="1.2"/>
+      <line x1="0" y1="36" x2="128" y2="36" stroke="#E8F0FE" stroke-width="1"/>
+      <line x1="0" y1="54" x2="128" y2="54" stroke="#E8F0FE" stroke-width="1"/>
+      <line x1="42" y1="0" x2="42" y2="72" stroke="#AECBFA" stroke-width="1"/>
+      <line x1="85" y1="0" x2="85" y2="72" stroke="#AECBFA" stroke-width="1"/>
+      <text x="21" y="13" text-anchor="middle" font-size="9.5" font-weight="700" font-family="monospace" fill="#1967D2">col_1</text>
+      <text x="63" y="13" text-anchor="middle" font-size="9.5" font-weight="700" font-family="monospace" fill="#1967D2">col_2</text>
+      <text x="106" y="13" text-anchor="middle" font-size="9.5" font-weight="700" font-family="monospace" fill="#1967D2">col_3</text>
+      <text x="21" y="31" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">0</text>
+      <text x="63" y="31" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">2</text>
+      <text x="106" y="31" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">1</text>
+      <text x="21" y="49" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">1</text>
+      <text x="63" y="49" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">0</text>
+      <text x="106" y="49" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">3</text>
+      <text x="21" y="67" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">2</text>
+      <text x="63" y="67" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">3</text>
+      <text x="106" y="67" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">2</text>
+    </g>
+  </g>
+
+  <!-- Row 3 Right: Synthetic Integer Dataset -->
+  <g filter="url(#shadow)">
+    <rect x="618" y="368" width="388" height="92" rx="10" fill="#FFFFFF" stroke="#188038" stroke-width="1.5"/>
+    <rect x="634" y="380" width="76" height="18" rx="4" fill="#E6F4EA"/>
+    <text x="672" y="392" text-anchor="middle" font-size="9.5" font-weight="700" letter-spacing="0.4" fill="#137333">DATA STATE</text>
+    <text x="634" y="416" font-size="14" font-weight="700" fill="#137333">Synthetic Integer Dataset</text>
+    <text x="634" y="434" font-size="11" fill="#3C4043">Sampled discrete records</text>
+    <text x="634" y="450" font-size="10.5" font-family="monospace" fill="#188038">mbi.Dataset {0, ..., k_i - 1}</text>
+
+    <!-- Mini Integer Table (Right) -->
+    <g transform="translate(862, 378)">
+      <rect x="0" y="0" width="128" height="72" rx="5" fill="#F6FBF7" stroke="#A8DAB5" stroke-width="1.2"/>
+      <line x1="0" y1="18" x2="128" y2="18" stroke="#A8DAB5" stroke-width="1.2"/>
+      <line x1="0" y1="36" x2="128" y2="36" stroke="#CEEAD6" stroke-width="1"/>
+      <line x1="0" y1="54" x2="128" y2="54" stroke="#CEEAD6" stroke-width="1"/>
+      <line x1="42" y1="0" x2="42" y2="72" stroke="#A8DAB5" stroke-width="1"/>
+      <line x1="85" y1="0" x2="85" y2="72" stroke="#A8DAB5" stroke-width="1"/>
+      <text x="21" y="13" text-anchor="middle" font-size="9.5" font-weight="700" font-family="monospace" fill="#137333">col_1</text>
+      <text x="63" y="13" text-anchor="middle" font-size="9.5" font-weight="700" font-family="monospace" fill="#137333">col_2</text>
+      <text x="106" y="13" text-anchor="middle" font-size="9.5" font-weight="700" font-family="monospace" fill="#137333">col_3</text>
+      <text x="21" y="31" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">0</text>
+      <text x="63" y="31" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">2</text>
+      <text x="106" y="31" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">1</text>
+      <text x="21" y="49" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">1</text>
+      <text x="63" y="49" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">0</text>
+      <text x="106" y="49" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">0</text>
+      <text x="21" y="67" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">2</text>
+      <text x="63" y="67" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">1</text>
+      <text x="106" y="67" text-anchor="middle" font-size="10.5" font-family="monospace" fill="#202124">2</text>
+    </g>
+  </g>
+
+  <!-- Arrow Row 3 Left -> Row 4 Left (Downward) -->
+  <line x1="228" y1="460" x2="228" y2="482" stroke="#3C4043" stroke-width="1.75"/>
+  <polygon points="228,489 223.5,481 232.5,481" fill="#3C4043"/>
+
+  <!-- Arrow Row 4 Right -> Row 3 Right (Upward) -->
+  <line x1="812" y1="490" x2="812" y2="468" stroke="#188038" stroke-width="1.75"/>
+  <polygon points="812,461 807.5,469 816.5,469" fill="#188038"/>
+
+  <!-- Side feed: Step 1 1-way y_i -> Step 2 -->
+  <line x1="34" y1="322" x2="22" y2="322" stroke="#1A73E8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <line x1="22" y1="322" x2="22" y2="562" stroke="#1A73E8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <line x1="22" y1="562" x2="28" y2="562" stroke="#1A73E8" stroke-width="1.5"/>
+  <polygon points="34,562 27,558 27,566" fill="#1A73E8"/>
+
+  <!-- ===================================================================== -->
+  <!-- ROW 4 (PROCESSING STEP): Marginal Measurement vs. MRF Fit & Sampling  -->
+  <!-- ===================================================================== -->
+
+  <!-- Row 4 Left: 2. Marginal Selection & Measurement -->
+  <g filter="url(#shadow)">
+    <rect x="34" y="490" width="388" height="136" rx="10" fill="#FFFFFF" stroke="#1A73E8" stroke-width="1.75"/>
+    <rect x="34" y="490" width="7" height="136" rx="3.5" fill="#1A73E8"/>
+    <text x="52" y="514" font-size="13.5" font-weight="700" fill="#1A73E8">2. Marginal Selection &amp; Measurement</text>
+    <rect x="304" y="499" width="106" height="20" rx="10" fill="#E8F0FE"/>
+    <text x="357" y="513" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1967D2">DP Budget ρ_mech</text>
+    <text x="52" y="540" font-size="11.5" fill="#3C4043">• Seeds with Stage 1's 1-way marginals y_i (no re-measurement)</text>
+    <text x="52" y="560" font-size="11.5" fill="#3C4043">• Privately selects high-utility 2/3-way attribute cliques</text>
+    <text x="52" y="580" font-size="11.5" fill="#3C4043">• Measures noisy clique marginals μ̃ (MST / AIM / SWIFT)</text>
+    <text x="52" y="606" font-size="11" font-family="monospace" fill="#1967D2">Sequence[mbi.LinearMeasurement]</text>
+  </g>
+
+  <!-- Arrow Crossing DP Barrier: Step 2 -> Step 3 (Rightward) -->
+  <line x1="422" y1="558" x2="610" y2="558" stroke="#1A73E8" stroke-width="2.25"/>
+  <polygon points="618,558 609,553 609,563" fill="#1A73E8"/>
+  <rect x="448" y="524" width="144" height="24" rx="6" fill="#E8F0FE" stroke="#AECBFA" stroke-width="1"/>
+  <text x="520" y="540" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1967D2">1-Way y_i + Cliques μ̃</text>
+
+  <!-- Row 4 Right: 3. Graphical Model Fit & Sampling -->
+  <g filter="url(#shadow)">
+    <rect x="618" y="490" width="388" height="136" rx="10" fill="#FFFFFF" stroke="#188038" stroke-width="1.75"/>
+    <rect x="618" y="490" width="7" height="136" rx="3.5" fill="#188038"/>
+    <text x="636" y="514" font-size="13.5" font-weight="700" fill="#188038">3. Graphical Model Fit &amp; Sampling</text>
+    <rect x="896" y="499" width="98" height="20" rx="10" fill="#E6F4EA"/>
+    <text x="945" y="513" text-anchor="middle" font-size="10" font-weight="700" fill="#137333">Post-Processing</text>
+    <text x="636" y="540" font-size="11.5" fill="#3C4043">• Fits Markov Random Field p_θ(x) via Private-PGM mirror descent</text>
+    <text x="636" y="560" font-size="11.5" fill="#3C4043">• Reconciles noisy marginals into a consistent joint distribution</text>
+    <text x="636" y="580" font-size="11.5" fill="#3C4043">• Samples synthetic integer records via junction-tree elimination</text>
+    <text x="636" y="606" font-size="11" font-family="monospace" fill="#188038">mbi.MarkovRandomField p_θ(x)</text>
+  </g>
+</svg>

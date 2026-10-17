@@ -12,11 +12,11 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. -->
 
-# Privacy Accounting Philosophy & Architecture
+# Privacy Accounting Philosophy
 
 <!-- disableFinding(LINK_RELATIVE_G3DOC) -->
 
-This page complements the [Mechanism API Architecture](mechanism_api.md) guide
+This page complements the [Mechanism API](mechanism_api.md) guide
 by explaining the differential privacy (DP) accounting philosophy in DPSynth:
 how the library balances structured mechanism interfaces against functional
 primitives, how adaptivity affects composition guarantees, how record-level and
