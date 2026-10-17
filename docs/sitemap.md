@@ -22,6 +22,15 @@
 --------------------------------------------------------------------------------
 
 <details>
+<summary>📁 <a href="library_ecosystem.md">The DPSynth Library Ecosystem</a></summary>
+
+*   [Role of Each Library](library_ecosystem.md#role-of-each-library)
+
+</details>
+
+--------------------------------------------------------------------------------
+
+<details>
 <summary>📁 <a href="specifying_domains.md">Specifying Attribute Domains</a></summary>
 
 *   [Why Domains Must Be Specified Up Front](specifying_domains.md#why-domains-must-be-specified-up-front)
