@@ -138,15 +138,39 @@ significantly faster than `pip`.
     [official instructions](https://docs.astral.sh/uv/getting-started/installation/).
 2.  **Create an environment and install dependencies:**
 
+    ### Linux / macOS
     ```bash
     # Create a virtual environment with Python 3.12
     uv venv --python 3.12
-    # Activate it (Linux/macOS)
+    # Activate it
     source .venv/bin/activate
     # Install all dependencies from the lockfile and install the project in editable mode
     uv pip install -r pylock.toml
     uv pip install -e .
     ```
+    ### Windows
+
+    > WSL2 is recommended for the full
+    > development environment.
+
+    **Full environment (WSL2):**
+
+    1. Install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install)
+       and a Linux distribution (e.g. Ubuntu).
+    2. Open a WSL2 terminal and install uv following the
+       [official instructions](https://docs.astral.sh/uv/getting-started/installation/)
+       for Linux.
+    3. From your WSL2 terminal, run:
+
+       ```bash
+       # Create a virtual environment with Python 3.12
+       uv venv --python 3.12
+       # Activate it
+       source .venv/bin/activate
+       # Install all dependencies from the lockfile and install the project in editable mode
+       uv pip install -r pylock.toml
+       uv pip install -e .
+       ```
 
 3.  **Updating `pylock.toml`:** Regenerate `pylock.toml` using `uv` periodically
     or when modifying dependencies in `pyproject.toml`:
