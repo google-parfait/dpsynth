@@ -109,6 +109,37 @@ class SerializeTest(parameterized.TestCase):
     loaded = serialize.from_yaml(yaml_str)
     self.assertEqual(loaded, config)
 
+  def test_workload_unweighted_roundtrip(self):
+    workload = dpsynth.Workload([('a', 'b'), ('b', 'c')])
+    yaml_str = dpsynth.to_yaml(workload)
+    raw_dict = yaml.safe_load(yaml_str)
+    self.assertEqual(
+        raw_dict,
+        {'type': 'Workload', 'cliques': [['a', 'b'], ['b', 'c']]},
+    )
+    loaded = dpsynth.from_yaml(yaml_str)
+    self.assertEqual(loaded, workload)
+
+  def test_workload_weighted_roundtrip(self):
+    workload = dpsynth.Workload([('a', 'b'), ('c',)], weights=[2.5, 0.5])
+    yaml_str = dpsynth.to_yaml(workload)
+    raw_dict = yaml.safe_load(yaml_str)
+    self.assertEqual(
+        raw_dict,
+        {
+            'type': 'Workload',
+            'cliques': [['a', 'b'], ['c']],
+            'weights': [2.5, 0.5],
+        },
+    )
+    loaded = dpsynth.from_yaml(yaml_str)
+    self.assertEqual(loaded, workload)
+
+  def test_workload_from_raw_list_yaml(self):
+    raw_yaml = '- [a, b]\n- [b, c]\n'
+    loaded = dpsynth.from_yaml(raw_yaml, dpsynth.Workload)
+    self.assertEqual(loaded, dpsynth.Workload([('a', 'b'), ('b', 'c')]))
+
   def test_discrete_config_roundtrip(self):
     config = discrete.DiscreteConfig(
         mechanism=aim.AIMConfig(pgm_iters=400),
