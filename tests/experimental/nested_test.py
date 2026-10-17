@@ -69,6 +69,38 @@ class NestedTabularConfigTest(absltest.TestCase):
     # Detail level should be a ZCDpEvent (conservative parallel composition).
     self.assertLen(event.events, 2)
     self.assertIsInstance(event.events[1], dp_accounting.ZCDpEvent)
+    self.assertAlmostEqual(event.events[1].rho, 5.0)
+
+  def test_dp_event_with_open_set_detail(self):
+    shared_schema = domain.Schema({
+        'platform': domain.CategoricalAttribute(
+            possible_values=['web', 'mobile']
+        ),
+    })
+    per_type_schemas = {
+        'click': domain.Schema({
+            'url': domain.OpenSetCategoricalAttribute(),
+        }),
+        'purchase': domain.Schema({
+            'item': domain.OpenSetCategoricalAttribute(),
+            'coupon': domain.OpenSetCategoricalAttribute(),
+        }),
+    }
+    schema = nested.NestedSchema(
+        shared_schema=shared_schema,
+        per_type_schemas=per_type_schemas,
+    )
+    synth = nested.NestedTabularConfig()
+    calibrated = synth.configure(schema, budget=10.0, delta=1e-4)
+    event = calibrated.dp_event
+    self.assertIsInstance(event, dp_accounting.ComposedDpEvent)
+    detail_event = event.events[1]
+    self.assertIsInstance(detail_event, dp_accounting.ComposedDpEvent)
+    self.assertEqual(detail_event.events[0], dp_accounting.ZCDpEvent(5.0))
+    self.assertIsInstance(
+        detail_event.events[1], dp_accounting.dp_event.EpsilonDeltaDpEvent
+    )
+    self.assertGreater(detail_event.events[1].delta, 0.0)
 
   def test_end_to_end(self):
     schema = self._make_schema()

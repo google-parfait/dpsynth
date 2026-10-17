@@ -31,6 +31,7 @@ import dataclasses
 
 from absl import logging
 import dp_accounting
+from dpsynth import _calibration
 from dpsynth import api
 from dpsynth import data_generation_v3
 from dpsynth import discrete_mechanisms
@@ -117,27 +118,15 @@ class NestedTabularMechanism(api.CalibratedMechanism):
   shared_synth: data_generation_v3.TabularMechanism
   detail_synths: Mapping[str, data_generation_v3.TabularMechanism]
 
-  # Note: `detail_rho` must exactly match the zCDP guarantee of the individual
-  # mechanisms in `detail_synths`. This is because NestedTabularMechanism
-  # implements parallel privacy accounting across the detail_synths manually
-  # utilizing this detail_rho float. Consequently, directly constructing this
-  # mechanism manually (without going through the `configure(...)` API) is
-  # potentially dangerous/incorrect if detail_rho is not perfectly aligned with
-  # detail_synths.
-  detail_rho: float
-  detail_delta: float
-
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
     """Returns the composed DpEvent for the full mechanism."""
     # supports it, instead of falling back to a ZCDpEvent.
-    events = [self.shared_synth.dp_event]
-    if self.detail_rho is not None and self.detail_rho > 0:
-      base = dp_accounting.ZCDpEvent(self.detail_rho)
-      failure = dp_accounting.dp_event.EpsilonDeltaDpEvent(0, self.detail_delta)
-      composed = dp_accounting.ComposedDpEvent([base, failure])
-      events.append(base if self.detail_delta == 0 else composed)
-    return dp_accounting.ComposedDpEvent(events)
+    detail_events = [s.dp_event for s in self.detail_synths.values()]
+    detail_event = _calibration._parallel_compose_event(detail_events)  # pylint: disable=protected-access
+    return dp_accounting.ComposedDpEvent(
+        [self.shared_synth.dp_event, detail_event]
+    )
 
   def __call__(
       self,
@@ -296,8 +285,6 @@ class NestedTabularConfig(api.MechanismConfig):
         type_vocabulary=schema.type_vocabulary,
         shared_synth=shared_synth,
         detail_synths=detail_synths,
-        detail_rho=rho_detail,
-        detail_delta=delta_detail,
     )
 
 

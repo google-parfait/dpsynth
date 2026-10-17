@@ -16,11 +16,53 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 import functools
+import math
 from typing import Any
 
 import dp_accounting
+
+
+def _compose_deltas(deltas: Sequence[float]) -> float:
+  """Composes failure probabilities via 1 - prod_i (1 - delta_i)."""
+  # Use log1p/expm1 to avoid catastrophic cancellation for small delta_i.
+  return -math.expm1(sum(math.log1p(-d) for d in deltas))
+
+
+def _as_zcdp(event: dp_accounting.DpEvent) -> tuple[float, float]:
+  """Returns (rho, delta) for an event satisfying delta-approximate rho-zCDP."""
+  if isinstance(event, dp_accounting.NoOpDpEvent):
+    return 0.0, 0.0
+  if isinstance(event, dp_accounting.GaussianDpEvent):
+    return 0.5 / event.noise_multiplier**2, 0.0
+  if isinstance(event, dp_accounting.ExponentialMechanismDpEvent):
+    return event.epsilon**2 / 8.0, 0.0
+  if isinstance(event, dp_accounting.ZCDpEvent) and event.xi == 0:
+    return event.rho, 0.0
+  if isinstance(event, dp_accounting.dp_event.EpsilonDeltaDpEvent):
+    return 0.5 * event.epsilon**2, event.delta
+  if isinstance(event, dp_accounting.SelfComposedDpEvent):
+    rho, delta = _as_zcdp(event.event)
+    return event.count * rho, _compose_deltas([delta] * event.count)
+  if isinstance(event, dp_accounting.ComposedDpEvent):
+    pairs = [_as_zcdp(e) for e in event.events]
+    return sum(r for r, _ in pairs), _compose_deltas([d for _, d in pairs])
+  raise dp_accounting.UnsupportedEventError(f'Unsupported event: {event}.')
+
+
+def _parallel_compose_event(
+    events: Sequence[dp_accounting.DpEvent],
+) -> dp_accounting.DpEvent:
+  """Returns the worst-case (rho, delta) zCDP event across parallel events."""
+  if not events:
+    return dp_accounting.NoOpDpEvent()
+  pairs = [_as_zcdp(e) for e in events]
+  rho = max(r for r, _ in pairs)
+  delta = max(d for _, d in pairs)
+  base = dp_accounting.ZCDpEvent(rho)
+  failure = dp_accounting.dp_event.EpsilonDeltaDpEvent(0.0, delta)
+  return base if delta == 0 else dp_accounting.ComposedDpEvent([base, failure])
 
 
 def with_group_size(

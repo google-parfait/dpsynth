@@ -78,6 +78,59 @@ class CalibrationTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       with_group_size(g, 0)
 
+  def test_as_zcdp(self):
+    as_zcdp = _calibration._as_zcdp
+
+    self.assertEqual(as_zcdp(dp_accounting.NoOpDpEvent()), (0.0, 0.0))
+    self.assertEqual(
+        as_zcdp(dp_accounting.GaussianDpEvent(noise_multiplier=0.5)),
+        (2.0, 0.0),
+    )
+    self.assertEqual(
+        as_zcdp(dp_accounting.ExponentialMechanismDpEvent(epsilon=4.0)),
+        (2.0, 0.0),
+    )
+    self.assertEqual(as_zcdp(dp_accounting.ZCDpEvent(rho=1.5)), (1.5, 0.0))
+    self.assertEqual(
+        as_zcdp(dp_accounting.dp_event.EpsilonDeltaDpEvent(2.0, 1e-5)),
+        (2.0, 1e-5),
+    )
+
+    composed = dp_accounting.ComposedDpEvent([
+        dp_accounting.SelfComposedDpEvent(
+            dp_accounting.ExponentialMechanismDpEvent(epsilon=2.0), 3
+        ),
+        dp_accounting.GaussianDpEvent(noise_multiplier=1.0),
+        dp_accounting.dp_event.EpsilonDeltaDpEvent(0.0, 1e-5),
+    ])
+    self.assertEqual(as_zcdp(composed), (2.0, 1e-5))
+
+    with self.assertRaises(dp_accounting.UnsupportedEventError):
+      as_zcdp(dp_accounting.LaplaceDpEvent(noise_multiplier=1.0))
+    with self.assertRaises(dp_accounting.UnsupportedEventError):
+      as_zcdp(dp_accounting.ZCDpEvent(rho=1.0, xi=0.1))
+
+  def test_parallel_compose_event(self):
+    parallel = _calibration._parallel_compose_event
+
+    self.assertEqual(parallel([]), dp_accounting.NoOpDpEvent())
+
+    e1 = dp_accounting.GaussianDpEvent(noise_multiplier=1.0)  # rho = 0.5
+    e2 = dp_accounting.ExponentialMechanismDpEvent(epsilon=4.0)  # rho = 2.0
+    self.assertEqual(parallel([e1, e2]), dp_accounting.ZCDpEvent(rho=2.0))
+
+    e3 = dp_accounting.ComposedDpEvent([
+        dp_accounting.GaussianDpEvent(noise_multiplier=1.0),
+        dp_accounting.dp_event.EpsilonDeltaDpEvent(0.0, 1e-4),
+    ])
+    self.assertEqual(
+        parallel([e2, e3]),
+        dp_accounting.ComposedDpEvent([
+            dp_accounting.ZCDpEvent(rho=2.0),
+            dp_accounting.dp_event.EpsilonDeltaDpEvent(0.0, 1e-4),
+        ]),
+    )
+
 
 if __name__ == '__main__':
   absltest.main()
