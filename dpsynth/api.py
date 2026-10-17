@@ -202,17 +202,3 @@ class MechanismConfig(abc.ABC):
         group_size=group_size,
         accountant_fn=accountant_fn,
     )
-
-
-class DPMechanism(MechanismConfig, CalibratedMechanism, abc.ABC):
-  """Transitional monolithic base: both a config and a runnable mechanism.
-
-  Historically every mechanism was a single class that was constructed, then
-  ``configure``d in place, then run. That design is being split into a
-  ``MechanismConfig`` recipe and a ``CalibratedMechanism`` runnable (so a
-  calibrated instance can never be un-calibrated and needs no nullable
-  privacy-parameter fields or guards). Mechanisms are migrated one layer at a
-  time; those not yet split still subclass this monolith, which exposes exactly
-  the historical abstract surface (``configure`` + ``dp_event`` + ``__call__``,
-  with ``calibrate`` inherited). Remove once every mechanism is split.
-  """

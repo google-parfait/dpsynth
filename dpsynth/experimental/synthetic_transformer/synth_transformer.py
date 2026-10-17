@@ -164,7 +164,7 @@ class TabularTransformerModel:
           batch_size=batch_size,
       )
 
-    trainer = dp_trainer.DPTrainer(
+    trainer = dp_trainer.DPTrainerConfig(
         init_params=typing.cast(typing.Any, trainable),
         loss_fn=dp_loss_fn,
         mechanism_config=mechanism_config,
@@ -330,7 +330,7 @@ class TabularTransformer(api.CalibratedMechanism):
       del params, data, prng
       return 0.0, {}
 
-    trainer = dp_trainer.DPTrainer(
+    trainer = dp_trainer.DPTrainerConfig(
         init_params={},
         loss_fn=dummy_loss_fn,
         mechanism_config=mechanism_config,
