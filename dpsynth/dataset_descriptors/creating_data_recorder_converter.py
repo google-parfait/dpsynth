@@ -19,7 +19,6 @@ from typing import Any
 
 from dpsynth.dataset_descriptors import csv_descriptor
 from dpsynth.dataset_descriptors import dataset_descriptor
-from dpsynth.dataset_descriptors import tfrecord_descriptor
 from dpsynth.pipeline_transformations import types
 
 
@@ -35,6 +34,7 @@ def create_data_record_converter(
     }
     return csv_descriptor.CSVConverter(attributes_dict)
   elif data_format == types.DataFormat.TFRECORD:
+    from dpsynth.dataset_descriptors import tfrecord_descriptor
     attributes_dict = {
         attr.name: attr.data_type for attr in dataset_desc.attributes
     }
