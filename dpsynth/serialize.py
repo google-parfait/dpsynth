@@ -211,13 +211,20 @@ def from_yaml(
   if expected_type is not None:
     return converter.structure(data, expected_type)
 
-  if isinstance(data, Mapping) and 'type' in data:
-    type_name = data['type']
-    target_cls = _resolve_type(type_name)
-    if target_cls is not None:
-      return cattrs.gen.make_dict_structure_fn(target_cls, converter)(
-          data, target_cls
-      )
-    raise ValueError(f"Unknown type: '{type_name}'")
+  if isinstance(data, Mapping):
+    if 'type' in data:
+      type_name = data['type']
+      target_cls = _resolve_type(type_name)
+      if target_cls is not None:
+        return cattrs.gen.make_dict_structure_fn(target_cls, converter)(
+            data, target_cls
+        )
+      raise ValueError(f"Unknown type: '{type_name}'")
+    if data and all(
+        isinstance(v, Mapping) and 'type' in v for v in data.values()
+    ):
+      return {
+          k: _structure_polymorphic(v, Any, converter) for k, v in data.items()
+      }
 
   return data
