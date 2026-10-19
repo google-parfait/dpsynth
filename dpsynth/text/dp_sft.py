@@ -71,7 +71,7 @@ class FineTuneResult:
 
 
 @dataclasses.dataclass(frozen=True)
-class DPFineTuner(api.DPMechanism):
+class DPFineTunerConfig(api.MechanismConfig):
   """Differentially private fine-tuning of Gemma models via DP-SGD.
 
   A ``DPMechanism`` that wraps ``DPTrainer`` with tokenization, model loading,
@@ -90,7 +90,7 @@ class DPFineTuner(api.DPMechanism):
   microbatch_size: int | None = None
   checkpoint_every: int = 100
 
-  def configure(self, _=None, *, budget, delta=0.0):
+  def configure(self, _=None, *, budget, delta=0.0) -> DPFineTuner:
     """Returns a copy with noise_multiplier calibrated to the zCDP budget.
 
     Sets the noise_multiplier to satisfy ``budget`` under a **loose upper
@@ -120,14 +120,20 @@ class DPFineTuner(api.DPMechanism):
         self.mechanism_config,
         noise_multiplier=noise_multiplier,
     )
-    return dataclasses.replace(self, mechanism_config=calibrated_config)
+    cfg = dataclasses.replace(self, mechanism_config=calibrated_config)
+    return DPFineTuner(cfg)
+
+
+@dataclasses.dataclass(frozen=True)
+class DPFineTuner(api.CalibratedMechanism):
+  """Calibrated differentially private fine-tuner for Gemma models via DP-SGD."""
+
+  config: DPFineTunerConfig
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
     """The DpEvent characterizing the privacy cost of DP-SGD training."""
-    if self.mechanism_config.noise_multiplier is None:
-      raise ValueError('noise_multiplier is not set. Call calibrate() first.')
-    return self.mechanism_config.make().dp_event
+    return self.config.mechanism_config.make().dp_event
 
   def __call__(
       self,
@@ -147,7 +153,7 @@ class DPFineTuner(api.DPMechanism):
     """
     # 1-to-1 per-record mapping preserves record-level differential privacy.
     tok_fn = functools.partial(
-        model.tokenize_example, max_seq_length=self.max_seq_length
+        model.tokenize_example, max_seq_length=self.config.max_seq_length
     )
     if isinstance(data, grain.MapDataset):
       dataset = data.map(tok_fn)
@@ -155,9 +161,9 @@ class DPFineTuner(api.DPMechanism):
       records = [tok_fn(ex) for ex in data]
       dataset = jax.tree.map(lambda *xs: np.stack(xs), *records)
 
-    lora_config = model.LoraConfig(rank=self.lora_rank)
+    lora_config = model.LoraConfig(rank=self.config.lora_rank)
     loaded_model = model.load_gemma(
-        self.model_variant,
+        self.config.model_variant,
         lora_config,
     )
     graphdef, trainable_params, frozen_params = nnx.split(
@@ -173,25 +179,25 @@ class DPFineTuner(api.DPMechanism):
     mesh = jax.sharding.get_mesh()
     if not mesh.empty and 'replica' in mesh.axis_names:
       perf = execution_plan.PerformanceFlags(
-          microbatch_size=self.microbatch_size,
+          microbatch_size=self.config.microbatch_size,
           batch_axis_name='replica',
           intermediate_strategy=noise_addition.SupportedStrategies.ZERO,
           param_specs=jax.tree.map(lambda x: x.sharding, trainable_params),
       )
     else:
       perf = execution_plan.PerformanceFlags(
-          microbatch_size=self.microbatch_size,
+          microbatch_size=self.config.microbatch_size,
       )
 
-    trainer = dp_trainer.DPTrainer(
-        mechanism_config=self.mechanism_config,
+    trainer_config = dp_trainer.DPTrainerConfig(
+        mechanism_config=self.config.mechanism_config,
         init_params=optax.tree.cast(trainable_params, jnp.float32),
         loss_fn=loss_fn,
-        optimizer=self.optimizer,
+        optimizer=self.config.optimizer,
         performance_flags=perf,
-        checkpoint_every=self.checkpoint_every,
+        checkpoint_every=self.config.checkpoint_every,
     )
-    state = trainer(rng=rng, data=dataset)
+    state = dp_trainer.DPTrainer(trainer_config)(rng=rng, data=dataset)
 
     bf16_params = optax.tree.cast(state.params, jnp.bfloat16)
     merged = nnx.merge(graphdef, bf16_params, frozen_params)
