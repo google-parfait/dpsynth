@@ -61,10 +61,10 @@ class DirectTest(absltest.TestCase):
     data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b'], [2, 3]), N=100)
     calls = []
 
-    def tracking_oracle(potentials, total=1, constraints=()):
+    def tracking_oracle(potentials, total=1, constraints=(), **kwargs):
       calls.append(total)
       return mbi.marginal_oracles.brute_force_marginals(
-          potentials, total, constraints=constraints
+          potentials, total, constraints=constraints, **kwargs
       )
 
     config = direct.DirectConfig(
@@ -75,6 +75,28 @@ class DirectTest(absltest.TestCase):
     )
     config.configure(budget=100)(np.random.default_rng(0), data)
     self.assertNotEmpty(calls)
+
+  def test_downward_closure_expands_subcliques_and_skips_one_way(self):
+    data = mbi.Dataset.synthetic(
+        mbi.Domain(['a', 'b', 'c', 'd'], [2, 3, 2, 2]), N=100
+    )
+    config = direct.DirectConfig(
+        prespecified_marginal_queries=[('a', 'b', 'c'), ('b', 'a', 'd')],
+        downward_closure=True,
+        pgm_iters=10,
+    )
+    result = config.configure(budget=100)(np.random.default_rng(0), data)
+    measured = [frozenset(m.clique) for m in result.measurements]
+    expected = [
+        frozenset(('a', 'b')),
+        frozenset(('a', 'c')),
+        frozenset(('b', 'c')),
+        frozenset(('a', 'd')),
+        frozenset(('b', 'd')),
+        frozenset(('a', 'b', 'c')),
+        frozenset(('a', 'b', 'd')),
+    ]
+    self.assertCountEqual(measured, expected)
 
 
 if __name__ == '__main__':

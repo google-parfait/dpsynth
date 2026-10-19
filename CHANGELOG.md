@@ -91,7 +91,7 @@ and this project adheres to
     the direct-reference syntax, e.g.:
 
     ```
-    pip install "dpsynth[pipeline] @ git+https://github.com/google/dpsynth.git"
+    pip install "dpsynth[pipeline] @ git+https://github.com/google-parfait/dpsynth.git"
     ```
 
     Users of the Beam pipeline should include the `pipeline` extra.
@@ -123,4 +123,4 @@ tabular data using marginal measurement and Private-PGM inference, including:
 -   **Documentation**: README with architecture overview, module-level READMEs,
     and work-in-progress notice.
 
-[0.1.0]: https://github.com/google/dpsynth/releases/tag/v0.1.0
+[0.1.0]: https://github.com/google-parfait/dpsynth/releases/tag/v0.1.0

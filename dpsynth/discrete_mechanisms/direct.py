@@ -35,12 +35,13 @@ class DirectConfig(api.MechanismConfig):
         gdp_budget=accounting.zcdp_to_gdp(budget),
     )
 
-  estimator: mbi.Estimator = mbi.estimation.MirrorDescent()
+  estimator: mbi.Estimator = mbi.estimation.UniversalAcceleratedMethod()
   marginal_oracle: mbi.MarginalOracle | None = None
   pgm_iters: int = 5000
   prespecified_marginal_queries: list[tuple[str, ...]] = dataclasses.field(
       default_factory=list
   )
+  downward_closure: bool = False
 
   def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
     """Returns the prespecified marginal queries."""
@@ -74,6 +75,11 @@ class Direct(api.CalibratedMechanism):
     common.validate_initial_measurements(initial_measurements)
     phase_times = {}
     selected = list(self.config.prespecified_marginal_queries)
+    if self.config.downward_closure:
+      sub_cliques = mbi.clique_utils.downward_closure(selected)
+      selected = list(
+          {frozenset(cl): cl for cl in sub_cliques if len(cl) >= 2}.values()
+      )
     all_cliques = [m.clique for m in initial_measurements] + list(selected)
 
     summary = mbi.summarize(data.domain, all_cliques)

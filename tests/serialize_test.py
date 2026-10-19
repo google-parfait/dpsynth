@@ -98,13 +98,13 @@ class SerializeTest(parameterized.TestCase):
     config = direct.DirectConfig(
         pgm_iters=1500,
         prespecified_marginal_queries=[('a', 'b')],
-        estimator=mbi.estimation.UniversalAcceleratedMethod(linesearch=True),
+        estimator=mbi.estimation.UniversalAcceleratedMethod(max_iter_search=50),
     )
     yaml_str = serialize.to_yaml(config)
     raw_dict = yaml.safe_load(yaml_str)
     self.assertEqual(
         raw_dict['estimator'],
-        {'type': 'UniversalAcceleratedMethod', 'linesearch': True},
+        {'type': 'UniversalAcceleratedMethod', 'max_iter_search': 50},
     )
     loaded = serialize.from_yaml(yaml_str)
     self.assertEqual(loaded, config)

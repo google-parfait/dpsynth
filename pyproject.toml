@@ -35,9 +35,9 @@ dependencies = [
 dynamic = ["version"]
 
 [project.urls]
-homepage = "https://github.com/google/dpsynth"
-repository = "https://github.com/google/dpsynth"
-changelog = "https://github.com/google/dpsynth/blob/main/CHANGELOG.md"
+homepage = "https://github.com/google-parfait/dpsynth"
+repository = "https://github.com/google-parfait/dpsynth"
+changelog = "https://github.com/google-parfait/dpsynth/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 pipeline = [
@@ -60,7 +60,7 @@ text = [
     "google-tunix",
     "qwix",
     "google-genai>=2.0",
-    "jax-privacy @ git+https://github.com/google-deepmind/jax_privacy.git",
+    "jax-privacy @ git+https://github.com/google-parfait/jax_privacy.git",
     "optax",
 ]
 docs = [

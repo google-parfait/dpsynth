@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 import contextlib
 import contextvars
-from typing import Any, TypeVar
+from typing import Any, TypeAlias, TypeVar
 
 from absl import logging
 from dpsynth.local_mode import initialization
@@ -29,6 +29,7 @@ import mbi
 
 T = TypeVar("T")
 PathType = epath.PathLike
+CallbackFn: TypeAlias = Callable[[int, Any, Any], None]
 
 _ACTIVE_CHECKPOINT_DIR: contextvars.ContextVar[epath.Path | None] = (
     contextvars.ContextVar("_ACTIVE_CHECKPOINT_DIR", default=None)
@@ -58,12 +59,19 @@ def checkpoint(
 ) -> Iterator[epath.Path | None]:
   """Context manager enabling intermediate checkpointing for dpsynth mechanisms.
 
-  When active, mechanisms that support checkpointing (such as TabularMechanism
-  and SWIFT) check whether stage outputs already exist on disk under
-  ``checkpoint_dir``. If so, the computation is skipped and the checkpoint is
-  loaded. If not, the computation is run and saved to ``checkpoint_dir`` as an
-  ``.npz`` archive via ``mbi.save``, which supports PyTrees of numpy arrays
-  with static metadata.
+  When active, mechanisms that support checkpointing (such as TabularMechanism,
+  SWIFT, and DPTrainer) persist intermediate state under ``checkpoint_dir`` and
+  resume from existing checkpoints when rerun. Tabular mechanisms store stage
+  outputs as ``.npz`` archives via ``mbi.save``, while ``DPTrainer`` uses
+  ``orbax.checkpoint.CheckpointManager`` to periodically save and restore
+  ``TrainingState`` across training steps.
+
+  Note:
+    ``checkpoint_dir`` should be treated as private working storage and must not
+    be publicly released. While final mechanism outputs are differentially
+    private, intermediate checkpoints (such as ``DPTrainer``'s
+    ``TrainingState``, which includes optimizer state and correlated noise
+    state) are not differentially private.
 
   Args:
     checkpoint_dir: Directory path where checkpoints should be stored/loaded. If
@@ -117,3 +125,98 @@ def get_or_compute(
   mbi.save(result, path)
   logging.info("[DPSynth Checkpoint]: Saved %s to %s", name, path)
   return result
+
+
+# jax_privacy's BandMF allocates (bands - 1, *param.shape) state buffers, which
+# produces 0-size arrays when bands=1 that Orbax StandardSave rejects.
+def _pack_zero_size(tree: Any) -> Any:
+  return jax.tree.map(lambda x: 0 if getattr(x, "size", 1) == 0 else x, tree)
+
+
+def _unpack_zero_size(target: Any, restored: Any) -> Any:
+  return jax.tree.map(
+      lambda t, r: t if getattr(t, "size", 1) == 0 else r, target, restored
+  )
+
+
+@contextlib.contextmanager
+def orbax_session(
+    init_fn: Callable[[Any], Any],
+    init_params: Any,
+    *,
+    checkpoint_every: int = 100,
+    callback: CallbackFn | None = None,
+) -> Iterator[tuple[Any, CallbackFn | None]]:
+  """Manages periodic Orbax step-level checkpointing and restoration.
+
+  When no ``dpsynth.checkpoint(...)`` context is active, this is a no-op that
+  yields ``(init_params, callback)`` unchanged.
+
+  When a checkpoint directory is active, this context manager opens an
+  ``orbax.checkpoint.CheckpointManager`` under ``<checkpoint_dir>/train_state``
+  and manages three phases around the training loop:
+
+  1. **On entry (restore)**: If a checkpoint already exists, evaluates
+     ``init_fn(init_params)`` to construct a structural target ``TrainingState``
+     and restores the latest checkpoint into it; otherwise yields
+     ``init_params`` so the trainer initializes from scratch.
+  2. **During training (periodic save)**: Wraps ``callback`` in a step hook that
+     saves the current ``TrainingState`` every ``checkpoint_every`` steps
+     (retaining only the most recent checkpoint) before forwarding
+     ``(step, state, aux)`` to the user's ``callback``.
+  3. **On exit (final save & flush)**: If training executed at least one step
+     and the final step was not already saved at a ``checkpoint_every``
+     boundary, force-saves the final ``TrainingState``, then waits for all
+     background Orbax writes to complete before closing the manager.
+
+  Args:
+    init_fn: Callable (typically ``trainer.init``) that maps ``init_params`` to
+      a freshly initialized ``TrainingState`` PyTree used as the restore target.
+    init_params: Initial parameter PyTree passed to the trainer when starting
+      from scratch, or to ``init_fn`` when constructing a restore target.
+    checkpoint_every: Step interval between periodic checkpoints.
+    callback: Optional user step callback ``(step, state, aux) -> None`` to
+      invoke after each step's checkpoint hook.
+
+  Yields:
+    A ``(initial_state, step_callback)`` pair to pass directly to
+    ``trainer.fit(data, initial_state, callback=step_callback, ...)``, where
+    ``initial_state`` is either a restored ``TrainingState`` or ``init_params``.
+  """
+  ckpt_dir = get_active_checkpoint_dir()
+  if ckpt_dir is None:
+    yield init_params, callback
+    return
+
+  from orbax import checkpoint as ocp  # pylint: disable=g-import-not-at-top
+
+  options = ocp.CheckpointManagerOptions(
+      save_interval_steps=checkpoint_every,
+      max_to_keep=1,
+      cleanup_tmp_directories=True,
+  )
+  with ocp.CheckpointManager(ckpt_dir / "train_state", options=options) as mgr:
+    latest_step = mgr.latest_step()
+    if latest_step is not None:
+      logging.info("[DPSynth Checkpoint]: Restoring step %d", latest_step)
+      target = init_fn(init_params)
+      restored = mgr.restore(
+          latest_step, args=ocp.args.StandardRestore(_pack_zero_size(target))
+      )
+      initial_state = _unpack_zero_size(target, restored)
+    else:
+      initial_state = init_params
+
+    last_state = None
+
+    def _step_callback(step: int, state: Any, aux: Any):
+      nonlocal last_state
+      last_state = state
+      mgr.save(step, args=ocp.args.StandardSave(_pack_zero_size(state)))
+      if callback is not None:
+        callback(step, state, aux)
+
+    yield initial_state, _step_callback
+    if last_state is not None and mgr.latest_step() != int(last_state.step):
+      save_args = ocp.args.StandardSave(_pack_zero_size(last_state))
+      mgr.save(int(last_state.step), args=save_args, force=True)
