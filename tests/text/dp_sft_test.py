@@ -130,6 +130,33 @@ class GemmaModelTest(absltest.TestCase):
     self.assertEqual(mesh.shape['fsdp'], 1)
     self.assertEqual(mesh.shape['tp'], 1)
 
+  def test_make_mesh_multislice(self):
+    cpu_dev = jax.devices()[0]
+    fake_devices = [
+        mock.Mock(wraps=cpu_dev, slice_index=i // 4) for i in range(8)
+    ]
+    hybrid_grid = model.np.full((4, 1, 2), cpu_dev, dtype=object)
+    with (
+        mock.patch.object(jax, 'device_count', return_value=8),
+        mock.patch.object(jax, 'devices', return_value=fake_devices),
+        mock.patch.object(
+            model.mesh_utils,
+            'create_hybrid_device_mesh',
+            return_value=hybrid_grid,
+        ) as mock_hybrid,
+    ):
+      mesh = model.make_mesh(tp=2)
+      with self.assertRaises(ValueError):
+        model.make_mesh(tp=8)
+    mock_hybrid.assert_called_once_with(
+        mesh_shape=(2, 1, 2),
+        dcn_mesh_shape=(2, 1, 1),
+        devices=fake_devices,
+        allow_split_physical_axes=True,
+    )
+    self.assertEqual(mesh.axis_names, ('replica', 'fsdp', 'tp'))
+    self.assertEqual(mesh.shape, {'replica': 4, 'fsdp': 1, 'tp': 2})
+
   def test_custom_checkpoint_path(self):
     m = dataclasses.replace(
         model.GemmaModel.default('gemma4_e2b_it'),

@@ -71,15 +71,24 @@ _DEFAULTS: dict[str, tuple[Callable[..., Any], str]] = {
 def make_mesh(tp: int = 1) -> jax.sharding.Mesh:
   """Builds a 3D ('replica', 'fsdp'=1, 'tp'=tp) device mesh for Gemma 4."""
   n = jax.device_count()
-  if n % tp != 0:
-    raise ValueError(f'device_count {n} must be divisible by tp={tp}.')
-  shape = (n // tp, 1, tp)
-  try:
-    devices = mesh_utils.create_device_mesh(
-        shape, allow_split_physical_axes=True
+  raw_devices = jax.devices()
+  # On multi-slice topologies, create_device_mesh fails because device coords
+  # repeat across slices; create_hybrid_device_mesh keeps tensor parallelism
+  # ('tp') within each slice and spans data-parallel replicas across slices.
+  num_slices = len({getattr(d, 'slice_index', 0) for d in raw_devices})
+  if n % (num_slices * tp) != 0:
+    raise ValueError(f'{n=} must be divisible by {num_slices=} * {tp=}.')
+  if num_slices > 1:
+    devices = mesh_utils.create_hybrid_device_mesh(
+        mesh_shape=(n // (num_slices * tp), 1, tp),
+        dcn_mesh_shape=(num_slices, 1, 1),
+        devices=raw_devices,
+        allow_split_physical_axes=True,
     )
-  except (ValueError, NotImplementedError, RuntimeError, AssertionError):
-    devices = np.asarray(jax.devices()).reshape(shape)
+  else:
+    devices = mesh_utils.create_device_mesh(
+        (n // tp, 1, tp), raw_devices, allow_split_physical_axes=True
+    )
   return jax.sharding.Mesh(devices, axis_names=('replica', 'fsdp', 'tp'))
 
 
