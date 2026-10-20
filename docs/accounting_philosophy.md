@@ -225,20 +225,23 @@ context or non-DP disclosures:
 ```python
 PrivacyReport(
     dp_event=GaussianDpEvent(noise_multiplier=2.0),
-    epsilon_deltas=(
+    epsilon_deltas=[
         (2.708, 1e-08),
         (2.490, 1e-07),
         (2.254, 1e-06),
         (1.993, 1e-05),
         (1.698, 1e-04),
-    ),
+    ],
     gdp_estimate=0.5,
-    trade_off_curve=(
-        (0.005, 0.001),
-        (0.034, 0.01),
-        (0.126, 0.05),
-        (0.217, 0.1),
-        (0.691, 0.5),
+    trade_off_curve=TradeOffCurve(
+        points=[
+            (0.005, 0.001),
+            (0.034, 0.01),
+            (0.126, 0.05),
+            (0.217, 0.1),
+            (0.691, 0.5),
+        ],
+        auroc=None,
     ),
     notes=None,
     neighboring_relation='ADD_OR_REMOVE_ONE',

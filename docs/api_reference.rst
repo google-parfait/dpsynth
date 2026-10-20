@@ -109,6 +109,8 @@ privacy profile across evaluation points.
    :template: autosummary/class.rst
 
    PrivacyReport
+   AuditReport
+   TradeOffCurve
 
 ----
 
