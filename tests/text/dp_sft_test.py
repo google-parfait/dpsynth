@@ -130,6 +130,33 @@ class GemmaModelTest(absltest.TestCase):
     self.assertEqual(mesh.shape['fsdp'], 1)
     self.assertEqual(mesh.shape['tp'], 1)
 
+  def test_make_mesh_multislice(self):
+    cpu_dev = jax.devices()[0]
+    fake_devices = [
+        mock.Mock(wraps=cpu_dev, slice_index=i // 4) for i in range(8)
+    ]
+    hybrid_grid = model.np.full((4, 1, 2), cpu_dev, dtype=object)
+    with (
+        mock.patch.object(jax, 'device_count', return_value=8),
+        mock.patch.object(jax, 'devices', return_value=fake_devices),
+        mock.patch.object(
+            model.mesh_utils,
+            'create_hybrid_device_mesh',
+            return_value=hybrid_grid,
+        ) as mock_hybrid,
+    ):
+      mesh = model.make_mesh(tp=2)
+      with self.assertRaises(ValueError):
+        model.make_mesh(tp=8)
+    mock_hybrid.assert_called_once_with(
+        mesh_shape=(2, 1, 2),
+        dcn_mesh_shape=(2, 1, 1),
+        devices=fake_devices,
+        allow_split_physical_axes=True,
+    )
+    self.assertEqual(mesh.axis_names, ('replica', 'fsdp', 'tp'))
+    self.assertEqual(mesh.shape, {'replica': 4, 'fsdp': 1, 'tp': 2})
+
   def test_custom_checkpoint_path(self):
     m = dataclasses.replace(
         model.GemmaModel.default('gemma4_e2b_it'),
@@ -160,42 +187,33 @@ class LoraConfigTest(absltest.TestCase):
 class DPFineTunerTest(absltest.TestCase):
 
   def test_creates_valid_mechanism_config(self):
-    mechanism = dp_sft.DPFineTuner(
+    config = dp_sft.DPFineTunerConfig(
         model_variant=model.GemmaModel.default('gemma4_e2b_it'),
         mechanism_config=_default_config(),
     )
-    self.assertEqual(mechanism.mechanism_config.iterations, 100)
-    self.assertIsNone(mechanism.mechanism_config.noise_multiplier)
+    self.assertEqual(config.mechanism_config.iterations, 100)
+    self.assertIsNone(config.mechanism_config.noise_multiplier)
 
   def test_calibrate_sets_noise_multiplier(self):
-    mechanism = dp_sft.DPFineTuner(
+    mechanism = dp_sft.DPFineTunerConfig(
         model_variant=model.GemmaModel.default('gemma4_e2b_it'),
         mechanism_config=_default_config(),
     ).configure(budget=0.5)
-    self.assertIsNotNone(mechanism.mechanism_config.noise_multiplier)
-    self.assertGreater(mechanism.mechanism_config.noise_multiplier, 0.0)
+    self.assertIsNotNone(mechanism.config.mechanism_config.noise_multiplier)
+    self.assertGreater(mechanism.config.mechanism_config.noise_multiplier, 0.0)
 
   def test_calibrate_noise_formula(self):
-    mechanism = dp_sft.DPFineTuner(
+    mechanism = dp_sft.DPFineTunerConfig(
         model_variant=model.GemmaModel.default('gemma4_e2b_it'),
         mechanism_config=_default_config(),
     ).configure(budget=0.5)
     # Single band: rounds = iterations, sigma = sqrt(T / (2*rho)).
     expected = math.sqrt(100 / (2.0 * 0.5))
-    self.assertAlmostEqual(
-        mechanism.mechanism_config.noise_multiplier, expected
-    )
-
-  def test_dp_event_before_calibration_raises(self):
-    mechanism = dp_sft.DPFineTuner(
-        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
-        mechanism_config=_default_config(),
-    )
-    with self.assertRaises(ValueError):
-      _ = mechanism.dp_event
+    sigma = mechanism.config.mechanism_config.noise_multiplier
+    self.assertAlmostEqual(sigma, expected)
 
   def test_dp_event_after_calibration(self):
-    mechanism = dp_sft.DPFineTuner(
+    mechanism = dp_sft.DPFineTunerConfig(
         model_variant=model.GemmaModel.default('gemma4_e2b_it'),
         mechanism_config=_default_config(),
     ).configure(budget=0.5)
@@ -225,7 +243,7 @@ class DPFineTunerTest(absltest.TestCase):
         iterations=2,
         expected_participations=1.0,
     )
-    mechanism = dp_sft.DPFineTuner(
+    mechanism = dp_sft.DPFineTunerConfig(
         model_variant=model.GemmaModel.default('gemma4_e2b_it'),
         mechanism_config=config,
     ).configure(budget=1.0)
@@ -281,7 +299,7 @@ class DPFineTunerTest(absltest.TestCase):
         iterations=2,
         expected_participations=1.0,
     )
-    mechanism = dp_sft.DPFineTuner(
+    mechanism = dp_sft.DPFineTunerConfig(
         model_variant=model.GemmaModel.default('gemma4_e2b_it'),
         mechanism_config=config,
     ).configure(budget=1.0)
