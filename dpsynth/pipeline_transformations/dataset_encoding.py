@@ -80,12 +80,12 @@ def encode_dataset(
   descriptor = backend.to_collection([descriptor], data, 'ToCollection')
 
   if derived_categorical_values is not None:
-    descriptor = categorical_values_derivation.add_derived_values(
+    descriptor = categorical_values_derivation.add_derived_values(  # pyrefly: ignore[bad-assignment]
         backend, descriptor, derived_categorical_values
     )  # (dataset_descriptor)
 
   if derived_numerical_values is not None:
-    descriptor = numerical_values_derivation.add_numerical_values(
+    descriptor = numerical_values_derivation.add_numerical_values(  # pyrefly: ignore[bad-assignment]
         backend, descriptor, derived_numerical_values
     )  # (dataset_descriptor)
 

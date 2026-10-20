@@ -83,7 +83,7 @@ def save_data_local(
       with tf.io.TFRecordWriter(path) as writer:
         for record in data:
           # record is expected to be a proto message.
-          writer.write(record.SerializeToString())
+          writer.write(record.SerializeToString())  # pyrefly: ignore[missing-attribute]
     case _:
       raise ValueError(f'Unsupported data format: {data_format}')
 
