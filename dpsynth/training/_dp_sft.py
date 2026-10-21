@@ -30,9 +30,6 @@ Example usage::
 
   data = [("What is 2+2?", "4"), ("Capital of France?", "Paris")]
   result = fine_tuner(rng=np.random.default_rng(42), data=data)
-
-For the underlying DP-SGD implementation, see ``dp_trainer``.
-For model loading and loss construction, see ``model``.
 """
 
 from __future__ import annotations
@@ -45,9 +42,9 @@ import os
 
 import dp_accounting
 from dpsynth import api
-from dpsynth.text import callbacks
-from dpsynth.text import dp_trainer
-from dpsynth.text import model
+from dpsynth.training import _callbacks as callbacks
+from dpsynth.training import _dp_trainer as dp_trainer
+from dpsynth.training import _model as model
 from flax import nnx
 import grain.python as grain
 import jax
@@ -173,7 +170,9 @@ class DPFineTuner(api.CalibratedMechanism):
     Args:
       rng: A numpy random number generator.
       data: Sequence or ``grain.MapDataset`` of ``(prompt, response)`` string
-        pairs.
+        pairs. Only ``response`` tokens contribute to the training loss; for
+        unconditional text generation, pair each document with a constant
+        instruction prompt (e.g., ``("Write a research abstract.", doc)``).
       metrics_fn: Optional ``(step, metrics) -> None`` callback invoked every
         ``log_every`` steps with scalar summary metrics.
 
@@ -191,10 +190,9 @@ class DPFineTuner(api.CalibratedMechanism):
       records = [tok_fn(ex) for ex in data]
       dataset = jax.tree.map(lambda *xs: np.stack(xs), *records)
 
-    lora_config = model.LoraConfig(rank=self.config.lora_rank)
     loaded_model = model.load_gemma(
         self.config.model,
-        lora_config,
+        lora_rank=self.config.lora_rank,
     )
     graphdef, trainable_params, frozen_params = nnx.split(
         loaded_model, nnx.LoRAParam, ...

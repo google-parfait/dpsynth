@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for dpsynth.text.model and dpsynth.text.dp_sft.
+"""Tests for dpsynth.training.
 
 These tests verify the loss function, configuration, and calibration logic
 without loading any real model checkpoints.
@@ -24,8 +24,8 @@ import typing
 from unittest import mock
 
 from absl.testing import absltest
-from dpsynth.text import dp_sft
-from dpsynth.text import model
+from dpsynth import training as dp_sft
+from dpsynth.training import _model as model
 from flax import nnx
 import grain.python as grain
 import jax
@@ -160,19 +160,7 @@ class GemmaModelTest(absltest.TestCase):
       model.load_gemma(typing.cast(model.ModelName, 'nonexistent'))
 
 
-class LoraConfigTest(absltest.TestCase):
-
-  def test_defaults(self):
-    cfg = model.LoraConfig()
-    self.assertEqual(cfg.rank, 16)
-    self.assertIsNone(cfg.alpha)
-    self.assertIsNone(cfg.weight_qtype)
-
-  def test_custom_values(self):
-    cfg = model.LoraConfig(rank=8, alpha=16.0, targets='.*q_einsum')
-    self.assertEqual(cfg.rank, 8)
-    self.assertEqual(cfg.alpha, 16.0)
-    self.assertEqual(cfg.targets, '.*q_einsum')
+class LoraCheckpointTest(absltest.TestCase):
 
   def test_save_and_load_lora_params(self):
     class _TinyLora(nnx.Module):
