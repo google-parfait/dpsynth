@@ -29,7 +29,7 @@ Example usage::
   ).configure(budget=0.5)
 
   data = [("What is 2+2?", "4"), ("Capital of France?", "Paris")]
-  final_state = fine_tuner(rng=42, data=data)
+  final_state = fine_tuner(rng=np.random.default_rng(42), data=data)
 
 For the underlying DP-SGD implementation, see ``dp_trainer``.
 For model loading and loss construction, see ``model``.
@@ -137,13 +137,13 @@ class DPFineTuner(api.CalibratedMechanism):
 
   def __call__(
       self,
-      rng: int,
+      rng: np.random.Generator,
       data: Sequence[tuple[str, str]] | grain.MapDataset,
   ) -> FineTuneResult:
     """Tokenizes text, loads the model, and runs DP-SGD fine-tuning.
 
     Args:
-      rng: Random seed for batch selection and noise generation.
+      rng: A numpy random number generator.
       data: Sequence or ``grain.MapDataset`` of ``(prompt, response)`` string
         pairs.
 

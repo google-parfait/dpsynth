@@ -38,6 +38,7 @@ from dpsynth.text import model
 from etils import epath
 import jax
 from jax_privacy import execution_plan
+import numpy as np
 import optax
 
 _MODEL = flags.DEFINE_enum(
@@ -131,7 +132,7 @@ def train() -> dp_sft.FineTuneResult:
   ).calibrate(epsilon=_EPSILON.value, delta=_DELTA.value)
 
   logging.info('DP fine-tuning on %d abstracts...', len(train_data))
-  return fine_tuner(rng=0, data=train_data)
+  return fine_tuner(rng=np.random.default_rng(0), data=train_data)
 
 
 def load_finetuned() -> dp_sft.FineTuneResult:

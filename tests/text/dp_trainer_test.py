@@ -99,7 +99,9 @@ class DPTrainerTest(absltest.TestCase):
         optimizer=optax.adamw(1e-4),
     ).configure(budget=1.0)
 
-    train_state = trainer(rng=42, data={'x': jnp.ones((10, 4, 4))})
+    train_state = trainer(
+        rng=np.random.default_rng(42), data={'x': jnp.ones((10, 4, 4))}
+    )
     self.assertIsNotNone(train_state)
 
   def test_non_private_config(self):
@@ -116,7 +118,9 @@ class DPTrainerTest(absltest.TestCase):
     ).configure(budget=float('inf'))
 
     self.assertIsInstance(trainer.dp_event, dp_accounting.NonPrivateDpEvent)
-    train_state = trainer(rng=42, data={'x': jnp.ones((10, 4, 4))})
+    train_state = trainer(
+        rng=np.random.default_rng(42), data={'x': jnp.ones((10, 4, 4))}
+    )
     self.assertIsNotNone(train_state)
 
   def test_map_dataset(self):
@@ -133,7 +137,7 @@ class DPTrainerTest(absltest.TestCase):
     ).configure(budget=float('inf'))
 
     ds = grain.MapDataset.source([{'x': np.ones((4, 4))} for _ in range(6)])
-    train_state = trainer(rng=42, data=ds)
+    train_state = trainer(rng=np.random.default_rng(42), data=ds)
     self.assertIsNotNone(train_state)
 
   def test_checkpoint_resumes_mid_training_and_skips_completed(self):
@@ -156,7 +160,7 @@ class DPTrainerTest(absltest.TestCase):
     base_trainer = base_config.configure(budget=1.0)
 
     # Uninterrupted reference run without checkpointing.
-    expected = base_trainer(rng=42, data=data)
+    expected = base_trainer(rng=np.random.default_rng(42), data=data)
 
     # First run inside dpsynth.checkpoint: simulate preemption after step 4.
     steps_run_1 = []
@@ -172,7 +176,7 @@ class DPTrainerTest(absltest.TestCase):
     ).configure(budget=1.0)
     with self.assertRaises(RuntimeError):
       with dpsynth.checkpoint(ckpt_dir):
-        interrupted_trainer(rng=42, data=data)
+        interrupted_trainer(rng=np.random.default_rng(42), data=data)
     self.assertEqual(steps_run_1, [1, 2, 3, 4])
 
     # Second run: resumes from step 4 checkpoint and executes only steps 5..6.
@@ -181,7 +185,7 @@ class DPTrainerTest(absltest.TestCase):
         base_config, callback=lambda step, s, a: steps_run_2.append(step)
     ).configure(budget=1.0)
     with dpsynth.checkpoint(ckpt_dir):
-      resumed = resumed_trainer(rng=42, data=data)
+      resumed = resumed_trainer(rng=np.random.default_rng(42), data=data)
     self.assertEqual(steps_run_2, [5, 6])
     np.testing.assert_allclose(
         resumed.params['w'], expected.params['w'], rtol=1e-5
@@ -193,7 +197,7 @@ class DPTrainerTest(absltest.TestCase):
         base_config, callback=lambda step, s, a: steps_run_3.append(step)
     ).configure(budget=1.0)
     with dpsynth.checkpoint(ckpt_dir):
-      cached = cached_trainer(rng=42, data=data)
+      cached = cached_trainer(rng=np.random.default_rng(42), data=data)
     self.assertEqual(steps_run_3, [])
     np.testing.assert_allclose(
         cached.params['w'], expected.params['w'], rtol=1e-5
@@ -217,8 +221,8 @@ class DPTrainerTest(absltest.TestCase):
         checkpoint_every=2,
     ).configure(budget=1.0)
     with dpsynth.checkpoint(ckpt_dir):
-      first = trainer(rng=7, data=data)
-      second = trainer(rng=7, data=data)
+      first = trainer(rng=np.random.default_rng(7), data=data)
+      second = trainer(rng=np.random.default_rng(7), data=data)
     np.testing.assert_allclose(first.params['w'], second.params['w'], rtol=1e-5)
 
 

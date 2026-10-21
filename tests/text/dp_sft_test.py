@@ -31,6 +31,7 @@ import jax
 import jax.numpy as jnp
 import jax_privacy
 from jax_privacy import execution_plan
+import numpy as np
 
 
 def _default_config():
@@ -269,7 +270,7 @@ class DPFineTunerTest(absltest.TestCase):
             side_effect=fit_spy,
         ),
     ):
-      result = mechanism(rng=0, data=ds)
+      result = mechanism(rng=np.random.default_rng(0), data=ds)
 
     mock_load.assert_called_once()
     self.assertGreater(mock_tok.call_count, 0)
@@ -312,7 +313,7 @@ class DPFineTunerTest(absltest.TestCase):
             model, 'tokenize_example', return_value=fake_example
         ) as mock_tok,
     ):
-      result = mechanism(rng=0, data=examples)
+      result = mechanism(rng=np.random.default_rng(0), data=examples)
 
     mock_load.assert_called_once()
     self.assertEqual(mock_tok.call_count, 2)

@@ -43,7 +43,7 @@ Usage::
       num_examples=1000,
   ).configure(budget=0.5)
 
-  final_state = trainer(rng=42, data=dataset)
+  final_state = trainer(rng=np.random.default_rng(42), data=dataset)
 """
 
 from __future__ import annotations
@@ -60,6 +60,7 @@ from dpsynth import api
 import grain.python as grain
 from jax_privacy import execution_plan
 from jax_privacy import training
+import numpy as np
 import optax
 
 
@@ -144,13 +145,13 @@ class DPTrainer(api.CalibratedMechanism):
 
   def __call__(
       self,
-      rng: int,
+      rng: np.random.Generator,
       data: optax.ArrayTree | grain.MapDataset,
   ) -> training.TrainingState:
     """Runs DP-SGD training on the given dataset.
 
     Args:
-      rng: Random seed for batch selection and noise generation.
+      rng: A numpy random number generator.
       data: Training data as a dict of JAX arrays or a ``grain.MapDataset``.
         When passing arrays, the first axis of each array is the example axis.
 
@@ -165,7 +166,7 @@ class DPTrainer(api.CalibratedMechanism):
 
     perf = self.config.performance_flags or execution_plan.PerformanceFlags()
     if perf.noise_seed is None:
-      perf = dataclasses.replace(perf, noise_seed=rng)
+      perf = dataclasses.replace(perf, noise_seed=int(rng.integers(2**31)))
 
     trainer = training.DPTrainer(
         config=self.config.mechanism_config,
