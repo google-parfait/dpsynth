@@ -194,6 +194,8 @@ class DPFineTunerTest(absltest.TestCase):
     )
     self.assertEqual(config.mechanism_config.iterations, 100)
     self.assertIsNone(config.mechanism_config.noise_multiplier)
+    with self.assertRaises(ValueError):
+      dataclasses.replace(config, log_every=3, checkpoint_every=10)
 
   def test_calibrate_sets_noise_multiplier(self):
     mechanism = dp_sft.DPFineTunerConfig(
@@ -303,8 +305,10 @@ class DPFineTunerTest(absltest.TestCase):
     mechanism = dp_sft.DPFineTunerConfig(
         model_variant=model.GemmaModel.default('gemma4_e2b_it'),
         mechanism_config=config,
+        log_every=1,
     ).configure(budget=1.0)
     examples = [('p1', 'r1'), ('p2', 'r2')]
+    logged_steps = []
     with (
         mock.patch.object(
             model, 'load_gemma', return_value=tiny_model
@@ -313,10 +317,13 @@ class DPFineTunerTest(absltest.TestCase):
             model, 'tokenize_example', return_value=fake_example
         ) as mock_tok,
     ):
-      result = mechanism(rng=np.random.default_rng(0), data=examples)
+      log_fn = lambda step, m: logged_steps.append((step, m))
+      result = mechanism(np.random.default_rng(0), examples, metrics_fn=log_fn)
 
     mock_load.assert_called_once()
     self.assertEqual(mock_tok.call_count, 2)
+    self.assertEqual([step for step, _ in logged_steps], [1, 2])
+    self.assertIn('loss', logged_steps[0][1])
     self.assertIsInstance(result, dp_sft.FineTuneResult)
     self.assertIsInstance(result.model, _TinyLoraModel)
 

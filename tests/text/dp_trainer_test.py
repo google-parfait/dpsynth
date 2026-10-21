@@ -14,7 +14,6 @@
 
 
 import dataclasses
-
 from absl.testing import absltest
 import dp_accounting
 import dpsynth
@@ -59,6 +58,8 @@ class DPTrainerTest(absltest.TestCase):
     )
     self.assertEqual(config.mechanism_config.iterations, 100)
     self.assertIsNone(config.mechanism_config.noise_multiplier)
+    with self.assertRaises(ValueError):
+      dataclasses.replace(config, log_every=3, checkpoint_every=10)
 
   def test_calibrate_sets_noise_multiplier(self):
     params, loss_fn = _dummy_params_and_loss()
@@ -141,6 +142,10 @@ class DPTrainerTest(absltest.TestCase):
     self.assertIsNotNone(train_state)
 
   def test_checkpoint_resumes_mid_training_and_skips_completed(self):
+    # Runs a 6-step training job (saving checkpoints every 2 steps) across
+    # three invocations: (1) raises at step 4 via interrupt_at_4 to simulate
+    # preemption after the step-4 checkpoint, (2) resumes from step 4 to finish
+    # steps 5..6, and (3) verifies a third call restores step 6 with 0 steps.
     ckpt_dir = self.create_tempdir().full_path
     params, loss_fn = _dummy_params_and_loss()
     data = {'x': jnp.arange(128, dtype=jnp.float32).reshape((8, 4, 4))}
@@ -155,6 +160,7 @@ class DPTrainerTest(absltest.TestCase):
         loss_fn=loss_fn,
         mechanism_config=mech_config,
         optimizer=optax.adamw(1e-2),
+        log_every=1,
         checkpoint_every=2,
     )
     base_trainer = base_config.configure(budget=1.0)
@@ -165,27 +171,26 @@ class DPTrainerTest(absltest.TestCase):
     # First run inside dpsynth.checkpoint: simulate preemption after step 4.
     steps_run_1 = []
 
-    def interrupt_at_4(step, state, aux):
-      del state, aux
+    def interrupt_at_4(step, metrics):
+      del metrics
       steps_run_1.append(step)
       if step == 4:
         raise RuntimeError('Simulated preemption at step 4')
 
-    interrupted_trainer = dataclasses.replace(
-        base_config, callback=interrupt_at_4
-    ).configure(budget=1.0)
     with self.assertRaises(RuntimeError):
       with dpsynth.checkpoint(ckpt_dir):
-        interrupted_trainer(rng=np.random.default_rng(42), data=data)
+        base_trainer(
+            rng=np.random.default_rng(42),
+            data=data,
+            metrics_fn=interrupt_at_4,
+        )
     self.assertEqual(steps_run_1, [1, 2, 3, 4])
 
     # Second run: resumes from step 4 checkpoint and executes only steps 5..6.
     steps_run_2 = []
-    resumed_trainer = dataclasses.replace(
-        base_config, callback=lambda step, s, a: steps_run_2.append(step)
-    ).configure(budget=1.0)
+    log_2 = lambda s, m: steps_run_2.append(s)
     with dpsynth.checkpoint(ckpt_dir):
-      resumed = resumed_trainer(rng=np.random.default_rng(42), data=data)
+      resumed = base_trainer(np.random.default_rng(42), data, metrics_fn=log_2)
     self.assertEqual(steps_run_2, [5, 6])
     np.testing.assert_allclose(
         resumed.params['w'], expected.params['w'], rtol=1e-5
@@ -193,15 +198,67 @@ class DPTrainerTest(absltest.TestCase):
 
     # Third run: restores final step 6 checkpoint and executes 0 steps.
     steps_run_3 = []
-    cached_trainer = dataclasses.replace(
-        base_config, callback=lambda step, s, a: steps_run_3.append(step)
-    ).configure(budget=1.0)
+    log_3 = lambda s, m: steps_run_3.append(s)
     with dpsynth.checkpoint(ckpt_dir):
-      cached = cached_trainer(rng=np.random.default_rng(42), data=data)
+      cached = base_trainer(np.random.default_rng(42), data, metrics_fn=log_3)
     self.assertEqual(steps_run_3, [])
     np.testing.assert_allclose(
         cached.params['w'], expected.params['w'], rtol=1e-5
     )
+
+  def test_metrics_fn_reports_step_metrics(self):
+    params = {'w': jnp.ones((4, 4))}
+
+    def loss_fn(params, batch, prng):
+      del prng
+      loss = jnp.sum(params['w'] * batch['x'])
+      return loss, {'custom_aux': loss * 2.0}
+
+    mech_config = jax_privacy.execution_plan.BandMFConfig.default(
+        num_bands=1,
+        iterations=4,
+        expected_participations=2,
+        l2_clip_norm=1.0,
+    )
+    trainer = dp_trainer.DPTrainerConfig(
+        init_params=params,
+        loss_fn=loss_fn,
+        mechanism_config=mech_config,
+        optimizer=optax.adamw(1e-2),
+        log_every=2,
+    ).configure(budget=1.0)
+
+    recorded = []
+    data = {'x': jnp.ones((8, 4, 4))}
+    log_rec = lambda s, m: recorded.append((s, m))
+    trainer(np.random.default_rng(0), data, metrics_fn=log_rec)
+
+    per_step = []
+    step_trainer = dp_trainer.DPTrainerConfig(
+        init_params=params,
+        loss_fn=loss_fn,
+        mechanism_config=mech_config,
+        optimizer=optax.adamw(1e-2),
+        log_every=1,
+    ).configure(budget=1.0)
+    log_step = lambda s, m: per_step.append(m)
+    step_trainer(np.random.default_rng(0), data, metrics_fn=log_step)
+
+    m0, m1 = per_step[0], per_step[1]
+    expected_bs = 0.5 * (m0['batch_size'] + m1['batch_size'])
+    expected_max = max(m0['grad_norm_max'], m1['grad_norm_max'])
+    self.assertEqual([step for step, _ in recorded], [2, 4])
+    self.assertAlmostEqual(recorded[0][1]['batch_size'], expected_bs)
+    self.assertAlmostEqual(recorded[0][1]['grad_norm_max'], expected_max)
+    for _, metrics in recorded:
+      self.assertGreater(metrics['batch_size'], 0.0)
+      self.assertLessEqual(metrics['batch_size'], 8.0)
+      self.assertAlmostEqual(metrics['custom_aux'], 2.0 * metrics['loss'])
+      self.assertIn('grad_norm_mean', metrics)
+      self.assertIn('grad_norm_min', metrics)
+      self.assertIn('grad_norm_median', metrics)
+      self.assertIn('grad_norm_max', metrics)
+      self.assertGreaterEqual(metrics['step_time_sec'], 0.0)
 
   def test_checkpoint_single_band_zero_size_noise_state(self):
     ckpt_dir = self.create_tempdir().full_path

@@ -44,6 +44,7 @@ import math
 
 import dp_accounting
 from dpsynth import api
+from dpsynth.text import callbacks
 from dpsynth.text import dp_trainer
 from dpsynth.text import model
 from flax import nnx
@@ -76,8 +77,23 @@ class DPFineTunerConfig(api.MechanismConfig):
 
   A ``DPMechanism`` that wraps ``DPTrainer`` with tokenization, model loading,
   and LoRA handling. All configuration is specified at construction time;
-  ``__call__`` takes ``(rng, data)`` where ``data`` is a sequence of text
-  strings.
+  ``__call__`` takes ``(rng, data)`` where ``data`` is a sequence or
+  ``grain.MapDataset`` of ``(prompt, response)`` string pairs.
+
+  Note: Step-level metrics logged when ``log_every`` is set (such as loss,
+  batch size, and gradient norms) are un-noised and not accounted for in the
+  formal ``(epsilon, delta)`` privacy guarantee. Leave ``log_every=None`` when
+  strict end-to-end DP accounting of all outputs is required.
+
+  Attributes:
+    model_variant: Gemma model variant and pretrained checkpoint specification.
+    mechanism_config: ``BandMFConfig`` specifying the DP-SGD mechanism.
+    lora_rank: Rank of the LoRA adapter matrices.
+    max_seq_length: Maximum token sequence length (including special tokens).
+    optimizer: Optax gradient transformation for parameter updates.
+    microbatch_size: Physical microbatch size for per-example gradient clipping.
+    log_every: Optional step interval for logging un-noised training metrics.
+    checkpoint_every: Step interval for saving mid-training Orbax checkpoints.
   """
 
   model_variant: model.GemmaModel
@@ -88,7 +104,12 @@ class DPFineTunerConfig(api.MechanismConfig):
       default_factory=lambda: optax.adamw(1e-4)
   )
   microbatch_size: int | None = None
+  log_every: int | None = None
   checkpoint_every: int = 100
+
+  def __post_init__(self):
+    if self.log_every and self.checkpoint_every % self.log_every != 0:
+      raise ValueError('checkpoint_every must be a multiple of log_every.')
 
   def configure(self, _=None, *, budget, delta=0.0) -> DPFineTuner:
     """Returns a copy with noise_multiplier calibrated to the zCDP budget.
@@ -139,6 +160,8 @@ class DPFineTuner(api.CalibratedMechanism):
       self,
       rng: np.random.Generator,
       data: Sequence[tuple[str, str]] | grain.MapDataset,
+      *,
+      metrics_fn: callbacks.MetricsFn | None = None,
   ) -> FineTuneResult:
     """Tokenizes text, loads the model, and runs DP-SGD fine-tuning.
 
@@ -146,6 +169,8 @@ class DPFineTuner(api.CalibratedMechanism):
       rng: A numpy random number generator.
       data: Sequence or ``grain.MapDataset`` of ``(prompt, response)`` string
         pairs.
+      metrics_fn: Optional ``(step, metrics) -> None`` callback invoked every
+        ``log_every`` steps with scalar summary metrics.
 
     Returns:
       A ``FineTuneResult`` with the trained model and merged LoRA parameters.
@@ -195,9 +220,11 @@ class DPFineTuner(api.CalibratedMechanism):
         loss_fn=loss_fn,
         optimizer=self.config.optimizer,
         performance_flags=perf,
+        log_every=self.config.log_every,
         checkpoint_every=self.config.checkpoint_every,
     )
-    state = dp_trainer.DPTrainer(trainer_config)(rng=rng, data=dataset)
+    trainer = dp_trainer.DPTrainer(trainer_config)
+    state = trainer(rng=rng, data=dataset, metrics_fn=metrics_fn)
 
     bf16_params = optax.tree.cast(state.params, jnp.bfloat16)
     merged = nnx.merge(graphdef, bf16_params, frozen_params)

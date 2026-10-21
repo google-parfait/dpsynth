@@ -739,7 +739,7 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/d4/5a/26a1305f8978bc4
 [[packages]]
 name = "jax-privacy"
 version = "2.3.0.dev0"
-vcs = { type = "git", url = "https://github.com/google-parfait/jax_privacy.git", commit-id = "2a538f200aacfa44646d034b3c3ea2e5326bd0ac" }
+vcs = { type = "git", url = "https://github.com/google-parfait/jax_privacy.git", commit-id = "0f8fdf3077017c0729caae901b02dfb464a784e3" }
 
 [[packages]]
 name = "jaxlib"

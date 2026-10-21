@@ -57,6 +57,7 @@ from absl import logging
 import dp_accounting
 from dpsynth import _checkpoint
 from dpsynth import api
+from dpsynth.text import callbacks
 import grain.python as grain
 from jax_privacy import execution_plan
 from jax_privacy import training
@@ -83,6 +84,11 @@ class DPTrainerConfig(api.MechanismConfig):
     ...   num_bands=1, iterations=500, expected_participations=4, l2_clip_norm=1
     ... )
 
+  Note: Step-level metrics logged when ``log_every`` is set (such as loss,
+  batch size, and gradient norms) are un-noised and not accounted for in the
+  formal ``(epsilon, delta)`` privacy guarantee. Leave ``log_every=None`` when
+  strict end-to-end DP accounting of all outputs is required.
+
   Attributes:
     mechanism_config: ``BandMFConfig`` specifying the DP-SGD mechanism.
     init_params: Initial trainable parameter pytree.
@@ -91,7 +97,7 @@ class DPTrainerConfig(api.MechanismConfig):
     optimizer: Optax gradient transformation.
     performance_flags: Optional ``PerformanceFlags`` for microbatching, SPMD,
       compute dtype, and noise generation.
-    callback: Optional ``(step, state, aux) -> None`` called after each step.
+    log_every: Optional step interval for logging un-noised training metrics.
     checkpoint_every: Step interval for saving Orbax training checkpoints when
       running inside a ``dpsynth.checkpoint(...)`` context.
   """
@@ -101,8 +107,12 @@ class DPTrainerConfig(api.MechanismConfig):
   mechanism_config: execution_plan.ExecutionPlanConfig
   optimizer: optax.GradientTransformation
   performance_flags: execution_plan.PerformanceFlags | None = None
-  callback: training.CallbackFn | None = None
+  log_every: int | None = None
   checkpoint_every: int = 100
+
+  def __post_init__(self):
+    if self.log_every and self.checkpoint_every % self.log_every != 0:
+      raise ValueError('checkpoint_every must be a multiple of log_every.')
 
   def configure(self, _=None, *, budget, delta=0.0) -> DPTrainer:
     """Returns a copy with noise calibrated to the zCDP budget.
@@ -147,6 +157,8 @@ class DPTrainer(api.CalibratedMechanism):
       self,
       rng: np.random.Generator,
       data: optax.ArrayTree | grain.MapDataset,
+      *,
+      metrics_fn: callbacks.MetricsFn | None = None,
   ) -> training.TrainingState:
     """Runs DP-SGD training on the given dataset.
 
@@ -154,6 +166,8 @@ class DPTrainer(api.CalibratedMechanism):
       rng: A numpy random number generator.
       data: Training data as a dict of JAX arrays or a ``grain.MapDataset``.
         When passing arrays, the first axis of each array is the example axis.
+      metrics_fn: Optional ``(step, metrics) -> None`` callback invoked every
+        ``log_every`` steps with scalar summary metrics.
 
     Returns:
       Final ``TrainingState`` containing the trained parameters.
@@ -174,15 +188,16 @@ class DPTrainer(api.CalibratedMechanism):
         loss_fn=self.config.loss_fn,
         optimizer=self.config.optimizer,
     )
+    callback = callbacks.DefaultCallbackFn(self.config.log_every, metrics_fn)
     with _checkpoint.orbax_session(
         trainer.init,
         self.config.init_params,
         checkpoint_every=self.config.checkpoint_every,
-        callback=self.config.callback,
-    ) as (initial_state, callback):
+        callback=callback,
+    ) as (initial_state, step_callback):
       return trainer.fit(
           data,
           initial_state,
-          callback=callback,
+          callback=step_callback,
           rng_or_seed=rng,
       )
