@@ -137,8 +137,8 @@ class DPTrainerTest(absltest.TestCase):
         optimizer=optax.adamw(1e-4),
     ).configure(budget=float('inf'))
 
-    ds = grain.MapDataset.source([{'x': np.ones((4, 4))} for _ in range(6)])
-    train_state = trainer(rng=np.random.default_rng(42), data=ds)
+    data = grain.MapDataset.source([{'x': np.ones((4, 4))} for _ in range(6)])
+    train_state = trainer(rng=np.random.default_rng(42), data=data)
     self.assertIsNotNone(train_state)
 
   def test_checkpoint_resumes_mid_training_and_skips_completed(self):
@@ -281,6 +281,48 @@ class DPTrainerTest(absltest.TestCase):
       first = trainer(rng=np.random.default_rng(7), data=data)
       second = trainer(rng=np.random.default_rng(7), data=data)
     np.testing.assert_allclose(first.params['w'], second.params['w'], rtol=1e-5)
+
+  def test_canaries_auditing_array_and_map_dataset(self):
+    def loss_fn(params, batch, prng):
+      del prng
+      return jnp.mean((params['w'] - batch['x']) ** 2), ()
+
+    config = jax_privacy.execution_plan.BandMFConfig.default(
+        num_bands=1,
+        iterations=20,
+        expected_participations=10,
+        l2_clip_norm=1.0,
+        noise_multiplier=0.0,
+    )
+    trainer = dp_trainer.DPTrainer(
+        dp_trainer.DPTrainerConfig(
+            init_params={'w': jnp.zeros(8)},
+            loss_fn=loss_fn,
+            mechanism_config=config,
+            optimizer=optax.sgd(0.5),
+        )
+    )
+    canaries = {'x': jnp.eye(8)}
+    result = trainer(
+        rng=np.random.default_rng(0),
+        data={'x': jnp.zeros((8, 8))},
+        canaries=canaries,
+    )
+    self.assertIsInstance(result, dp_trainer.TrainingResult)
+    assert result.auditor is not None
+    self.assertAlmostEqual(float(result.auditor.attack_auroc()), 1.0, places=5)
+
+    data = grain.MapDataset.source([{'x': np.zeros(8, dtype=np.float32)}] * 8)
+    result = trainer(rng=np.random.default_rng(0), data=data, canaries=canaries)
+    assert result.auditor is not None
+    self.assertAlmostEqual(float(result.auditor.attack_auroc()), 1.0, places=5)
+
+    with self.assertRaises(ValueError):
+      trainer(
+          rng=np.random.default_rng(0),
+          data={'x': jnp.zeros((8, 8))},
+          canaries={'x': jnp.ones((1, 8))},
+      )
 
 
 if __name__ == '__main__':

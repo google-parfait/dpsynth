@@ -59,10 +59,52 @@ from dpsynth import _checkpoint
 from dpsynth import api
 from dpsynth.text import callbacks
 import grain.python as grain
+import jax
+from jax_privacy import auditing
 from jax_privacy import execution_plan
 from jax_privacy import training
 import numpy as np
 import optax
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class TrainingResult:
+  """Result of running ``DPTrainer``.
+
+  Attributes:
+    params: Final trained parameter pytree.
+    auditor: Optional ``CanaryScoreAuditor`` when ``canaries`` are provided.
+  """
+
+  params: training.Params
+  auditor: auditing.CanaryScoreAuditor | None = None
+
+
+def _setup_canaries(
+    data: optax.ArrayTree | grain.MapDataset,
+    canaries: optax.ArrayTree,
+    rng: np.random.Generator,
+) -> tuple[
+    optax.ArrayTree | grain.MapDataset, optax.ArrayTree, optax.ArrayTree
+]:
+  """Randomly splits canaries 50/50 and appends held-in canaries to data."""
+  # Permute the candidate pool using rng and split 50/50 into held-in and
+  # held-out sets so membership assignment is exchangeable by construction.
+  n = jax.tree.leaves(canaries)[0].shape[0]
+  if n < 2:
+    raise ValueError(f'canaries must have >= 2 examples, got {n}.')
+  perm = rng.permutation(n)
+  in_idx, out_idx = np.split(perm, 2)
+  in_canaries = jax.tree.map(lambda x: x[in_idx], canaries)
+  out_canaries = jax.tree.map(lambda x: x[out_idx], canaries)
+  if isinstance(data, grain.MapDataset):
+    get_row = lambda i: jax.tree.map(lambda x: x[i], in_canaries)
+    in_data = grain.MapDataset.range(len(in_idx)).map(get_row)
+    data = grain.MapDataset.concatenate([data, in_data])
+  else:
+    fn = lambda a, b: np.concatenate([a, b], axis=0)
+    data = jax.tree.map(fn, data, in_canaries)
+  return data, in_canaries, out_canaries
 
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
@@ -159,7 +201,8 @@ class DPTrainer(api.CalibratedMechanism):
       data: optax.ArrayTree | grain.MapDataset,
       *,
       metrics_fn: callbacks.MetricsFn | None = None,
-  ) -> training.TrainingState:
+      canaries: optax.ArrayTree | None = None,
+  ) -> TrainingResult:
     """Runs DP-SGD training on the given dataset.
 
     Args:
@@ -168,15 +211,25 @@ class DPTrainer(api.CalibratedMechanism):
         When passing arrays, the first axis of each array is the example axis.
       metrics_fn: Optional ``(step, metrics) -> None`` callback invoked every
         ``log_every`` steps with scalar summary metrics.
+      canaries: Optional public canary candidate batch with the same PyTree
+        structure as ``data`` elements. Canaries are considered public data
+        (their per-example loss scores are returned in ``auditor``). When
+        provided, half are randomly assigned as held-in (appended to ``data``)
+        and half as held-out for auditing.
 
     Returns:
-      Final ``TrainingState`` containing the trained parameters.
+      A ``TrainingResult`` containing the trained parameters and optional
+      canary score auditor.
     """
     cfg = typing.cast(typing.Any, self.config.mechanism_config)
     d = dataclasses.asdict(cfg)
     if hasattr(cfg, 'strategy') and cfg.strategy is not None:
       d['strategy'] = [float(x) for x in cfg.strategy]
     logging.info('DPTrainer config:\n%s', json.dumps(d, indent=2))
+
+    in_canaries = out_canaries = {}
+    if canaries is not None:
+      data, in_canaries, out_canaries = _setup_canaries(data, canaries, rng)
 
     perf = self.config.performance_flags or execution_plan.PerformanceFlags()
     if perf.noise_seed is None:
@@ -195,9 +248,22 @@ class DPTrainer(api.CalibratedMechanism):
         checkpoint_every=self.config.checkpoint_every,
         callback=callback,
     ) as (initial_state, step_callback):
-      return trainer.fit(
+      state = trainer.fit(
           data,
           initial_state,
           callback=step_callback,
           rng_or_seed=rng,
       )
+
+    auditor = None
+    if canaries is not None:
+      auditor = training.audit(
+          self.config.loss_fn,
+          state.params,
+          in_canaries,
+          out_canaries,
+          self.config.init_params,
+          microbatch_size=perf.microbatch_size,
+          prng_key=int(rng.integers(2**31)),
+      )
+    return TrainingResult(params=state.params, auditor=auditor)
