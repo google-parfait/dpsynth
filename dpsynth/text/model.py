@@ -147,8 +147,10 @@ def load_gemma(
   # (see tunix/cli/utils/model.py). Enable RematConfig.BLOCK after _init_lora.
   cfg = dataclasses.replace(
       config_fn(),
+      param_dtype=jnp.bfloat16,
       dtype=jnp.bfloat16,
       remat_config=gemma4_model.RematConfig.NONE,
+      use_flash_attention=True,
   )
   loaded = gemma4_params.create_model_from_checkpoint(
       model_variant.checkpoint_path,
@@ -212,17 +214,23 @@ def load_gemma(
 
 def save_lora_params(lora_model: nnx.Module, path: epath.PathLike) -> None:
   """Saves trainable LoRA parameters from ``lora_model`` to ``path``."""
-  lora_state = nnx.state(lora_model, nnx.LoRAParam)
-  checkpointer = ocp.StandardCheckpointer()
-  checkpointer.save(epath.Path(path), lora_state, force=True)
-  checkpointer.wait_until_finished()
+  lora_state = jax.block_until_ready(nnx.state(lora_model, nnx.LoRAParam))
+  with ocp.Checkpointer(ocp.StandardCheckpointHandler()) as checkpointer:
+    checkpointer.save(
+        epath.Path(path),
+        args=ocp.args.StandardSave(lora_state),
+        force=True,
+    )
 
 
 def load_lora_params(lora_model: nnx.Module, path: epath.PathLike) -> None:
   """Restores trainable LoRA parameters into ``lora_model`` in-place."""
   abstract_lora = nnx.state(lora_model, nnx.LoRAParam)
-  checkpointer = ocp.StandardCheckpointer()
-  restored = checkpointer.restore(epath.Path(path), abstract_lora)
+  with ocp.Checkpointer(ocp.StandardCheckpointHandler()) as checkpointer:
+    restored = checkpointer.restore(
+        epath.Path(path),
+        args=ocp.args.StandardRestore(abstract_lora),
+    )
   nnx.update(lora_model, restored)
 
 
@@ -242,15 +250,10 @@ def sft_loss_fn(
   input_tokens = data['input_tokens']
   loss_mask = data['loss_mask']
 
-  pad_mask = input_tokens != 0
-  positions = jnp.cumsum(pad_mask, axis=-1) - (
-      jnp.cumsum(pad_mask, axis=-1) >= 1
-  )
   seq_len = input_tokens.shape[-1]
-  causal_mask = jnp.tril(jnp.ones((seq_len, seq_len), dtype=jnp.bool_))
-  attention_mask = pad_mask[..., None, :] * causal_mask[None, :]
+  causal_mask = jnp.tril(jnp.ones((1, seq_len, seq_len), dtype=jnp.bool_))
 
-  logits, _ = module(input_tokens, positions, None, attention_mask)
+  logits, _ = module(input_tokens, attention_mask=causal_mask)
   logits = logits[:, :-1, :]
   targets = input_tokens[:, 1:]
   mask = loss_mask[:, 1:]

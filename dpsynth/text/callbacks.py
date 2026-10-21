@@ -33,16 +33,14 @@ MetricsFn: TypeAlias = Callable[[int, Mapping[str, float]], None]
 ReduceFn: TypeAlias = Callable[[PerExampleAux], Mapping[str, float]]
 
 
-# Copy aux to host CPU asynchronously so intermediate steps do not block
-# and large per-step aux tensors do not accumulate in device HBM.
-def _to_host_async(x: typing.Any) -> typing.Any:
-  if not isinstance(x, jax.Array):
-    return x
-  if not x.is_fully_replicated:
+# Replicate sharded arrays across hosts before transferring to CPU so
+# jax.device_get can read the full global array on every process.
+def _replicate(x: typing.Any) -> typing.Any:
+  if isinstance(x, jax.Array) and not x.is_fully_replicated:
     mesh = getattr(x.sharding, 'mesh')
     sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
-    x = jax.device_put(x, sharding).addressable_data(0)
-  return jax.device_put(x, jax.local_devices(backend='cpu')[0])
+    return jax.device_put(x, sharding)
+  return x
 
 
 def summarize_aux(aux: PerExampleAux) -> dict[str, float]:
@@ -66,25 +64,26 @@ def summarize_aux(aux: PerExampleAux) -> dict[str, float]:
 
 @dataclasses.dataclass
 class DefaultCallbackFn:
-  """Buffers per-step outputs on host and periodically logs metrics."""
+  """Buffers per-step outputs and periodically logs metrics."""
 
   log_every: int | None = None
   metrics_fn: MetricsFn | None = None
   reduce_fn: ReduceFn = summarize_aux
   _aux_buffer: list[PerExampleAux] = dataclasses.field(default_factory=list)
-  _last_time: float = dataclasses.field(default_factory=time.monotonic)
+  _last_time: float | None = None
 
   def __call__(self, step: int, state: TrainingState, aux: PerExampleAux):
     del state
     if self.log_every is None:
       return
-    self._aux_buffer.append(jax.tree.map(_to_host_async, aux))
+    if self._last_time is None:
+      jax.block_until_ready(aux)
+      self._last_time = time.monotonic()
+    self._aux_buffer.append(aux)
     if step % self.log_every != 0:
       return
 
-    # Materialize buffered async CPU transfers as NumPy arrays and reset
-    # the buffer for the next logging window.
-    buf = jax.device_get(self._aux_buffer)
+    buf = jax.device_get(jax.tree.map(_replicate, self._aux_buffer))
     self._aux_buffer.clear()
     now = time.monotonic()
     num_steps = len(buf)

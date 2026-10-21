@@ -51,8 +51,8 @@ def _make_tiny_model(vocab_size=8, embed_dim=4):
       self.embed = nnx.Embed(vocab_size, embed_dim, rngs=rngs)
       self.dense = nnx.Linear(embed_dim, vocab_size, rngs=rngs)
 
-    def __call__(self, tokens, *args):
-      del args
+    def __call__(self, tokens, *args, **kwargs):
+      del args, kwargs
       return self.dense(self.embed(tokens)), None
 
   return TinyModel(nnx.Rngs(0))
@@ -184,6 +184,23 @@ class LoraConfigTest(absltest.TestCase):
     self.assertEqual(cfg.alpha, 16.0)
     self.assertEqual(cfg.targets, '.*q_einsum')
 
+  def test_save_and_load_lora_params(self):
+    class _TinyLora(nnx.Module):
+
+      def __init__(self, rngs: nnx.Rngs):
+        self.lora = nnx.LoRA(
+            4, 2, 8, base_module=nnx.Linear(4, 8, rngs=rngs), rngs=rngs
+        )
+
+    m1 = _TinyLora(nnx.Rngs(0))
+    m1.lora.lora_b.value = jnp.ones_like(m1.lora.lora_b.value)
+    ckpt_dir = self.create_tempdir().full_path + '/lora_ckpt'
+    model.save_lora_params(m1, ckpt_dir)
+
+    m2 = _TinyLora(nnx.Rngs(1))
+    model.load_lora_params(m2, ckpt_dir)
+    self.assertTrue(jnp.allclose(m1.lora.lora_b.value, m2.lora.lora_b.value))
+
 
 class DPFineTunerTest(absltest.TestCase):
 
@@ -232,8 +249,8 @@ class DPFineTunerTest(absltest.TestCase):
             4, 2, 8, base_module=nnx.Linear(4, 8, rngs=rngs), rngs=rngs
         )
 
-      def __call__(self, tokens, *args):
-        del args
+      def __call__(self, tokens, *args, **kwargs):
+        del args, kwargs
         return self.lora(self.embed(tokens)), None
 
     tiny_model = _TinyLoraModel(nnx.Rngs(0))
@@ -288,8 +305,8 @@ class DPFineTunerTest(absltest.TestCase):
             4, 2, 8, base_module=nnx.Linear(4, 8, rngs=rngs), rngs=rngs
         )
 
-      def __call__(self, tokens, *args):
-        del args
+      def __call__(self, tokens, *args, **kwargs):
+        del args, kwargs
         return self.lora(self.embed(tokens)), None
 
     tiny_model = _TinyLoraModel(nnx.Rngs(0))

@@ -191,7 +191,7 @@ def orbax_session(
   from orbax import checkpoint as ocp  # pylint: disable=g-import-not-at-top
 
   options = ocp.CheckpointManagerOptions(
-      save_interval_steps=checkpoint_every,
+      should_save_fn=lambda step, _: step > 0 and step % checkpoint_every == 0,
       max_to_keep=1,
       cleanup_tmp_directories=True,
   )
@@ -212,11 +212,14 @@ def orbax_session(
     def _step_callback(step: int, state: Any, aux: Any):
       nonlocal last_state
       last_state = state
-      mgr.save(step, args=ocp.args.StandardSave(_pack_zero_size(state)))
+      if mgr.should_save(step):
+        mgr.save(step, args=ocp.args.StandardSave(_pack_zero_size(state)))
       if callback is not None:
         callback(step, state, aux)
 
     yield initial_state, _step_callback
-    if last_state is not None and mgr.latest_step() != int(last_state.step):
-      save_args = ocp.args.StandardSave(_pack_zero_size(last_state))
-      mgr.save(int(last_state.step), args=save_args, force=True)
+    if last_state is not None:
+      mgr.wait_until_finished()
+      if mgr.latest_step() != int(last_state.step):
+        save_args = ocp.args.StandardSave(_pack_zero_size(last_state))
+        mgr.save(int(last_state.step), args=save_args, force=True)
