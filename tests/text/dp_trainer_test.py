@@ -14,12 +14,15 @@
 
 
 import dataclasses
+from unittest import mock
+
 from absl.testing import absltest
 import dp_accounting
 import dpsynth
 from dpsynth.text import dp_trainer
 from flax import nnx
 import grain.python as grain
+import jax
 import jax.numpy as jnp
 import jax_privacy
 import numpy as np
@@ -186,11 +189,12 @@ class DPTrainerTest(absltest.TestCase):
         )
     self.assertEqual(steps_run_1, [1, 2, 3, 4])
 
-    # Second run: resumes from step 4 checkpoint and executes only steps 5..6.
+    # Second run: resumes from step 4 checkpoint and executes only steps 5..6,
+    # restoring the initial RNG seed even when a fresh RNG is passed.
     steps_run_2 = []
     log_2 = lambda s, m: steps_run_2.append(s)
     with dpsynth.checkpoint(ckpt_dir):
-      resumed = base_trainer(np.random.default_rng(42), data, metrics_fn=log_2)
+      resumed = base_trainer(np.random.default_rng(999), data, metrics_fn=log_2)
     self.assertEqual(steps_run_2, [5, 6])
     np.testing.assert_allclose(
         resumed.params['w'], expected.params['w'], rtol=1e-5
@@ -200,11 +204,40 @@ class DPTrainerTest(absltest.TestCase):
     steps_run_3 = []
     log_3 = lambda s, m: steps_run_3.append(s)
     with dpsynth.checkpoint(ckpt_dir):
-      cached = base_trainer(np.random.default_rng(42), data, metrics_fn=log_3)
+      cached = base_trainer(np.random.default_rng(123), data, metrics_fn=log_3)
     self.assertEqual(steps_run_3, [])
     np.testing.assert_allclose(
         cached.params['w'], expected.params['w'], rtol=1e-5
     )
+
+  def test_multihost_seed_broadcast(self):
+    # Simulates multi-host broadcast in a single process, assuming
+    # broadcast_one_to_all broadcasts from process_index == 0 as documented.
+    params, loss_fn = _dummy_params_and_loss()
+    data = {'x': jnp.arange(128, dtype=jnp.float32).reshape((8, 4, 4))}
+    mech_config = dataclasses.replace(self.dpsgd_config, iterations=4)
+    trainer = dp_trainer.DPTrainerConfig(
+        init_params=params,
+        loss_fn=loss_fn,
+        mechanism_config=mech_config,
+        optimizer=optax.adamw(1e-2),
+    ).configure(budget=1.0)
+    broadcast_seed = None
+
+    def fake_broadcast(x):
+      nonlocal broadcast_seed
+      if jax.process_index() == 0:
+        broadcast_seed = x
+      return broadcast_seed
+
+    with mock.patch.object(
+        dp_trainer.multihost_utils, 'broadcast_one_to_all', fake_broadcast
+    ):
+      host0 = trainer(rng=np.random.default_rng(42), data=data)
+      with mock.patch.object(jax, 'process_index', return_value=1):
+        host1 = trainer(rng=np.random.default_rng(999), data=data)
+
+    np.testing.assert_allclose(host1.params['w'], host0.params['w'], rtol=1e-5)
 
   def test_metrics_fn_reports_step_metrics(self):
     params = {'w': jnp.ones((4, 4))}

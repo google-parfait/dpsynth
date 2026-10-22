@@ -60,6 +60,7 @@ from dpsynth import api
 from dpsynth.text import callbacks
 import grain.python as grain
 import jax
+from jax.experimental import multihost_utils
 from jax_privacy import auditing
 from jax_privacy import execution_plan
 from jax_privacy import training
@@ -226,6 +227,15 @@ class DPTrainer(api.CalibratedMechanism):
     if hasattr(cfg, 'strategy') and cfg.strategy is not None:
       d['strategy'] = [float(x) for x in cfg.strategy]
     logging.info('DPTrainer config:\n%s', json.dumps(d, indent=2))
+
+    if jax.process_index() == 0:
+      seed = _checkpoint.get_or_compute('rng_seed', rng.integers, 2**31)
+    else:
+      seed = 0  # Dummy placeholder; overwritten by broadcast_one_to_all below.
+    seed = multihost_utils.broadcast_one_to_all(np.asarray(seed, np.int32))
+    # Seed a deterministic PRNG from rng so multi-host and resumed runs replay
+    # identical batch-selection and noise streams even for seedless CSPRNGs.
+    rng = np.random.default_rng(int(seed))
 
     in_canaries = out_canaries = {}
     if canaries is not None:
