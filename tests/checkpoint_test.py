@@ -15,6 +15,7 @@
 """Unit tests for dpsynth.checkpoint."""
 
 import os
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -139,6 +140,18 @@ class CheckpointTest(parameterized.TestCase):
       draw_after_load = rng2.normal()
 
       self.assertEqual(draw_after_compute, draw_after_load)
+
+  def test_get_or_compute_streams_via_epath_bytes(self):
+    temp_dir = self.create_tempdir().full_path
+    with (
+        _checkpoint.checkpoint(temp_dir, "run_1"),
+        mock.patch.object(mbi, "save", wraps=mbi.save) as mock_save,
+        mock.patch.object(mbi, "load", wraps=mbi.load) as mock_load,
+    ):
+      _checkpoint.get_or_compute("stage", lambda: np.array([1, 2]), rng=None)
+      _checkpoint.get_or_compute("stage", lambda: np.array([3, 4]), rng=None)
+      self.assertNotIsInstance(mock_save.call_args.args[1], epath.Path)
+      self.assertNotIsInstance(mock_load.call_args.args[0], epath.Path)
 
   def test_column_measurements_serialization(self):
     temp_dir = self.create_tempdir().full_path
