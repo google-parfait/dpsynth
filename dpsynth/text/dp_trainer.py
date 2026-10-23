@@ -252,9 +252,11 @@ class DPTrainer(api.CalibratedMechanism):
         optimizer=self.config.optimizer,
     )
     callback = callbacks.DefaultCallbackFn(self.config.log_every, metrics_fn)
+    # Copy init_params since DPTrainer.fit donates state buffers.
+    init_params = jax.tree.map(jax.numpy.copy, self.config.init_params)
     with _checkpoint.orbax_session(
         trainer.init,
-        self.config.init_params,
+        init_params,
         checkpoint_every=self.config.checkpoint_every,
         callback=callback,
     ) as (initial_state, step_callback):

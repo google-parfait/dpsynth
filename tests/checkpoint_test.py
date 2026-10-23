@@ -159,6 +159,20 @@ class CheckpointTest(parameterized.TestCase):
     )
     self.assertEqual(loaded_dict["open"].stddev, 0.5)
 
+  def test_orbax_session_initializes_state(self):
+    init_fn = lambda p: {"step": np.int32(0), "params": p}
+    with _checkpoint.orbax_session(init_fn, {"w": np.ones(2)}) as (state, cb):
+      self.assertIsNone(cb)
+      self.assertEqual(state["step"], 0)
+      np.testing.assert_array_equal(state["params"]["w"], [1.0, 1.0])
+
+    temp_dir = self.create_tempdir().full_path
+    with _checkpoint.checkpoint(temp_dir):
+      with _checkpoint.orbax_session(init_fn, {"w": np.ones(2)}) as (state, cb):
+        self.assertIsNotNone(cb)
+        self.assertEqual(state["step"], 0)
+        np.testing.assert_array_equal(state["params"]["w"], [1.0, 1.0])
+
 
 if __name__ == "__main__":
   absltest.main()
