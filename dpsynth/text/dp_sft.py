@@ -23,13 +23,13 @@ Example usage::
   config = jax_privacy.execution_plan.BandMFConfig.default(
       num_bands=1, iterations=100, expected_participations=1.0,
   )
-  fine_tuner = DPFineTuner(
-      model_variant=model.GemmaModel.default('gemma4_e2b_it'),
+  fine_tuner = DPFineTunerConfig(
+      model='gemma4_e2b_it',
       mechanism_config=config,
   ).configure(budget=0.5)
 
   data = [("What is 2+2?", "4"), ("Capital of France?", "Paris")]
-  final_state = fine_tuner(rng=np.random.default_rng(42), data=data)
+  result = fine_tuner(rng=np.random.default_rng(42), data=data)
 
 For the underlying DP-SGD implementation, see ``dp_trainer``.
 For model loading and loss construction, see ``model``.
@@ -41,6 +41,7 @@ from collections.abc import Sequence
 import dataclasses
 import functools
 import math
+import os
 
 import dp_accounting
 from dpsynth import api
@@ -69,6 +70,10 @@ class FineTuneResult:
 
   model: nnx.Module
 
+  def save(self, path: str | os.PathLike[str]) -> None:
+    """Saves trainable LoRA parameters from ``self.model`` to ``path``."""
+    model.save_lora_params(self.model, path)
+
 
 @dataclasses.dataclass(frozen=True)
 class DPFineTunerConfig(api.MechanismConfig):
@@ -85,7 +90,7 @@ class DPFineTunerConfig(api.MechanismConfig):
   strict end-to-end DP accounting of all outputs is required.
 
   Attributes:
-    model_variant: Gemma model variant and pretrained checkpoint specification.
+    model: Gemma model preset name.
     mechanism_config: ``BandMFConfig`` specifying the DP-SGD mechanism.
     lora_rank: Rank of the LoRA adapter matrices.
     max_seq_length: Maximum token sequence length (including special tokens).
@@ -95,7 +100,7 @@ class DPFineTunerConfig(api.MechanismConfig):
     checkpoint_every: Step interval for saving mid-training Orbax checkpoints.
   """
 
-  model_variant: model.GemmaModel
+  model: model.ModelName
   mechanism_config: execution_plan.BandMFConfig
   lora_rank: int = 16
   max_seq_length: int = 512
@@ -107,6 +112,7 @@ class DPFineTunerConfig(api.MechanismConfig):
   checkpoint_every: int = 100
 
   def __post_init__(self):
+    model.validate_model_name(self.model)
     if self.log_every and self.checkpoint_every % self.log_every != 0:
       raise ValueError('checkpoint_every must be a multiple of log_every.')
 
@@ -187,7 +193,7 @@ class DPFineTuner(api.CalibratedMechanism):
 
     lora_config = model.LoraConfig(rank=self.config.lora_rank)
     loaded_model = model.load_gemma(
-        self.config.model_variant,
+        self.config.model,
         lora_config,
     )
     graphdef, trainable_params, frozen_params = nnx.split(

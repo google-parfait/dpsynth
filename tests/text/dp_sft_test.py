@@ -20,6 +20,7 @@ without loading any real model checkpoints.
 
 import dataclasses
 import math
+import typing
 from unittest import mock
 
 from absl.testing import absltest
@@ -115,15 +116,9 @@ class SftLossFnTest(absltest.TestCase):
 
 class GemmaModelTest(absltest.TestCase):
 
-  def test_default_preset(self):
-    m = model.GemmaModel.default('gemma4_e2b_it')
-    self.assertEqual(m.name, 'gemma4_e2b_it')
-    self.assertIsNotNone(m.checkpoint_path)
-
-  def test_gemma4_31b_preset(self):
-    m = model.GemmaModel.default('gemma4_31b_it')
-    self.assertEqual(m.name, 'gemma4_31b_it')
-    self.assertIsNotNone(m.checkpoint_path)
+  def test_validate_model_name_presets(self):
+    for name in typing.get_args(model.ModelName):
+      model.validate_model_name(name)
 
   def test_make_mesh(self):
     mesh = model.make_mesh(tp=1)
@@ -158,16 +153,11 @@ class GemmaModelTest(absltest.TestCase):
     self.assertEqual(mesh.axis_names, ('replica', 'fsdp', 'tp'))
     self.assertEqual(mesh.shape, {'replica': 4, 'fsdp': 1, 'tp': 2})
 
-  def test_custom_checkpoint_path(self):
-    m = dataclasses.replace(
-        model.GemmaModel.default('gemma4_e2b_it'),
-        checkpoint_path='/custom/path',
-    )
-    self.assertEqual(m.checkpoint_path, '/custom/path')
-
   def test_unknown_name_raises(self):
     with self.assertRaises(ValueError):
-      model.GemmaModel.default('nonexistent')
+      model.validate_model_name(typing.cast(model.ModelName, 'nonexistent'))
+    with self.assertRaises(ValueError):
+      model.load_gemma(typing.cast(model.ModelName, 'nonexistent'))
 
 
 class LoraConfigTest(absltest.TestCase):
@@ -195,7 +185,7 @@ class LoraConfigTest(absltest.TestCase):
     m1 = _TinyLora(nnx.Rngs(0))
     m1.lora.lora_b.value = jnp.ones_like(m1.lora.lora_b.value)
     ckpt_dir = self.create_tempdir().full_path + '/lora_ckpt'
-    model.save_lora_params(m1, ckpt_dir)
+    dp_sft.FineTuneResult(model=m1).save(ckpt_dir)
 
     m2 = _TinyLora(nnx.Rngs(1))
     model.load_lora_params(m2, ckpt_dir)
@@ -206,17 +196,23 @@ class DPFineTunerTest(absltest.TestCase):
 
   def test_creates_valid_mechanism_config(self):
     config = dp_sft.DPFineTunerConfig(
-        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
+        model='gemma4_e2b_it',
         mechanism_config=_default_config(),
     )
+    self.assertEqual(config.model, 'gemma4_e2b_it')
     self.assertEqual(config.mechanism_config.iterations, 100)
     self.assertIsNone(config.mechanism_config.noise_multiplier)
     with self.assertRaises(ValueError):
       dataclasses.replace(config, log_every=3, checkpoint_every=10)
+    with self.assertRaises(ValueError):
+      dp_sft.DPFineTunerConfig(
+          model=typing.cast(model.ModelName, 'nonexistent'),
+          mechanism_config=_default_config(),
+      )
 
   def test_calibrate_sets_noise_multiplier(self):
     mechanism = dp_sft.DPFineTunerConfig(
-        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
+        model='gemma4_e2b_it',
         mechanism_config=_default_config(),
     ).configure(budget=0.5)
     self.assertIsNotNone(mechanism.config.mechanism_config.noise_multiplier)
@@ -224,7 +220,7 @@ class DPFineTunerTest(absltest.TestCase):
 
   def test_calibrate_noise_formula(self):
     mechanism = dp_sft.DPFineTunerConfig(
-        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
+        model='gemma4_e2b_it',
         mechanism_config=_default_config(),
     ).configure(budget=0.5)
     # Single band: rounds = iterations, sigma = sqrt(T / (2*rho)).
@@ -234,7 +230,7 @@ class DPFineTunerTest(absltest.TestCase):
 
   def test_dp_event_after_calibration(self):
     mechanism = dp_sft.DPFineTunerConfig(
-        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
+        model='gemma4_e2b_it',
         mechanism_config=_default_config(),
     ).configure(budget=0.5)
     event = mechanism.dp_event
@@ -264,7 +260,7 @@ class DPFineTunerTest(absltest.TestCase):
         expected_participations=1.0,
     )
     mechanism = dp_sft.DPFineTunerConfig(
-        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
+        model='gemma4_e2b_it',
         mechanism_config=config,
     ).configure(budget=1.0)
     orig_fit = jax_privacy.training.DPTrainer.fit
@@ -320,7 +316,7 @@ class DPFineTunerTest(absltest.TestCase):
         expected_participations=1.0,
     )
     mechanism = dp_sft.DPFineTunerConfig(
-        model_variant=model.GemmaModel.default('gemma4_e2b_it'),
+        model='gemma4_e2b_it',
         mechanism_config=config,
         log_every=1,
     ).configure(budget=1.0)

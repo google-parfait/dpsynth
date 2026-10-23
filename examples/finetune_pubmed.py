@@ -94,9 +94,9 @@ _INSTRUCTION = 'Write the abstract of a research paper.'
 _DATASET = 'ccdv/pubmed-summarization'
 
 
-def _model_variant() -> model.GemmaModel:
-  # ``_MODEL`` is a DEFINE_enum whose choices are exactly ``model.ModelName``.
-  return model.GemmaModel.default(typing.cast(model.ModelName, _MODEL.value))
+def _model_name() -> model.ModelName:
+  # ``_MODEL`` is a DEFINE_enum whose choices are a subset of ``ModelName``.
+  return typing.cast(model.ModelName, _MODEL.value)
 
 
 def _load_abstracts() -> list[str]:
@@ -119,7 +119,7 @@ def train() -> dp_sft.FineTuneResult:
   train_data = [(_INSTRUCTION, abstract) for abstract in abstracts]
 
   fine_tuner = dp_sft.DPFineTunerConfig(
-      model_variant=_model_variant(),
+      model=_model_name(),
       mechanism_config=execution_plan.BandMFConfig.default(
           num_bands=8,
           iterations=_ITERATIONS.value,
@@ -145,7 +145,7 @@ def load_finetuned() -> dp_sft.FineTuneResult:
     A FineTuneResult holding the reconstructed model and loaded params.
   """
   loaded = model.load_gemma(
-      _model_variant(),
+      _model_name(),
       model.LoraConfig(rank=_LORA_RANK.value),
       checkpoint_path=_ckpt_dir(),
   )
@@ -155,8 +155,7 @@ def load_finetuned() -> dp_sft.FineTuneResult:
 def sample(result: dp_sft.FineTuneResult) -> None:
   """Generates synthetic abstracts and writes them to <workdir> as JSONL."""
   sampler = model.GemmaSampler(
-      model=result.model,
-      model_variant=_model_variant(),
+      result.model,
       max_seq_length=_MAX_SEQ_LENGTH.value,
       temperature=_TEMPERATURE.value,
   )
@@ -189,7 +188,7 @@ def main(_) -> None:
 
   if _TRAIN.value:
     result = train()
-    model.save_lora_params(result.model, _ckpt_dir())
+    result.save(_ckpt_dir())
     logging.info('Saved fine-tuned model to %s.', _ckpt_dir())
   else:
     result = load_finetuned()

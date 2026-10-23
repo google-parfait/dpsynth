@@ -37,8 +37,11 @@ import tunix
 from tunix.models.gemma4 import model as gemma4_model
 from tunix.models.gemma4 import params as gemma4_params
 
-# Supported model names for GemmaModel.default().
+# Supported Gemma 4 model names.
 ModelName = Literal[
+    'gemma4_e2b_pt',
+    'gemma4_e4b_pt',
+    'gemma4_31b_pt',
     'gemma4_e2b_it',
     'gemma4_e4b_it',
     'gemma4_31b_it',
@@ -49,23 +52,24 @@ _DEFAULT_LORA_TARGETS = (
     r'|.*gate_proj|.*up_proj|.*down_proj'
 )
 
-# gemma4_params only defines checkpoint constants for E2B and E4B variants.
-_GEMMA4_31B_IT = 'gs://gemma-data/checkpoints/gemma4-31b-it'
-
+_GCS = 'gs://gemma-data/checkpoints'
+_31B_PT = getattr(gemma4_params, 'GEMMA4_31B_PT', f'{_GCS}/gemma4-31b-pt')
+_31B_IT = getattr(gemma4_params, 'GEMMA4_31B_IT', f'{_GCS}/gemma4-31b-it')
+_CFG = gemma4_model.ModelConfig
 _DEFAULTS: dict[str, tuple[Callable[..., Any], str]] = {
-    'gemma4_e2b_it': (
-        gemma4_model.ModelConfig.gemma4_e2b,
-        gemma4_params.GEMMA4_E2B_IT,
-    ),
-    'gemma4_e4b_it': (
-        gemma4_model.ModelConfig.gemma4_e4b,
-        gemma4_params.GEMMA4_E4B_IT,
-    ),
-    'gemma4_31b_it': (
-        gemma4_model.ModelConfig.gemma4_31b,
-        _GEMMA4_31B_IT,
-    ),
+    'gemma4_e2b_pt': (_CFG.gemma4_e2b, gemma4_params.GEMMA4_E2B_PT),
+    'gemma4_e4b_pt': (_CFG.gemma4_e4b, gemma4_params.GEMMA4_E4B_PT),
+    'gemma4_31b_pt': (_CFG.gemma4_31b, _31B_PT),
+    'gemma4_e2b_it': (_CFG.gemma4_e2b, gemma4_params.GEMMA4_E2B_IT),
+    'gemma4_e4b_it': (_CFG.gemma4_e4b, gemma4_params.GEMMA4_E4B_IT),
+    'gemma4_31b_it': (_CFG.gemma4_31b, _31B_IT),
 }
+
+
+def validate_model_name(model: ModelName) -> None:
+  """Raises ValueError if ``model`` is not a supported ``ModelName``."""
+  if model not in _DEFAULTS:
+    raise ValueError(f'Unknown model {model!r}. Options: {list(_DEFAULTS)}')
 
 
 def make_mesh(tp: int = 1) -> jax.sharding.Mesh:
@@ -93,22 +97,6 @@ def make_mesh(tp: int = 1) -> jax.sharding.Mesh:
 
 
 @dataclasses.dataclass(frozen=True)
-class GemmaModel:
-  """Specification for a Gemma model variant."""
-
-  name: ModelName
-  checkpoint_path: str
-
-  @classmethod
-  def default(cls, name: ModelName) -> GemmaModel:
-    """Constructs a GemmaModel from a preset name."""
-    if name not in _DEFAULTS:
-      raise ValueError(f'Unknown model {name!r}. Options: {list(_DEFAULTS)}')
-    _, checkpoint_path = _DEFAULTS[name]
-    return cls(name=name, checkpoint_path=checkpoint_path)
-
-
-@dataclasses.dataclass(frozen=True)
 class LoraConfig:
   """Configuration for LoRA adaptation."""
 
@@ -119,8 +107,8 @@ class LoraConfig:
 
 
 def load_gemma(
-    model_variant: GemmaModel,
-    lora_config: LoraConfig,
+    model: ModelName,
+    lora_config: LoraConfig = LoraConfig(),
     *,
     checkpoint_path: epath.PathLike | None = None,
     mesh: jax.sharding.Mesh | None = None,
@@ -128,19 +116,20 @@ def load_gemma(
   """Loads a Gemma model with LoRA adapters.
 
   Args:
-    model_variant: Which Gemma variant to load.
+    model: Which Gemma variant to load.
     lora_config: LoRA adapter configuration.
     checkpoint_path: Checkpoint to restore from. If None, loads pretrained base
-      weights from ``model_variant.checkpoint_path`` and initializes fresh LoRA
-      adapters. If a checkpoint is provided, restores LoRA params.
+      weights for ``model`` and initializes fresh LoRA adapters. If a checkpoint
+      is provided, restores LoRA params.
     mesh: Optional sharding mesh to constrain parameters across devices.
 
   Returns:
     The LoRA-wrapped ``nnx.Module``.
   """
+  validate_model_name(model)
   if mesh is None and not jax.sharding.get_mesh().empty:
     mesh = jax.sharding.get_mesh()
-  config_fn, _ = _DEFAULTS[model_variant.name]
+  config_fn, base_checkpoint_path = _DEFAULTS[model]
   # Work around a Tunix/Qwix limitation: RematConfig.BLOCK wraps blocks in
   # nnx.remat(graph_updates=False) and jax.checkpoint, which masks qwix_rngs
   # and discards LoRAParam attribute mutations during the init forward pass
@@ -153,7 +142,7 @@ def load_gemma(
       use_flash_attention=True,
   )
   loaded = gemma4_params.create_model_from_checkpoint(
-      model_variant.checkpoint_path,
+      base_checkpoint_path,
       cfg,
       mesh=mesh,
   )
@@ -323,14 +312,12 @@ class GemmaSampler:
 
   def __init__(
       self,
-      *,
       model: nnx.Module,
-      model_variant: GemmaModel,
-      max_seq_length: int,
-      temperature: float,
+      *,
+      max_seq_length: int = 512,
+      temperature: float = 1.0,
   ):
-    config_fn, _ = _DEFAULTS[model_variant.name]
-    cfg = config_fn()
+    cfg: gemma4_model.ModelConfig = getattr(model, 'config')
     cache_config = tunix.CacheConfig(
         cache_size=max_seq_length,
         num_layers=cfg.num_layers,
