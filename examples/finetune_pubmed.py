@@ -33,8 +33,8 @@ from absl import app
 from absl import flags
 from absl import logging
 import datasets
-from dpsynth.text import dp_sft
-from dpsynth.text import model
+from dpsynth import training
+from dpsynth.training import _model
 from etils import epath
 import jax
 from jax_privacy import execution_plan
@@ -94,9 +94,9 @@ _INSTRUCTION = 'Write the abstract of a research paper.'
 _DATASET = 'ccdv/pubmed-summarization'
 
 
-def _model_name() -> model.ModelName:
+def _model_name() -> _model.ModelName:
   # ``_MODEL`` is a DEFINE_enum whose choices are a subset of ``ModelName``.
-  return typing.cast(model.ModelName, _MODEL.value)
+  return typing.cast(_model.ModelName, _MODEL.value)
 
 
 def _load_abstracts() -> list[str]:
@@ -112,13 +112,13 @@ def _load_abstracts() -> list[str]:
   return [t.strip() for t in abstracts if t and t.strip()]
 
 
-def train() -> dp_sft.FineTuneResult:
+def train() -> training.FineTuneResult:
   """DP-fine-tunes Gemma on PubMed abstracts."""
   abstracts = _load_abstracts()
   # Frame each abstract as a (fixed instruction prompt -> abstract) SFT pair.
   train_data = [(_INSTRUCTION, abstract) for abstract in abstracts]
 
-  fine_tuner = dp_sft.DPFineTunerConfig(
+  fine_tuner = training.DPFineTunerConfig(
       model=_model_name(),
       mechanism_config=execution_plan.BandMFConfig.default(
           num_bands=8,
@@ -135,7 +135,7 @@ def train() -> dp_sft.FineTuneResult:
   return fine_tuner(rng=np.random.default_rng(0), data=train_data)
 
 
-def load_finetuned() -> dp_sft.FineTuneResult:
+def load_finetuned() -> training.FineTuneResult:
   """Rebuilds the model and loads previously saved fine-tuned params.
 
   Uses the same --model / --lora_rank / --max_seq_length as training, so the
@@ -144,17 +144,17 @@ def load_finetuned() -> dp_sft.FineTuneResult:
   Returns:
     A FineTuneResult holding the reconstructed model and loaded params.
   """
-  loaded = model.load_gemma(
+  loaded = _model.load_gemma(
       _model_name(),
-      model.LoraConfig(rank=_LORA_RANK.value),
+      lora_rank=_LORA_RANK.value,
       checkpoint_path=_ckpt_dir(),
   )
-  return dp_sft.FineTuneResult(model=loaded)
+  return training.FineTuneResult(model=loaded)
 
 
-def sample(result: dp_sft.FineTuneResult) -> None:
+def sample(result: training.FineTuneResult) -> None:
   """Generates synthetic abstracts and writes them to <workdir> as JSONL."""
-  sampler = model.GemmaSampler(
+  sampler = _model.GemmaSampler(
       result.model,
       max_seq_length=_MAX_SEQ_LENGTH.value,
       temperature=_TEMPERATURE.value,
