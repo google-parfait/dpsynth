@@ -63,6 +63,10 @@ class DPTrainerTest(absltest.TestCase):
     self.assertIsNone(config.mechanism_config.noise_multiplier)
     with self.assertRaises(ValueError):
       dataclasses.replace(config, log_every=3, checkpoint_every=10)
+    with self.assertRaises(ValueError):
+      dataclasses.replace(config, snapshot_steps=[0])
+    with self.assertRaises(ValueError):
+      dataclasses.replace(config, snapshot_steps=[101])
 
   def test_calibrate_sets_noise_multiplier(self):
     params, loss_fn = _dummy_params_and_loss()
@@ -355,6 +359,72 @@ class DPTrainerTest(absltest.TestCase):
           rng=np.random.default_rng(0),
           data={'x': jnp.zeros((8, 8))},
           canaries={'x': jnp.ones((1, 8))},
+      )
+
+  def test_snapshots_and_checkpoint_resume(self):
+    def loss_fn(params, batch, prng):
+      del prng
+      return jnp.mean((params['w'] - batch['x']) ** 2), ()
+
+    config = jax_privacy.execution_plan.BandMFConfig.default(
+        num_bands=1,
+        iterations=6,
+        expected_participations=6,
+        l2_clip_norm=1.0,
+        noise_multiplier=0.0,
+    )
+    trainer = dp_trainer.DPTrainer(
+        dp_trainer.DPTrainerConfig(
+            init_params={'w': jnp.zeros(8)},
+            loss_fn=loss_fn,
+            mechanism_config=config,
+            optimizer=optax.sgd(0.5),
+            log_every=1,
+            checkpoint_every=2,
+            snapshot_steps=[2, 5],
+        )
+    )
+    data = {'x': jnp.zeros((8, 8))}
+    canaries = {'x': jnp.eye(8)}
+    expected = trainer(np.random.default_rng(0), data, canaries=canaries)
+    self.assertEqual(set(expected.snapshots.keys()), {2, 5})
+    self.assertFalse(
+        jnp.allclose(expected.snapshots[2].params['w'], expected.params['w'])
+    )
+    assert expected.snapshots[2].auditor is not None
+    assert expected.snapshots[5].auditor is not None
+
+    ckpt_dir = self.create_tempdir().full_path
+
+    def interrupt_at_4(step, metrics):
+      del metrics
+      if step == 4:
+        raise RuntimeError('Simulated preemption at step 4')
+
+    with self.assertRaises(RuntimeError):
+      with dpsynth.checkpoint(ckpt_dir):
+        trainer(
+            np.random.default_rng(0),
+            data,
+            metrics_fn=interrupt_at_4,
+            canaries=canaries,
+        )
+
+    with dpsynth.checkpoint(ckpt_dir):
+      resumed = trainer(np.random.default_rng(999), data, canaries=canaries)
+    self.assertEqual(set(resumed.snapshots.keys()), {2, 5})
+    for step in (2, 5):
+      np.testing.assert_allclose(
+          resumed.snapshots[step].params['w'],
+          expected.snapshots[step].params['w'],
+          rtol=1e-5,
+      )
+      assert resumed.snapshots[step].auditor is not None
+      assert expected.snapshots[step].auditor is not None
+      self.assertAlmostEqual(
+          float(resumed.snapshots[step].auditor.attack_auroc()),
+          float(expected.snapshots[step].auditor.attack_auroc()),
+          places=5,
       )
 
 
