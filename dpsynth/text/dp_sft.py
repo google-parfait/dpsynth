@@ -51,10 +51,14 @@ from dpsynth.text import model
 from flax import nnx
 import grain.python as grain
 import jax
-from jax_privacy import execution_plan
-from jax_privacy import noise_addition
+import jax_privacy
 import numpy as np
 import optax
+
+
+_DEFAULT_BANDMF = jax_privacy.execution_plan.BandMFConfig(
+    iterations=100, expected_participations=1.0, strategy=(1.0,)
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -94,25 +98,25 @@ class DPFineTunerConfig(api.MechanismConfig):
     mechanism_config: ``BandMFConfig`` specifying the DP-SGD mechanism.
     lora_rank: Rank of the LoRA adapter matrices.
     max_seq_length: Maximum token sequence length (including special tokens).
-    optimizer: Optax gradient transformation for parameter updates.
+    learning_rate: AdamW learning rate for parameter updates.
     microbatch_size: Physical microbatch size for per-example gradient clipping.
     log_every: Optional step interval for logging un-noised training metrics.
     checkpoint_every: Step interval for saving mid-training Orbax checkpoints.
   """
 
-  model: model.ModelName
-  mechanism_config: execution_plan.BandMFConfig
+  model: model.ModelName = 'gemma4_e2b_it'
+  mechanism_config: jax_privacy.execution_plan.BandMFConfig = _DEFAULT_BANDMF
   lora_rank: int = 16
   max_seq_length: int = 512
-  optimizer: optax.GradientTransformation = dataclasses.field(
-      default_factory=lambda: optax.adamw(1e-4)
-  )
+  learning_rate: float = 1e-4
   microbatch_size: int | None = None
   log_every: int | None = None
   checkpoint_every: int = 100
 
   def __post_init__(self):
     model.validate_model_name(self.model)
+    if self.learning_rate <= 0:
+      raise ValueError(f'learning_rate must be positive: {self.learning_rate}.')
     if self.log_every and self.checkpoint_every % self.log_every != 0:
       raise ValueError('checkpoint_every must be a multiple of log_every.')
 
@@ -139,7 +143,7 @@ class DPFineTunerConfig(api.MechanismConfig):
       A new ``DPFineTuner`` with calibrated
       ``mechanism_config.noise_multiplier``.
     """
-    num_bands = len(self.mechanism_config.strategy)  # pyrefly: ignore[bad-argument-type]
+    num_bands = self.mechanism_config.num_bands
     rounds = math.ceil(self.mechanism_config.iterations / num_bands)
     noise_multiplier = math.sqrt(rounds / (2.0 * budget))
     calibrated_config = dataclasses.replace(
@@ -208,14 +212,16 @@ class DPFineTuner(api.CalibratedMechanism):
 
     mesh = jax.sharding.get_mesh()
     if not mesh.empty and 'replica' in mesh.axis_names:
-      perf = execution_plan.PerformanceFlags(
+      zero = jax_privacy.noise_addition.SupportedStrategies.ZERO
+      specs = jax.tree.map(lambda x: x.sharding, trainable_params)
+      perf = jax_privacy.execution_plan.PerformanceFlags(
           microbatch_size=self.config.microbatch_size,
           batch_axis_name='replica',
-          intermediate_strategy=noise_addition.SupportedStrategies.ZERO,
-          param_specs=jax.tree.map(lambda x: x.sharding, trainable_params),
+          intermediate_strategy=zero,
+          param_specs=specs,
       )
     else:
-      perf = execution_plan.PerformanceFlags(
+      perf = jax_privacy.execution_plan.PerformanceFlags(
           microbatch_size=self.config.microbatch_size,
       )
 
@@ -223,7 +229,7 @@ class DPFineTuner(api.CalibratedMechanism):
         mechanism_config=self.config.mechanism_config,
         init_params=trainable_params,
         loss_fn=loss_fn,
-        optimizer=self.config.optimizer,
+        optimizer=optax.adamw(self.config.learning_rate),
         performance_flags=perf,
         log_every=self.config.log_every,
         checkpoint_every=self.config.checkpoint_every,

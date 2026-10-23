@@ -30,6 +30,11 @@ from etils import epath
 import mbi
 import yaml
 
+try:
+  import jax_privacy  # pylint: disable=g-import-not-at-top
+except ImportError:
+  jax_privacy = None
+
 PathType = epath.PathLike
 
 
@@ -54,14 +59,27 @@ def _resolve_type(type_name: str) -> type[Any] | None:
     candidate = getattr(mbi.estimation, type_name)
     if isinstance(candidate, type) and issubclass(candidate, mbi.Estimator):
       return candidate
+  if jax_privacy is not None and hasattr(jax_privacy.execution_plan, type_name):
+    candidate = getattr(jax_privacy.execution_plan, type_name)
+    if isinstance(candidate, type) and dataclasses.is_dataclass(candidate):
+      return candidate
   return None
 
 
 def _unstructure_dataclass(cl: type[Any], conv: cattrs.Converter) -> Any:
+  """Builds an unstructure function that omits defaults and adds a type tag."""
   base_fn = cattrs.gen.make_dict_unstructure_fn(
       cl, conv, _cattrs_omit_if_default=True
   )
-  return lambda obj: {'type': obj.__class__.__name__, **base_fn(obj)}
+
+  def _unstructure(obj: Any) -> dict[str, Any]:
+    res = {'type': obj.__class__.__name__, **base_fn(obj)}
+    for k, v in res.items():
+      if hasattr(v, 'tolist'):
+        res[k] = v.tolist()
+    return res
+
+  return _unstructure
 
 
 def _structure_polymorphic(data: Any, _: Any, conv: cattrs.Converter) -> Any:
