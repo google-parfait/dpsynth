@@ -92,16 +92,24 @@ class AIMConfig(api.MechanismConfig):
 
   Details are described in the paper:
   [AIM: An Adaptive and Iterative Mechanism for Differentially Private Synthetic
-  Data](https://arxiv.org/abs/2201.12677). This mechanism is a competitive
-  algorithm within the broader SELECT-MEASURE-GENERATE paradigm. It is an
-  MWEM-style algorithm (Multiplicative Weights + Exponential Mechanism), that
-  iteratively improves the estimate of the data distribution by selecting
-  marginal queries that are poorly approximated by the current model. It is a
-  scalable algorithm that can handle high-dimensional datasets, but it can be
-  time consuming to run (hours). The runtime/utility trade-off can be controlled
-  by the max_model_size parameter. For quick experimentation, we recommend
-  setting max_model_size = 1, for production use cases, we recommend setting
-  max_model_size >= 80.
+  Data](https://arxiv.org/abs/2201.12677). This mechanism is an MWEM-style
+  algorithm (Multiplicative Weights + Exponential Mechanism) within the broader
+  SELECT-MEASURE-GENERATE paradigm that iteratively improves the estimate of the
+  data distribution by selecting marginal queries that are poorly approximated
+  by the current model.
+
+  Note: We do **not** recommend using AIM for domains with more than 20
+  attributes or for large datasets. Because AIM modifies the graphical model
+  structure and re-runs estimation in each adaptive round, it incurs a large
+  compilation overhead that makes it very slow in large-scale settings. Instead,
+  we recommend using ``DirectConfig`` if you are a domain expert and can
+  enumerate the queries you care about in advance, or ``SWIFTConfig`` if you
+  want a mechanism that scales out of the box with no domain expertise.
+
+  When using AIM, the ``max_model_size`` knob is the primary way to manage
+  compute and utility trade-offs. For quick experimentation, we recommend
+  setting ``max_model_size=1``; for higher utility when runtime permits, we
+  recommend setting ``max_model_size >= 80``.
 
   Attributes:
     workload: A collection of marginal queries (and weights) the synthetic data
