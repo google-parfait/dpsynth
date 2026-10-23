@@ -37,7 +37,7 @@ For model loading and loss construction, see ``model``.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 import dataclasses
 import functools
 import math
@@ -51,6 +51,7 @@ from dpsynth.text import model
 from flax import nnx
 import grain.python as grain
 import jax
+from jax_privacy import auditing
 from jax_privacy import execution_plan
 from jax_privacy import noise_addition
 import numpy as np
@@ -66,9 +67,15 @@ class FineTuneResult:
 
   Attributes:
     model: The LoRA-wrapped model with trained parameters merged in.
+    auditor: Optional ``CanaryScoreAuditor`` when ``canaries`` are provided.
+    snapshots: Mapping from step number to intermediate ``FineTuneResult``.
   """
 
   model: nnx.Module
+  auditor: auditing.CanaryScoreAuditor | None = None
+  snapshots: Mapping[int, FineTuneResult] = dataclasses.field(
+      default_factory=dict
+  )
 
   def save(self, path: str | os.PathLike[str]) -> None:
     """Saves trainable LoRA parameters from ``self.model`` to ``path``."""
@@ -98,6 +105,7 @@ class DPFineTunerConfig(api.MechanismConfig):
     microbatch_size: Physical microbatch size for per-example gradient clipping.
     log_every: Optional step interval for logging un-noised training metrics.
     checkpoint_every: Step interval for saving mid-training Orbax checkpoints.
+    snapshot_steps: Intermediate training steps at which to capture a snapshot.
   """
 
   model: model.ModelName
@@ -110,11 +118,15 @@ class DPFineTunerConfig(api.MechanismConfig):
   microbatch_size: int | None = None
   log_every: int | None = None
   checkpoint_every: int = 100
+  snapshot_steps: Sequence[int] = ()
 
   def __post_init__(self):
     model.validate_model_name(self.model)
     if self.log_every and self.checkpoint_every % self.log_every != 0:
       raise ValueError('checkpoint_every must be a multiple of log_every.')
+    iterations = self.mechanism_config.iterations
+    if any(s < 1 or s > iterations for s in self.snapshot_steps):
+      raise ValueError(f'snapshot_steps must be in [1, {iterations}].')
 
   def configure(self, _=None, *, budget, delta=0.0) -> DPFineTuner:
     """Returns a copy with noise_multiplier calibrated to the zCDP budget.
@@ -227,10 +239,15 @@ class DPFineTuner(api.CalibratedMechanism):
         performance_flags=perf,
         log_every=self.config.log_every,
         checkpoint_every=self.config.checkpoint_every,
+        snapshot_steps=self.config.snapshot_steps,
     )
     del trainable_params
     trainer = dp_trainer.DPTrainer(trainer_config)
     state = trainer(rng=rng, data=dataset, metrics_fn=metrics_fn)
 
-    merged = nnx.merge(graphdef, state.params, frozen_params)
-    return FineTuneResult(model=merged)
+    def _to_result(res: dp_trainer.TrainingResult) -> FineTuneResult:
+      merged = nnx.merge(graphdef, res.params, frozen_params)
+      snaps = {k: _to_result(v) for k, v in res.snapshots.items()}
+      return FineTuneResult(model=merged, auditor=res.auditor, snapshots=snaps)
+
+    return _to_result(state)

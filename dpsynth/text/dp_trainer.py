@@ -48,6 +48,7 @@ Usage::
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 import dataclasses
 import json
 import math
@@ -75,10 +76,14 @@ class TrainingResult:
   Attributes:
     params: Final trained parameter pytree.
     auditor: Optional ``CanaryScoreAuditor`` when ``canaries`` are provided.
+    snapshots: Mapping from step number to intermediate ``TrainingResult``.
   """
 
   params: training.Params
   auditor: auditing.CanaryScoreAuditor | None = None
+  snapshots: Mapping[int, TrainingResult] = dataclasses.field(
+      default_factory=dict
+  )
 
 
 def _setup_canaries(
@@ -143,6 +148,7 @@ class DPTrainerConfig(api.MechanismConfig):
     log_every: Optional step interval for logging un-noised training metrics.
     checkpoint_every: Step interval for saving Orbax training checkpoints when
       running inside a ``dpsynth.checkpoint(...)`` context.
+    snapshot_steps: Intermediate training steps at which to capture a snapshot.
   """
 
   init_params: training.Params
@@ -152,10 +158,14 @@ class DPTrainerConfig(api.MechanismConfig):
   performance_flags: execution_plan.PerformanceFlags | None = None
   log_every: int | None = None
   checkpoint_every: int = 100
+  snapshot_steps: Sequence[int] = ()
 
   def __post_init__(self):
     if self.log_every and self.checkpoint_every % self.log_every != 0:
       raise ValueError('checkpoint_every must be a multiple of log_every.')
+    iterations = getattr(self.mechanism_config, 'iterations')
+    if any(s < 1 or s > iterations for s in self.snapshot_steps):
+      raise ValueError(f'snapshot_steps must be in [1, {iterations}].')
 
   def configure(self, _=None, *, budget, delta=0.0) -> DPTrainer:
     """Returns a copy with noise calibrated to the zCDP budget.
@@ -251,9 +261,19 @@ class DPTrainer(api.CalibratedMechanism):
         loss_fn=self.config.loss_fn,
         optimizer=self.config.optimizer,
     )
-    callback = callbacks.DefaultCallbackFn(self.config.log_every, metrics_fn)
+    snap_params: dict[int, training.Params] = {}
+    log_cb = callbacks.DefaultCallbackFn(self.config.log_every, metrics_fn)
+    copy_params = lambda p: jax.tree.map(jax.numpy.copy, p)
+
+    def callback(step: int, state: training.TrainingState, aux: typing.Any):
+      log_cb(step, state, aux)
+      if step in self.config.snapshot_steps:
+        snap_params[step] = _checkpoint.get_or_compute(
+            f'snapshot_{step}', copy_params, state.params
+        )
+
     # Copy init_params since DPTrainer.fit donates state buffers.
-    init_params = jax.tree.map(jax.numpy.copy, self.config.init_params)
+    init_params = copy_params(self.config.init_params)
     with _checkpoint.orbax_session(
         trainer.init,
         init_params,
@@ -267,15 +287,25 @@ class DPTrainer(api.CalibratedMechanism):
           rng_or_seed=rng,
       )
 
-    auditor = None
-    if canaries is not None:
-      auditor = training.audit(
-          self.config.loss_fn,
-          state.params,
-          in_canaries,
-          out_canaries,
-          self.config.init_params,
-          microbatch_size=perf.microbatch_size,
-          prng_key=int(rng.integers(2**31)),
+    def _make_result(params: training.Params, step: int) -> TrainingResult:
+      auditor = None
+      if canaries is not None:
+        auditor = training.audit(
+            self.config.loss_fn,
+            params,
+            in_canaries,
+            out_canaries,
+            self.config.init_params,
+            microbatch_size=perf.microbatch_size,
+            prng_key=jax.random.fold_in(jax.random.key(int(seed)), step),
+        )
+      return TrainingResult(params=params, auditor=auditor)
+
+    snapshots = {}
+    for s in self.config.snapshot_steps:
+      p = snap_params.get(s) or _checkpoint.get_or_compute(
+          f'snapshot_{s}', lambda: {}
       )
-    return TrainingResult(params=state.params, auditor=auditor)
+      snapshots[s] = _make_result(p, s)
+    res = _make_result(state.params, int(state.step))
+    return dataclasses.replace(res, snapshots=snapshots)

@@ -33,6 +33,7 @@ import jax.numpy as jnp
 import jax_privacy
 from jax_privacy import execution_plan
 import numpy as np
+import optax
 
 
 def _default_config():
@@ -205,6 +206,10 @@ class DPFineTunerTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       dataclasses.replace(config, log_every=3, checkpoint_every=10)
     with self.assertRaises(ValueError):
+      dataclasses.replace(config, snapshot_steps=[0])
+    with self.assertRaises(ValueError):
+      dataclasses.replace(config, snapshot_steps=[101])
+    with self.assertRaises(ValueError):
       dp_sft.DPFineTunerConfig(
           model=typing.cast(model.ModelName, 'nonexistent'),
           mechanism_config=_default_config(),
@@ -318,7 +323,9 @@ class DPFineTunerTest(absltest.TestCase):
     mechanism = dp_sft.DPFineTunerConfig(
         model='gemma4_e2b_it',
         mechanism_config=config,
+        optimizer=optax.sgd(0.1),
         log_every=1,
+        snapshot_steps=[1],
     ).configure(budget=1.0)
     examples = [('p1', 'r1'), ('p2', 'r2')]
     logged_steps = []
@@ -339,6 +346,8 @@ class DPFineTunerTest(absltest.TestCase):
     self.assertIn('loss', logged_steps[0][1])
     self.assertIsInstance(result, dp_sft.FineTuneResult)
     self.assertIsInstance(result.model, _TinyLoraModel)
+    self.assertEqual(set(result.snapshots.keys()), {1})
+    self.assertIsInstance(result.snapshots[1].model, _TinyLoraModel)
 
 
 if __name__ == '__main__':
