@@ -43,6 +43,13 @@ from dpsynth.serialize import from_yaml
 from dpsynth.serialize import to_yaml
 import mbi
 
+try:
+  from dpsynth.text.actg import ACTGConfig  # pylint: disable=g-import-not-at-top
+  from dpsynth.text.actg import ACTGMechanism  # pylint: disable=g-import-not-at-top
+  from dpsynth.text.actg import ACTGResult  # pylint: disable=g-import-not-at-top
+except ImportError:
+  pass
+
 # Route MBI callback logs (which use print-style formatting) to
 # absl.logging.info.
 if hasattr(mbi, 'callbacks') and hasattr(mbi.callbacks, 'set_log_fn'):
@@ -58,8 +65,12 @@ MultiTableConfig = relational.MultiTableConfig
 MultiTableMechanism = relational.MultiTableMechanism
 
 __all__ = [
+    'ACTGConfig',
+    'ACTGMechanism',
+    'ACTGResult',
     'CategoricalAttribute',
     'ForeignKeyRelation',
+    'FreeFormTextAttribute',
     'MultiDataGenerationResult',
     'MultiTableConfig',
     'MultiTableMechanism',

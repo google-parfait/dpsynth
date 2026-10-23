@@ -37,9 +37,8 @@ from dpsynth.text import dp_sft
 from dpsynth.text import model
 from etils import epath
 import jax
-from jax_privacy import execution_plan
+import jax_privacy
 import numpy as np
-import optax
 
 _MODEL = flags.DEFINE_enum(
     'model',
@@ -120,14 +119,14 @@ def train() -> dp_sft.FineTuneResult:
 
   fine_tuner = dp_sft.DPFineTunerConfig(
       model=_model_name(),
-      mechanism_config=execution_plan.BandMFConfig.default(
+      mechanism_config=jax_privacy.execution_plan.BandMFConfig.default(
           num_bands=8,
           iterations=_ITERATIONS.value,
           expected_participations=8.0,
       ),
       lora_rank=_LORA_RANK.value,
       max_seq_length=_MAX_SEQ_LENGTH.value,
-      optimizer=optax.adamw(_LEARNING_RATE.value),
+      learning_rate=_LEARNING_RATE.value,
       microbatch_size=_MICROBATCH_SIZE.value,
   ).calibrate(epsilon=_EPSILON.value, delta=_DELTA.value)
 

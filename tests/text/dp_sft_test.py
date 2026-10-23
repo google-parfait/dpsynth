@@ -200,8 +200,11 @@ class DPFineTunerTest(absltest.TestCase):
         mechanism_config=_default_config(),
     )
     self.assertEqual(config.model, 'gemma4_e2b_it')
+    self.assertEqual(config.learning_rate, 1e-4)
     self.assertEqual(config.mechanism_config.iterations, 100)
     self.assertIsNone(config.mechanism_config.noise_multiplier)
+    with self.assertRaises(ValueError):
+      dataclasses.replace(config, learning_rate=0.0)
     with self.assertRaises(ValueError):
       dataclasses.replace(config, log_every=3, checkpoint_every=10)
     with self.assertRaises(ValueError):
