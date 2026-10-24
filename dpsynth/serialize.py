@@ -17,7 +17,6 @@
 from collections.abc import Mapping, Sequence
 import dataclasses
 import os
-import types
 import typing
 from typing import Any
 
@@ -100,9 +99,9 @@ def _make_converter() -> cattrs.Converter:
       mbi.Estimator,
       lambda obj: _unstructure_dataclass(obj.__class__, conv)(obj),
   )
-  conv.register_unstructure_hook(
-      tuple,
-      lambda val: [conv.unstructure(x) for x in val],
+  conv.register_unstructure_hook_func(
+      lambda cl: cl is tuple or typing.get_origin(cl) is tuple,
+      lambda val: tuple(conv.unstructure(x) for x in val),
   )
 
   # 2. Polymorphic structuring for abstract base classes and unions
@@ -133,32 +132,17 @@ def _make_converter() -> cattrs.Converter:
       ],
   )
 
-  # 4. Structure tuple[tuple[float, float], ...] consistently
-  def _is_tuple_of_pairs(typ: Any) -> bool:
-    if typ == tuple[tuple[float, float], ...]:
-      return True
-    origin = typing.get_origin(typ)
-    if origin in (typing.Union, types.UnionType):
-      return tuple[tuple[float, float], ...] in typing.get_args(typ)
-    return False
-
-  conv.register_structure_hook_func(
-      _is_tuple_of_pairs,
-      lambda data, _: (
-          tuple((float(x[0]), float(x[1])) for x in data)
-          if data is not None
-          else None
-      ),
-  )
-
   return conv
 
 
 converter = _make_converter()
 
-# Ensure tuples are dumped as standard YAML lists (no !!python/tuple tag).
+# Ensure tuples are dumped as inline YAML lists (no !!python/tuple tag).
 yaml.SafeDumper.add_representer(
-    tuple, yaml.representer.SafeRepresenter.represent_list
+    tuple,
+    lambda dumper, data: dumper.represent_sequence(
+        'tag:yaml.org,2002:seq', data, flow_style=True
+    ),
 )
 
 

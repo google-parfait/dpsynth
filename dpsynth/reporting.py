@@ -42,9 +42,9 @@ class PrivacyReport:
   """
 
   dp_event: dp_accounting.DpEvent
-  epsilon_deltas: tuple[Pair, ...]
+  epsilon_deltas: Sequence[Pair]
   gdp_estimate: float | None = None
-  trade_off_curve: tuple[Pair, ...] | None = None
+  trade_off_curve: Sequence[Pair] | None = None
   notes: str | None = None
   # All mechanisms in dpsynth assume the ADD_OR_REMOVE_ONE neighboring relation.
   neighboring_relation: str = 'ADD_OR_REMOVE_ONE'
@@ -129,13 +129,13 @@ class PrivacyReport:
       try:
         tprs = pld_accountant.get_true_positive_rates(np.asarray(target_fprs))
         tpr_list = [float(t) for t in tprs]
-        trade_off_curve = tuple(zip(tpr_list, target_fprs))
+        trade_off_curve = list(zip(tpr_list, target_fprs))
       except (dp_accounting.UnsupportedEventError, NotImplementedError):
         trade_off_curve = None
 
     return cls(
         dp_event=event,
-        epsilon_deltas=tuple(zip(best_epsilons, target_deltas)),
+        epsilon_deltas=list(zip(best_epsilons, target_deltas)),
         gdp_estimate=float(gdp_estimate) if gdp_estimate is not None else None,
         trade_off_curve=trade_off_curve,
         notes=notes,

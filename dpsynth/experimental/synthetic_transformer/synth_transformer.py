@@ -172,7 +172,7 @@ class TabularTransformerModel:
         performance_flags=performance_flags,
     ).configure(budget=zcdp_rho if use_dp_sgd else float("inf"))
 
-    final_state = trainer(rng=seed, data={"x": x_batch})
+    final_state = trainer(rng=np.random.default_rng(seed), data={"x": x_batch})
 
     self.model = nnx.merge(graphdef, final_state.params, frozen)
     self._is_initialized = True

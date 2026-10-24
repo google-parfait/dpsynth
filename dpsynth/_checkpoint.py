@@ -150,16 +150,15 @@ def orbax_session(
   """Manages periodic Orbax step-level checkpointing and restoration.
 
   When no ``dpsynth.checkpoint(...)`` context is active, this is a no-op that
-  yields ``(init_params, callback)`` unchanged.
+  yields ``(init_fn(init_params), callback)`` without touching disk.
 
   When a checkpoint directory is active, this context manager opens an
   ``orbax.checkpoint.CheckpointManager`` under ``<checkpoint_dir>/train_state``
   and manages three phases around the training loop:
 
-  1. **On entry (restore)**: If a checkpoint already exists, evaluates
-     ``init_fn(init_params)`` to construct a structural target ``TrainingState``
-     and restores the latest checkpoint into it; otherwise yields
-     ``init_params`` so the trainer initializes from scratch.
+  1. **On entry (initialize or restore)**: Evaluates ``init_fn(init_params)`` to
+     construct an initial ``TrainingState``, and if a checkpoint already exists,
+     restores the latest checkpoint into it.
   2. **During training (periodic save)**: Wraps ``callback`` in a step hook that
      saves the current ``TrainingState`` every ``checkpoint_every`` steps
      (retaining only the most recent checkpoint) before forwarding
@@ -171,9 +170,8 @@ def orbax_session(
 
   Args:
     init_fn: Callable (typically ``trainer.init``) that maps ``init_params`` to
-      a freshly initialized ``TrainingState`` PyTree used as the restore target.
-    init_params: Initial parameter PyTree passed to the trainer when starting
-      from scratch, or to ``init_fn`` when constructing a restore target.
+      a freshly initialized ``TrainingState`` PyTree.
+    init_params: Initial parameter PyTree passed to ``init_fn``.
     checkpoint_every: Step interval between periodic checkpoints.
     callback: Optional user step callback ``(step, state, aux) -> None`` to
       invoke after each step's checkpoint hook.
@@ -181,42 +179,44 @@ def orbax_session(
   Yields:
     A ``(initial_state, step_callback)`` pair to pass directly to
     ``trainer.fit(data, initial_state, callback=step_callback, ...)``, where
-    ``initial_state`` is either a restored ``TrainingState`` or ``init_params``.
+    ``initial_state`` is an initialized or restored ``TrainingState``.
   """
   ckpt_dir = get_active_checkpoint_dir()
   if ckpt_dir is None:
-    yield init_params, callback
+    yield init_fn(init_params), callback
     return
 
   from orbax import checkpoint as ocp  # pylint: disable=g-import-not-at-top
 
   options = ocp.CheckpointManagerOptions(
-      save_interval_steps=checkpoint_every,
+      should_save_fn=lambda step, _: step > 0 and step % checkpoint_every == 0,
       max_to_keep=1,
       cleanup_tmp_directories=True,
   )
   with ocp.CheckpointManager(ckpt_dir / "train_state", options=options) as mgr:
+    initial_state = init_fn(init_params)
     latest_step = mgr.latest_step()
     if latest_step is not None:
       logging.info("[DPSynth Checkpoint]: Restoring step %d", latest_step)
-      target = init_fn(init_params)
       restored = mgr.restore(
-          latest_step, args=ocp.args.StandardRestore(_pack_zero_size(target))
+          latest_step,
+          args=ocp.args.StandardRestore(_pack_zero_size(initial_state)),
       )
-      initial_state = _unpack_zero_size(target, restored)
-    else:
-      initial_state = init_params
+      initial_state = _unpack_zero_size(initial_state, restored)
 
     last_state = None
 
     def _step_callback(step: int, state: Any, aux: Any):
       nonlocal last_state
       last_state = state
-      mgr.save(step, args=ocp.args.StandardSave(_pack_zero_size(state)))
+      if mgr.should_save(step):
+        mgr.save(step, args=ocp.args.StandardSave(_pack_zero_size(state)))
       if callback is not None:
         callback(step, state, aux)
 
     yield initial_state, _step_callback
-    if last_state is not None and mgr.latest_step() != int(last_state.step):
-      save_args = ocp.args.StandardSave(_pack_zero_size(last_state))
-      mgr.save(int(last_state.step), args=save_args, force=True)
+    if last_state is not None:
+      mgr.wait_until_finished()
+      if mgr.latest_step() != int(last_state.step):
+        save_args = ocp.args.StandardSave(_pack_zero_size(last_state))
+        mgr.save(int(last_state.step), args=save_args, force=True)

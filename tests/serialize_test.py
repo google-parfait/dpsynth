@@ -89,6 +89,8 @@ class SerializeTest(parameterized.TestCase):
         prespecified_marginal_queries=[('a', 'b'), ('c',)],
     )
     yaml_str = serialize.to_yaml(config)
+    self.assertIn('- [a, b]\n', yaml_str)
+    self.assertIn('- [c]\n', yaml_str)
     raw_dict = yaml.safe_load(yaml_str)
     self.assertNotIn('estimator', raw_dict)
     loaded = serialize.from_yaml(yaml_str)
@@ -116,6 +118,7 @@ class SerializeTest(parameterized.TestCase):
         one_way_budget_fraction=0.2,
     )
     yaml_str = serialize.to_yaml(config)
+    self.assertIn('- col1\n- col2\n', yaml_str)
     loaded = serialize.from_yaml(yaml_str)
     self.assertEqual(loaded, config)
 
