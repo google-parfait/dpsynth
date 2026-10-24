@@ -38,7 +38,9 @@ from dpsynth.domain import FreeFormTextAttribute
 from dpsynth.domain import NumericalAttribute
 from dpsynth.domain import OpenSetCategoricalAttribute
 from dpsynth.domain import Schema
+from dpsynth.reporting import AuditReport
 from dpsynth.reporting import PrivacyReport
+from dpsynth.reporting import TradeOffCurve
 from dpsynth.serialize import from_yaml
 from dpsynth.serialize import to_yaml
 import mbi
@@ -58,6 +60,7 @@ MultiTableConfig = relational.MultiTableConfig
 MultiTableMechanism = relational.MultiTableMechanism
 
 __all__ = [
+    'AuditReport',
     'CategoricalAttribute',
     'ForeignKeyRelation',
     'MultiDataGenerationResult',
@@ -70,6 +73,7 @@ __all__ = [
     'TabularConfig',
     'TabularMechanism',
     'TabularSynthesizer',
+    'TradeOffCurve',
     'api',
     'calibrate',
     'checkpoint',
