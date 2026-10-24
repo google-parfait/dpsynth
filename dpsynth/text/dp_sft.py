@@ -51,10 +51,17 @@ from dpsynth.text import model
 from flax import nnx
 import grain.python as grain
 import jax
+import jax_privacy
 from jax_privacy import execution_plan
 from jax_privacy import noise_addition
 import numpy as np
 import optax
+
+
+def _tokenize_examples(examples, tok_fn):
+  """Tokenizes a non-empty sequence of examples into a stacked PyTree."""
+  records = [tok_fn(ex) for ex in examples]
+  return jax.tree.map(lambda *xs: np.stack(xs), *records)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -66,9 +73,11 @@ class FineTuneResult:
 
   Attributes:
     model: The LoRA-wrapped model with trained parameters merged in.
+    auditor: Optional ``CanaryScoreAuditor`` when ``canaries`` are provided.
   """
 
   model: nnx.Module
+  auditor: jax_privacy.auditing.CanaryScoreAuditor | None = None
 
   def save(self, path: str | os.PathLike[str]) -> None:
     """Saves trainable LoRA parameters from ``self.model`` to ``path``."""
@@ -167,8 +176,13 @@ class DPFineTuner(api.CalibratedMechanism):
       data: Sequence[tuple[str, str]] | grain.MapDataset,
       *,
       metrics_fn: callbacks.MetricsFn | None = None,
+      canaries: Sequence[tuple[str, str]] | None = None,
   ) -> FineTuneResult:
     """Tokenizes text, loads the model, and runs DP-SGD fine-tuning.
+
+    When ``canaries`` are provided, they are treated as public data and split
+    50/50 at random into held-in examples (appended to ``data``) and held-out
+    examples for empirical privacy auditing.
 
     Args:
       rng: A numpy random number generator.
@@ -176,20 +190,22 @@ class DPFineTuner(api.CalibratedMechanism):
         pairs.
       metrics_fn: Optional ``(step, metrics) -> None`` callback invoked every
         ``log_every`` steps with scalar summary metrics.
+      canaries: Optional public ``(prompt, response)`` pairs for DP auditing.
 
     Returns:
-      A ``FineTuneResult`` with the trained model and merged LoRA parameters.
-      Private training state (noise, optimizer) is not exposed.
+      A ``FineTuneResult`` with the trained model and optional canary score
+      auditor. Private training state (noise, optimizer) is not exposed.
     """
     # 1-to-1 per-record mapping preserves record-level differential privacy.
     tok_fn = functools.partial(
         model.tokenize_example, max_seq_length=self.config.max_seq_length
     )
+    canary_data = _tokenize_examples(canaries, tok_fn) if canaries else None
+
     if isinstance(data, grain.MapDataset):
       dataset = data.map(tok_fn)
     else:
-      records = [tok_fn(ex) for ex in data]
-      dataset = jax.tree.map(lambda *xs: np.stack(xs), *records)
+      dataset = _tokenize_examples(data, tok_fn)
 
     lora_config = model.LoraConfig(rank=self.config.lora_rank)
     loaded_model = model.load_gemma(
@@ -230,7 +246,7 @@ class DPFineTuner(api.CalibratedMechanism):
     )
     del trainable_params
     trainer = dp_trainer.DPTrainer(trainer_config)
-    state = trainer(rng=rng, data=dataset, metrics_fn=metrics_fn)
+    state = trainer(rng, dataset, metrics_fn=metrics_fn, canaries=canary_data)
 
     merged = nnx.merge(graphdef, state.params, frozen_params)
-    return FineTuneResult(model=merged)
+    return FineTuneResult(model=merged, auditor=state.auditor)

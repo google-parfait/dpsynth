@@ -24,6 +24,7 @@ import typing
 from unittest import mock
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from dpsynth.text import dp_sft
 from dpsynth.text import model
 from flax import nnx
@@ -33,6 +34,7 @@ import jax.numpy as jnp
 import jax_privacy
 from jax_privacy import execution_plan
 import numpy as np
+import optax
 
 
 def _default_config():
@@ -57,6 +59,25 @@ def _make_tiny_model(vocab_size=8, embed_dim=4):
       return self.dense(self.embed(tokens)), None
 
   return TinyModel(nnx.Rngs(0))
+
+
+def _make_tiny_lora_model(vocab_size=8, embed_dim=4, lora_rank=2):
+  """Creates a minimal LoRA-wrapped Flax NNX model for testing."""
+
+  class TinyLoraModel(nnx.Module):
+
+    def __init__(self, rngs: nnx.Rngs):
+      base = nnx.Linear(embed_dim, vocab_size, rngs=rngs)
+      self.embed = nnx.Embed(vocab_size, embed_dim, rngs=rngs)
+      self.lora = nnx.LoRA(
+          embed_dim, lora_rank, vocab_size, base_module=base, rngs=rngs
+      )
+
+    def __call__(self, tokens, *args, **kwargs):
+      del args, kwargs
+      return self.lora(self.embed(tokens)), None
+
+  return TinyLoraModel(nnx.Rngs(0))
 
 
 class SftLossFnTest(absltest.TestCase):
@@ -192,7 +213,7 @@ class LoraConfigTest(absltest.TestCase):
     self.assertTrue(jnp.allclose(m1.lora.lora_b.value, m2.lora.lora_b.value))
 
 
-class DPFineTunerTest(absltest.TestCase):
+class DPFineTunerTest(parameterized.TestCase):
 
   def test_creates_valid_mechanism_config(self):
     config = dp_sft.DPFineTunerConfig(
@@ -237,19 +258,7 @@ class DPFineTunerTest(absltest.TestCase):
     self.assertIsNotNone(event)
 
   def test_map_dataset_lazy_tokenization(self):
-    class _TinyLoraModel(nnx.Module):
-
-      def __init__(self, rngs: nnx.Rngs):
-        self.embed = nnx.Embed(8, 4, rngs=rngs)
-        self.lora = nnx.LoRA(
-            4, 2, 8, base_module=nnx.Linear(4, 8, rngs=rngs), rngs=rngs
-        )
-
-      def __call__(self, tokens, *args, **kwargs):
-        del args, kwargs
-        return self.lora(self.embed(tokens)), None
-
-    tiny_model = _TinyLoraModel(nnx.Rngs(0))
+    tiny_model = _make_tiny_lora_model()
     fake_example = {
         'input_tokens': jnp.array([1, 2, 3, 4], dtype=jnp.int32),
         'loss_mask': jnp.array([0, 1, 1, 1], dtype=jnp.int32),
@@ -290,22 +299,10 @@ class DPFineTunerTest(absltest.TestCase):
     mock_load.assert_called_once()
     self.assertGreater(mock_tok.call_count, 0)
     self.assertIsInstance(result, dp_sft.FineTuneResult)
-    self.assertIsInstance(result.model, _TinyLoraModel)
+    self.assertIsInstance(result.model, type(tiny_model))
 
   def test_sequence_tokenization(self):
-    class _TinyLoraModel(nnx.Module):
-
-      def __init__(self, rngs: nnx.Rngs):
-        self.embed = nnx.Embed(8, 4, rngs=rngs)
-        self.lora = nnx.LoRA(
-            4, 2, 8, base_module=nnx.Linear(4, 8, rngs=rngs), rngs=rngs
-        )
-
-      def __call__(self, tokens, *args, **kwargs):
-        del args, kwargs
-        return self.lora(self.embed(tokens)), None
-
-    tiny_model = _TinyLoraModel(nnx.Rngs(0))
+    tiny_model = _make_tiny_lora_model()
     fake_example = {
         'input_tokens': jnp.array([1, 2, 3, 4], dtype=jnp.int32),
         'loss_mask': jnp.array([0, 1, 1, 1], dtype=jnp.int32),
@@ -338,7 +335,47 @@ class DPFineTunerTest(absltest.TestCase):
     self.assertEqual([step for step, _ in logged_steps], [1, 2])
     self.assertIn('loss', logged_steps[0][1])
     self.assertIsInstance(result, dp_sft.FineTuneResult)
-    self.assertIsInstance(result.model, _TinyLoraModel)
+    self.assertIsInstance(result.model, type(tiny_model))
+    self.assertIsNone(result.auditor)
+
+  @parameterized.parameters(False, True)
+  def test_canaries_auditing(self, use_map_dataset):
+    def fake_tokenize(example, max_seq_length):
+      del max_seq_length
+      _, resp = example
+      tok = int(resp)
+      return {
+          'input_tokens': np.array([0, 1, tok, tok], dtype=np.int32),
+          'loss_mask': np.array([0, 0, 1, 1], dtype=np.int32),
+      }
+
+    config = execution_plan.BandMFConfig.default(
+        num_bands=1,
+        iterations=25,
+        expected_participations=12.0,
+        noise_multiplier=0.0,  # No noise to ensure memorization.
+    )
+    mechanism = dp_sft.DPFineTuner(
+        dp_sft.DPFineTunerConfig(
+            model='gemma4_e2b_it',
+            mechanism_config=config,
+            optimizer=optax.adamw(0.1),
+        )
+    )
+    num_examples = 8
+    examples = [('p', '1')] * num_examples
+    data = grain.MapDataset.source(examples) if use_map_dataset else examples
+    canaries = [('c', str(2 + i)) for i in range(num_examples)]
+    tiny_model = _make_tiny_lora_model(vocab_size=16, embed_dim=8, lora_rank=4)
+    with (
+        mock.patch.object(model, 'load_gemma', return_value=tiny_model),
+        mock.patch.object(model, 'tokenize_example', side_effect=fake_tokenize),
+    ):
+      result = mechanism(np.random.default_rng(0), data, canaries=canaries)
+
+    self.assertIsNotNone(result.auditor)
+    assert result.auditor is not None
+    self.assertAlmostEqual(float(result.auditor.attack_auroc()), 1.0, places=5)
 
 
 if __name__ == '__main__':
