@@ -13,8 +13,8 @@
 # limitations under the License.
 
 from absl.testing import absltest
+import dpsynth
 from dpsynth.discrete_mechanisms import common
-from dpsynth.discrete_mechanisms import independent
 import mbi
 import numpy as np
 
@@ -25,7 +25,7 @@ class IndependentTest(absltest.TestCase):
     """Independent with externally-supplied 1-ways should recover marginals."""
     data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
 
-    config = independent.IndependentConfig()
+    config = dpsynth.IndependentConfig()
 
     # One-way marginals are now supplied externally by the synthesizer layer.
     # Simulate that by constructing them here with near-zero noise.
@@ -61,7 +61,7 @@ class IndependentTest(absltest.TestCase):
     marginal_a = data.project(('a',)).datavector()
     initial = [mbi.LinearMeasurement(marginal_a, ('a',), stddev=1.0)]
 
-    config = independent.IndependentConfig()
+    config = dpsynth.IndependentConfig()
     # This should not raise 'Cliques must be unique'.
     model = config.configure(budget=100.0)(
         np.random.default_rng(0), data, initial_measurements=initial

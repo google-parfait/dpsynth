@@ -14,8 +14,7 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from dpsynth import constraints
-from dpsynth import domain
+import dpsynth
 import mbi
 import numpy as np
 
@@ -24,14 +23,14 @@ class ConstraintValidationTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.software = domain.CategoricalAttribute(
+    self.software = dpsynth.CategoricalAttribute(
         ['GameSuite', 'OfficePro', 'DevTool']
     )
-    self.os = domain.CategoricalAttribute(['Windows', 'Linux', 'MacOS'])
+    self.os = dpsynth.CategoricalAttribute(['Windows', 'Linux', 'MacOS'])
 
   def test_raises_on_unequal_attribute_lengths(self):
     with self.assertRaisesRegex(ValueError, 'must have the same length'):
-      constraints.Constraint(
+      dpsynth.Constraint(
           attribute_names=('Software',),
           attribute_domains=(self.software, self.os),
           possible_combinations=[],
@@ -39,7 +38,7 @@ class ConstraintValidationTest(parameterized.TestCase):
 
   def test_raises_on_bad_combination_length(self):
     with self.assertRaisesRegex(ValueError, 'must have length equal'):
-      constraints.Constraint(
+      dpsynth.Constraint(
           attribute_names=('Software', 'OS'),
           attribute_domains=(self.software, self.os),
           possible_combinations=[('GameSuite',)],
@@ -47,14 +46,14 @@ class ConstraintValidationTest(parameterized.TestCase):
 
   def test_raises_on_no_mode(self):
     with self.assertRaisesRegex(ValueError, 'exactly one'):
-      constraints.Constraint(
+      dpsynth.Constraint(
           attribute_names=('Software', 'OS'),
           attribute_domains=(self.software, self.os),
       )
 
   def test_raises_on_multiple_modes(self):
     with self.assertRaisesRegex(ValueError, 'exactly one'):
-      constraints.Constraint(
+      dpsynth.Constraint(
           attribute_names=('Software', 'OS'),
           attribute_domains=(self.software, self.os),
           possible_combinations=[('GameSuite', 'Windows')],
@@ -62,11 +61,11 @@ class ConstraintValidationTest(parameterized.TestCase):
       )
 
   def test_functional_dependency_requires_two_attributes(self):
-    a = domain.CategoricalAttribute(['x', 'y'])
-    b = domain.CategoricalAttribute(['p', 'q'])
-    c = domain.CategoricalAttribute(['r', 's'])
+    a = dpsynth.CategoricalAttribute(['x', 'y'])
+    b = dpsynth.CategoricalAttribute(['p', 'q'])
+    c = dpsynth.CategoricalAttribute(['r', 's'])
     with self.assertRaisesRegex(ValueError, 'exactly 2 attributes'):
-      constraints.Constraint(
+      dpsynth.Constraint(
           attribute_names=('a', 'b', 'c'),
           attribute_domains=(a, b, c),
           functional_dependency={'x': 'p'},
@@ -77,13 +76,13 @@ class ConstraintToMbiTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.software = domain.CategoricalAttribute(
+    self.software = dpsynth.CategoricalAttribute(
         ['GameSuite', 'OfficePro', 'DevTool']
     )
-    self.os = domain.CategoricalAttribute(['Windows', 'Linux', 'MacOS'])
+    self.os = dpsynth.CategoricalAttribute(['Windows', 'Linux', 'MacOS'])
 
   def test_possible_combinations(self):
-    c = constraints.Constraint(
+    c = dpsynth.Constraint(
         attribute_names=('Software', 'OS'),
         attribute_domains=(self.software, self.os),
         possible_combinations=[
@@ -105,7 +104,7 @@ class ConstraintToMbiTest(parameterized.TestCase):
     np.testing.assert_array_equal(mbi_c.potential.values, expected)
 
   def test_impossible_combinations(self):
-    c = constraints.Constraint(
+    c = dpsynth.Constraint(
         attribute_names=('Software', 'OS'),
         attribute_domains=(self.software, self.os),
         impossible_combinations=[
@@ -121,9 +120,9 @@ class ConstraintToMbiTest(parameterized.TestCase):
     self.assertEqual(vals[2, 2], 0.0)
 
   def test_functional_dependency(self):
-    fine = domain.CategoricalAttribute(['a', 'b', 'c', 'd'])
-    coarse = domain.CategoricalAttribute(['X', 'Y'])
-    c = constraints.Constraint(
+    fine = dpsynth.CategoricalAttribute(['a', 'b', 'c', 'd'])
+    coarse = dpsynth.CategoricalAttribute(['X', 'Y'])
+    c = dpsynth.Constraint(
         attribute_names=('fine', 'coarse'),
         attribute_domains=(fine, coarse),
         functional_dependency={'a': 'X', 'b': 'X', 'c': 'Y', 'd': 'Y'},

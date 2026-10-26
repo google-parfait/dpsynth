@@ -17,14 +17,14 @@
 import textwrap
 
 from absl.testing import absltest
-from dpsynth import domain as base_domain
+import dpsynth
 from dpsynth.relational import domain
 
 
 class DomainTest(absltest.TestCase):
 
   def test_foreign_key_relation_initialization(self):
-    fk = domain.ForeignKeyRelation(
+    fk = dpsynth.ForeignKeyRelation(
         parent_table='households',
         parent_primary_key='household_id',
         child_table='persons',
@@ -41,7 +41,7 @@ class DomainTest(absltest.TestCase):
     with self.assertRaisesRegex(
         ValueError, 'max_children_per_parent must be >= 1'
     ):
-      domain.ForeignKeyRelation(
+      dpsynth.ForeignKeyRelation(
           parent_table='households',
           parent_primary_key='household_id',
           child_table='persons',
@@ -51,8 +51,8 @@ class DomainTest(absltest.TestCase):
 
   def test_topological_sort_linear_chain(self):
     tables = ['households', 'persons', 'activities']
-    fk1 = domain.ForeignKeyRelation('households', 'hid', 'persons', 'hid', 3)
-    fk2 = domain.ForeignKeyRelation('persons', 'pid', 'activities', 'pid', 2)
+    fk1 = dpsynth.ForeignKeyRelation('households', 'hid', 'persons', 'hid', 3)
+    fk2 = dpsynth.ForeignKeyRelation('persons', 'pid', 'activities', 'pid', 2)
     order = domain.topological_sort_hierarchy(tables, [fk1, fk2])
     self.assertEqual(
         order,
@@ -65,8 +65,8 @@ class DomainTest(absltest.TestCase):
 
   def test_topological_sort_branching(self):
     tables = ['households', 'persons', 'vehicles']
-    fk_p = domain.ForeignKeyRelation('households', 'hid', 'persons', 'hid', 3)
-    fk_v = domain.ForeignKeyRelation('households', 'hid', 'vehicles', 'hid', 2)
+    fk_p = dpsynth.ForeignKeyRelation('households', 'hid', 'persons', 'hid', 3)
+    fk_v = dpsynth.ForeignKeyRelation('households', 'hid', 'vehicles', 'hid', 2)
     order = domain.topological_sort_hierarchy(tables, [fk_p, fk_v])
     self.assertEqual(order[0], (0, 'households', None))
     self.assertCountEqual(
@@ -75,8 +75,8 @@ class DomainTest(absltest.TestCase):
 
   def test_topological_sort_forest(self):
     tables = ['households', 'persons', 'companies', 'departments']
-    fk_h = domain.ForeignKeyRelation('households', 'hid', 'persons', 'hid', 3)
-    fk_c = domain.ForeignKeyRelation(
+    fk_h = dpsynth.ForeignKeyRelation('households', 'hid', 'persons', 'hid', 3)
+    fk_c = dpsynth.ForeignKeyRelation(
         'companies', 'cid', 'departments', 'cid', 10
     )
     order = domain.topological_sort_hierarchy(tables, [fk_h, fk_c])
@@ -95,27 +95,27 @@ class DomainTest(absltest.TestCase):
 
   def test_topological_sort_cycle_raises_error(self):
     tables = ['a', 'b']
-    fk1 = domain.ForeignKeyRelation('a', 'id', 'b', 'id', 1)
-    fk2 = domain.ForeignKeyRelation('b', 'id', 'a', 'id', 1)
+    fk1 = dpsynth.ForeignKeyRelation('a', 'id', 'b', 'id', 1)
+    fk2 = dpsynth.ForeignKeyRelation('b', 'id', 'a', 'id', 1)
     with self.assertRaisesRegex(ValueError, 'Cycle detected'):
       domain.topological_sort_hierarchy(tables, [fk1, fk2])
 
   def test_topological_sort_self_cycle_raises_error(self):
     tables = ['a']
-    fk = domain.ForeignKeyRelation('a', 'id', 'a', 'id', 1)
+    fk = dpsynth.ForeignKeyRelation('a', 'id', 'a', 'id', 1)
     with self.assertRaisesRegex(ValueError, 'Self-referential cycle'):
       domain.topological_sort_hierarchy(tables, [fk])
 
   def test_topological_sort_multiple_parents_raises_error(self):
     tables = ['p1', 'p2', 'c']
-    fk1 = domain.ForeignKeyRelation('p1', 'id', 'c', 'p1_id', 1)
-    fk2 = domain.ForeignKeyRelation('p2', 'id', 'c', 'p2_id', 1)
+    fk1 = dpsynth.ForeignKeyRelation('p1', 'id', 'c', 'p1_id', 1)
+    fk2 = dpsynth.ForeignKeyRelation('p2', 'id', 'c', 'p2_id', 1)
     with self.assertRaisesRegex(ValueError, 'multiple parents'):
       domain.topological_sort_hierarchy(tables, [fk1, fk2])
 
   def test_topological_sort_unknown_table_raises_error(self):
     tables = ['households']
-    fk = domain.ForeignKeyRelation('households', 'hid', 'unknown', 'hid', 1)
+    fk = dpsynth.ForeignKeyRelation('households', 'hid', 'unknown', 'hid', 1)
     with self.assertRaisesRegex(ValueError, 'unknown table'):
       domain.topological_sort_hierarchy(tables, [fk])
 
@@ -158,11 +158,11 @@ class DomainTest(absltest.TestCase):
     self.assertIn('households', table_domains)
     self.assertIn('persons', table_domains)
     self.assertIsInstance(
-        table_domains['households']['income'], base_domain.NumericalAttribute
+        table_domains['households']['income'], dpsynth.NumericalAttribute
     )
     self.assertIsInstance(
         table_domains['households']['region'],
-        base_domain.CategoricalAttribute,
+        dpsynth.CategoricalAttribute,
     )
     self.assertLen(fks, 1)
     self.assertEqual(fks[0].parent_table, 'households')
@@ -245,10 +245,10 @@ class DomainTest(absltest.TestCase):
     self.assertIn('households', table_domains)
     self.assertIn('persons', table_domains)
     self.assertIsInstance(
-        table_domains['persons']['age'], base_domain.NumericalAttribute
+        table_domains['persons']['age'], dpsynth.NumericalAttribute
     )
     self.assertIsInstance(
-        table_domains['persons']['gender'], base_domain.CategoricalAttribute
+        table_domains['persons']['gender'], dpsynth.CategoricalAttribute
     )
     self.assertLen(fks, 1)
     self.assertEqual(fks[0].parent_table, 'households')
@@ -260,24 +260,22 @@ class DomainTest(absltest.TestCase):
   def test_to_dict_and_roundtrip(self):
     table_domains = {
         'households': {
-            'income': base_domain.NumericalAttribute(
+            'income': dpsynth.NumericalAttribute(
                 min_value=0.0, max_value=200000.0, dtype='float'
             ),
-            'region': base_domain.CategoricalAttribute(
+            'region': dpsynth.CategoricalAttribute(
                 possible_values=['Urban', 'Rural']
             ),
         },
         'persons': {
-            'age': base_domain.NumericalAttribute(
+            'age': dpsynth.NumericalAttribute(
                 min_value=0, max_value=100, dtype='int'
             ),
-            'gender': base_domain.CategoricalAttribute(
-                possible_values=['M', 'F']
-            ),
+            'gender': dpsynth.CategoricalAttribute(possible_values=['M', 'F']),
         },
     }
     fks = [
-        domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='households',
             parent_primary_key='hid',
             child_table='persons',
@@ -309,21 +307,21 @@ class DomainTest(absltest.TestCase):
   def test_to_yaml_file_and_roundtrip(self):
     table_domains = {
         'households': {
-            'income': base_domain.NumericalAttribute(
+            'income': dpsynth.NumericalAttribute(
                 min_value=0.0, max_value=150000.0
             ),
-            'region': base_domain.CategoricalAttribute(
+            'region': dpsynth.CategoricalAttribute(
                 possible_values=['Urban', 'Suburban']
             ),
         },
         'persons': {
-            'age': base_domain.NumericalAttribute(
+            'age': dpsynth.NumericalAttribute(
                 min_value=0, max_value=120, dtype='int'
             ),
         },
     }
     fks = [
-        domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='households',
             parent_primary_key='household_id',
             child_table='persons',
@@ -343,9 +341,7 @@ class DomainTest(absltest.TestCase):
   def test_to_dict_without_foreign_keys(self):
     table_domains = {
         'single_table': {
-            'col_a': base_domain.CategoricalAttribute(
-                possible_values=['x', 'y']
-            )
+            'col_a': dpsynth.CategoricalAttribute(possible_values=['x', 'y'])
         }
     }
     serialized = domain.to_dict(table_domains)

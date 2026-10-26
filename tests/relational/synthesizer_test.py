@@ -19,10 +19,7 @@ import unittest.mock
 
 from absl.testing import absltest
 import dp_accounting
-from dpsynth import api
-from dpsynth import discrete_mechanisms
-from dpsynth import domain
-from dpsynth import relational as rel_pkg
+import dpsynth
 from dpsynth.local_mode import initialization
 from dpsynth.relational import domain as rel_domain
 from dpsynth.relational import post_processing
@@ -37,22 +34,24 @@ class SynthesizerTest(absltest.TestCase):
 
   def test_classes_inherit_correct_api_abstractions(self):
     self.assertTrue(
-        issubclass(synthesizer.MultiTableConfig, api.MechanismConfig)
+        issubclass(synthesizer.MultiTableConfig, dpsynth.MechanismConfig)
     )
     self.assertTrue(
-        issubclass(synthesizer.MultiTableMechanism, api.CalibratedMechanism)
+        issubclass(synthesizer.MultiTableMechanism, dpsynth.CalibratedMechanism)
     )
 
   def test_create_table_initializers_success(self):
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(min_value=0.0, max_value=100.0),
-            'region': domain.CategoricalAttribute(possible_values=['U', 'R']),
-            'tags': domain.OpenSetCategoricalAttribute(),
+            'income': dpsynth.NumericalAttribute(
+                min_value=0.0, max_value=100.0
+            ),
+            'region': dpsynth.CategoricalAttribute(possible_values=['U', 'R']),
+            'tags': dpsynth.OpenSetCategoricalAttribute(),
         },
         'Person': {
-            'age': domain.NumericalAttribute(min_value=0, max_value=100),
-            'gender': domain.CategoricalAttribute(possible_values=['M', 'F']),
+            'age': dpsynth.NumericalAttribute(min_value=0, max_value=100),
+            'gender': dpsynth.CategoricalAttribute(possible_values=['M', 'F']),
         },
     }
     inits = synthesizer._create_table_initializers(domains, numerical_bins=16)
@@ -80,7 +79,7 @@ class SynthesizerTest(absltest.TestCase):
   def test_create_table_initializers_unsupported_type_raises(self):
     domains = {
         'Household': {
-            'text': domain.FreeFormTextAttribute(),
+            'text': dpsynth.FreeFormTextAttribute(),
         }
     }
     with self.assertRaisesRegex(ValueError, 'Unsupported attribute type'):
@@ -89,12 +88,14 @@ class SynthesizerTest(absltest.TestCase):
   def test_compute_table_col_deltas_with_open_set(self):
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(min_value=0.0, max_value=100.0),
-            'tags': domain.OpenSetCategoricalAttribute(),
+            'income': dpsynth.NumericalAttribute(
+                min_value=0.0, max_value=100.0
+            ),
+            'tags': dpsynth.OpenSetCategoricalAttribute(),
         },
         'Person': {
-            'hobbies': domain.OpenSetCategoricalAttribute(),
-            'gender': domain.CategoricalAttribute(possible_values=['M', 'F']),
+            'hobbies': dpsynth.OpenSetCategoricalAttribute(),
+            'gender': dpsynth.CategoricalAttribute(possible_values=['M', 'F']),
         },
     }
     deltas = synthesizer._compute_table_col_deltas(domains, delta=1e-4)
@@ -107,8 +108,10 @@ class SynthesizerTest(absltest.TestCase):
   def test_compute_table_col_deltas_no_open_set(self):
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(min_value=0.0, max_value=100.0),
-            'region': domain.CategoricalAttribute(possible_values=['U', 'R']),
+            'income': dpsynth.NumericalAttribute(
+                min_value=0.0, max_value=100.0
+            ),
+            'region': dpsynth.CategoricalAttribute(possible_values=['U', 'R']),
         },
     }
     deltas = synthesizer._compute_table_col_deltas(domains, delta=0.0)
@@ -118,7 +121,7 @@ class SynthesizerTest(absltest.TestCase):
   def test_compute_table_col_deltas_missing_delta_raises(self):
     domains = {
         'Household': {
-            'tags': domain.OpenSetCategoricalAttribute(),
+            'tags': dpsynth.OpenSetCategoricalAttribute(),
         },
     }
     with self.assertRaisesRegex(ValueError, 'delta must be positive'):
@@ -131,13 +134,13 @@ class SynthesizerTest(absltest.TestCase):
             initialization.NumericalInitializerConfig(
                 num_partitions=16,
             ).configure(
-                domain.NumericalAttribute(min_value=0, max_value=100),
+                dpsynth.NumericalAttribute(min_value=0, max_value=100),
                 budget=0.01,
             )
         ),
         'region': (
             initialization.CategoricalInitializerConfig().configure(
-                domain.CategoricalAttribute(possible_values=['U', 'R']),
+                dpsynth.CategoricalAttribute(possible_values=['U', 'R']),
                 budget=0.01,
             )
         ),
@@ -147,7 +150,7 @@ class SynthesizerTest(absltest.TestCase):
             initialization.NumericalInitializerConfig(
                 num_partitions=16,
             ).configure(
-                domain.NumericalAttribute(min_value=0, max_value=100),
+                dpsynth.NumericalAttribute(min_value=0, max_value=100),
                 budget=0.01,
             )
         ),
@@ -158,7 +161,7 @@ class SynthesizerTest(absltest.TestCase):
     }
 
     # Setup calibrated discrete mechanism for link Household -> Person.
-    calibrated_discrete = discrete_mechanisms.AIMConfig().configure(budget=0.1)
+    calibrated_discrete = dpsynth.AIMConfig().configure(budget=0.1)
     calibrated_discrete_mechanisms = {
         'Household->Person': calibrated_discrete,
     }
@@ -189,14 +192,14 @@ class SynthesizerTest(absltest.TestCase):
   def test_compute_link_sensitivities_3_tier(self):
     tables = ['Household', 'Person', 'Activity']
     foreign_keys = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
             child_foreign_key='hid',
             max_children_per_parent=3,  # s_1 = 3
         ),
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Person',
             parent_primary_key='pid',
             child_table='Activity',
@@ -215,14 +218,14 @@ class SynthesizerTest(absltest.TestCase):
   def test_compute_link_sensitivities_branching(self):
     tables = ['Household', 'Person', 'Vehicle']
     foreign_keys = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
             child_foreign_key='hid',
             max_children_per_parent=3,
         ),
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Vehicle',
@@ -248,7 +251,7 @@ class SynthesizerTest(absltest.TestCase):
     ):
       config = synthesizer.MultiTableConfig(foreign_keys=())
       config.configure(
-          schema={'Household': {'income': domain.NumericalAttribute(0, 100)}},
+          schema={'Household': {'income': dpsynth.NumericalAttribute(0, 100)}},
           budget=0.5,
       )
 
@@ -259,8 +262,8 @@ class SynthesizerTest(absltest.TestCase):
       config = synthesizer.MultiTableConfig(foreign_keys=())
       config.configure(
           schema={
-              'Household': {'income': domain.NumericalAttribute(0, 100)},
-              'Person': {'age': domain.NumericalAttribute(0, 100)},
+              'Household': {'income': dpsynth.NumericalAttribute(0, 100)},
+              'Person': {'age': dpsynth.NumericalAttribute(0, 100)},
           },
           budget=0.5,
       )
@@ -268,26 +271,26 @@ class SynthesizerTest(absltest.TestCase):
   def test_configure_end_to_end_3_tier(self):
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(0, 100),
-            'region': domain.CategoricalAttribute(['U', 'R']),
+            'income': dpsynth.NumericalAttribute(0, 100),
+            'region': dpsynth.CategoricalAttribute(['U', 'R']),
         },
         'Person': {
-            'age': domain.NumericalAttribute(0, 100),
-            'gender': domain.CategoricalAttribute(['M', 'F']),
+            'age': dpsynth.NumericalAttribute(0, 100),
+            'gender': dpsynth.CategoricalAttribute(['M', 'F']),
         },
         'Activity': {
-            'amount': domain.NumericalAttribute(0, 50),
+            'amount': dpsynth.NumericalAttribute(0, 50),
         },
     }
     foreign_keys = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
             child_foreign_key='hid',
             max_children_per_parent=3,
         ),
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Person',
             parent_primary_key='pid',
             child_table='Activity',
@@ -327,15 +330,15 @@ class SynthesizerTest(absltest.TestCase):
   def test_calibrate_end_to_end(self):
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(0, 100),
-            'region': domain.CategoricalAttribute(['U', 'R']),
+            'income': dpsynth.NumericalAttribute(0, 100),
+            'region': dpsynth.CategoricalAttribute(['U', 'R']),
         },
         'Person': {
-            'age': domain.NumericalAttribute(0, 100),
+            'age': dpsynth.NumericalAttribute(0, 100),
         },
     }
     foreign_keys = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
@@ -354,11 +357,11 @@ class SynthesizerTest(absltest.TestCase):
 
   def test_configure_hyperparameter_validations(self):
     domains = {
-        'Household': {'income': domain.NumericalAttribute(0, 100)},
-        'Person': {'age': domain.NumericalAttribute(0, 100)},
+        'Household': {'income': dpsynth.NumericalAttribute(0, 100)},
+        'Person': {'age': dpsynth.NumericalAttribute(0, 100)},
     }
     foreign_keys = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
@@ -429,7 +432,7 @@ class SynthesizerTest(absltest.TestCase):
       with self.assertRaisesRegex(ValueError, "must not contain '.'"):
         config = synthesizer.MultiTableConfig(
             foreign_keys=[
-                rel_domain.ForeignKeyRelation(
+                dpsynth.ForeignKeyRelation(
                     parent_table='House.hold',
                     parent_primary_key='hid',
                     child_table='Person',
@@ -440,8 +443,8 @@ class SynthesizerTest(absltest.TestCase):
         )
         config.configure(
             schema={
-                'House.hold': {'income': domain.NumericalAttribute(0, 100)},
-                'Person': {'age': domain.NumericalAttribute(0, 100)},
+                'House.hold': {'income': dpsynth.NumericalAttribute(0, 100)},
+                'Person': {'age': dpsynth.NumericalAttribute(0, 100)},
             },
             budget=0.5,
         )
@@ -451,8 +454,8 @@ class SynthesizerTest(absltest.TestCase):
         config = synthesizer.MultiTableConfig(foreign_keys=foreign_keys)
         config.configure(
             schema={
-                'Household': {'inc.ome': domain.NumericalAttribute(0, 100)},
-                'Person': {'age': domain.NumericalAttribute(0, 100)},
+                'Household': {'inc.ome': dpsynth.NumericalAttribute(0, 100)},
+                'Person': {'age': dpsynth.NumericalAttribute(0, 100)},
             },
             budget=0.5,
         )
@@ -464,8 +467,8 @@ class SynthesizerTest(absltest.TestCase):
         config = synthesizer.MultiTableConfig(foreign_keys=foreign_keys)
         config.configure(
             schema={
-                'Household': {'group_size': domain.NumericalAttribute(0, 100)},
-                'Person': {'age': domain.NumericalAttribute(0, 100)},
+                'Household': {'group_size': dpsynth.NumericalAttribute(0, 100)},
+                'Person': {'age': dpsynth.NumericalAttribute(0, 100)},
             },
             budget=0.5,
         )
@@ -475,8 +478,8 @@ class SynthesizerTest(absltest.TestCase):
         config = synthesizer.MultiTableConfig(foreign_keys=foreign_keys)
         config.configure(
             schema={
-                'Household': {'slot_1': domain.NumericalAttribute(0, 100)},
-                'Person': {'age': domain.NumericalAttribute(0, 100)},
+                'Household': {'slot_1': dpsynth.NumericalAttribute(0, 100)},
+                'Person': {'age': dpsynth.NumericalAttribute(0, 100)},
             },
             budget=0.5,
         )
@@ -487,7 +490,7 @@ class SynthesizerTest(absltest.TestCase):
         config.configure(
             schema={
                 'Household': {},
-                'Person': {'age': domain.NumericalAttribute(0, 100)},
+                'Person': {'age': dpsynth.NumericalAttribute(0, 100)},
             },
             budget=0.5,
         )
@@ -497,8 +500,8 @@ class SynthesizerTest(absltest.TestCase):
         config = synthesizer.MultiTableConfig(foreign_keys=foreign_keys)
         config.configure(
             schema={
-                'Household': {'text': domain.FreeFormTextAttribute()},
-                'Person': {'age': domain.NumericalAttribute(0, 100)},
+                'Household': {'text': dpsynth.FreeFormTextAttribute()},
+                'Person': {'age': dpsynth.NumericalAttribute(0, 100)},
             },
             budget=0.5,
         )
@@ -508,9 +511,9 @@ class SynthesizerTest(absltest.TestCase):
         config = synthesizer.MultiTableConfig(foreign_keys=foreign_keys)
         config.configure(
             schema={
-                'Household': {'income': domain.NumericalAttribute(0, 100)},
-                'Person': {'age': domain.NumericalAttribute(0, 100)},
-                'Unlinked': {'type': domain.CategoricalAttribute(['A', 'B'])},
+                'Household': {'income': dpsynth.NumericalAttribute(0, 100)},
+                'Person': {'age': dpsynth.NumericalAttribute(0, 100)},
+                'Unlinked': {'type': dpsynth.CategoricalAttribute(['A', 'B'])},
             },
             budget=0.5,
         )
@@ -521,10 +524,10 @@ class SynthesizerTest(absltest.TestCase):
         config.configure(
             schema={
                 'Household': {
-                    'income': domain.NumericalAttribute(0, 100),
-                    'hid': domain.CategoricalAttribute(['H1', 'H2']),
+                    'income': dpsynth.NumericalAttribute(0, 100),
+                    'hid': dpsynth.CategoricalAttribute(['H1', 'H2']),
                 },
-                'Person': {'age': domain.NumericalAttribute(0, 100)},
+                'Person': {'age': dpsynth.NumericalAttribute(0, 100)},
             },
             budget=0.5,
         )
@@ -534,10 +537,10 @@ class SynthesizerTest(absltest.TestCase):
         config = synthesizer.MultiTableConfig(foreign_keys=foreign_keys)
         config.configure(
             schema={
-                'Household': {'income': domain.NumericalAttribute(0, 100)},
+                'Household': {'income': dpsynth.NumericalAttribute(0, 100)},
                 'Person': {
-                    'age': domain.NumericalAttribute(0, 100),
-                    'hid': domain.CategoricalAttribute(['H1', 'H2']),
+                    'age': dpsynth.NumericalAttribute(0, 100),
+                    'hid': dpsynth.CategoricalAttribute(['H1', 'H2']),
                 },
             },
             budget=0.5,
@@ -552,7 +555,7 @@ class SynthesizerTest(absltest.TestCase):
         config.configure(schema=domains, budget=0.5)
 
     with self.subTest('custom_initializers_mismatched_columns'):
-      mock_cfg = unittest.mock.MagicMock(spec=api.MechanismConfig)
+      mock_cfg = unittest.mock.MagicMock(spec=dpsynth.MechanismConfig)
       with self.assertRaisesRegex(ValueError, 'do not match schema columns'):
         config = synthesizer.MultiTableConfig(
             foreign_keys=foreign_keys,
@@ -566,15 +569,15 @@ class SynthesizerTest(absltest.TestCase):
   def test_validate_input_table_columns_success(self):
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(0, 100),
-            'region': domain.CategoricalAttribute(['U', 'R']),
+            'income': dpsynth.NumericalAttribute(0, 100),
+            'region': dpsynth.CategoricalAttribute(['U', 'R']),
         },
         'Person': {
-            'age': domain.NumericalAttribute(0, 100),
+            'age': dpsynth.NumericalAttribute(0, 100),
         },
     }
     foreign_keys = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
@@ -593,11 +596,11 @@ class SynthesizerTest(absltest.TestCase):
 
   def test_validate_input_table_columns_raises(self):
     domains = {
-        'Household': {'income': domain.NumericalAttribute(0, 100)},
-        'Person': {'age': domain.NumericalAttribute(0, 100)},
+        'Household': {'income': dpsynth.NumericalAttribute(0, 100)},
+        'Person': {'age': dpsynth.NumericalAttribute(0, 100)},
     }
     foreign_keys = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
@@ -660,7 +663,7 @@ class SynthesizerTest(absltest.TestCase):
         }),
     }
     foreign_keys = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
@@ -727,7 +730,7 @@ class SynthesizerTest(absltest.TestCase):
     num_init = initialization.NumericalInitializerConfig(
         num_partitions=8,
     ).configure(
-        domain.NumericalAttribute(min_value=0.0, max_value=100.0),
+        dpsynth.NumericalAttribute(min_value=0.0, max_value=100.0),
         budget=0.5,
     )
     data_num = np.array([10.0, 20.0, 30.0, 80.0, 90.0])
@@ -742,7 +745,7 @@ class SynthesizerTest(absltest.TestCase):
 
     # 2. Categorical initializer on weighted data
     cat_init = initialization.CategoricalInitializerConfig().configure(
-        domain.CategoricalAttribute(possible_values=['M', 'F']),
+        dpsynth.CategoricalAttribute(possible_values=['M', 'F']),
         budget=0.5,
     )
     data_cat = np.array(['M', 'M', 'F', 'F'])
@@ -758,7 +761,7 @@ class SynthesizerTest(absltest.TestCase):
     open_init = initialization.OpenSetInitializerConfig(
         min_count=1,
     ).configure(
-        domain.OpenSetCategoricalAttribute(),
+        dpsynth.OpenSetCategoricalAttribute(),
         budget=0.5,
         delta=1e-3,
     )
@@ -785,13 +788,13 @@ class SynthesizerTest(absltest.TestCase):
                 initialization.NumericalInitializerConfig(
                     num_partitions=8,
                 ).configure(
-                    domain.NumericalAttribute(min_value=0.0, max_value=100.0),
+                    dpsynth.NumericalAttribute(min_value=0.0, max_value=100.0),
                     budget=0.1,
                 )
             ),
             'region': (
                 initialization.CategoricalInitializerConfig().configure(
-                    domain.CategoricalAttribute(possible_values=['U', 'R']),
+                    dpsynth.CategoricalAttribute(possible_values=['U', 'R']),
                     budget=0.1,
                 )
             ),
@@ -801,7 +804,7 @@ class SynthesizerTest(absltest.TestCase):
                 initialization.NumericalInitializerConfig(
                     num_partitions=8,
                 ).configure(
-                    domain.NumericalAttribute(min_value=0, max_value=100),
+                    dpsynth.NumericalAttribute(min_value=0, max_value=100),
                     budget=0.1,
                 )
             ),
@@ -847,17 +850,17 @@ class SynthesizerTest(absltest.TestCase):
   def test_encode_and_compress_tables(self):
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(0, 100),
-            'region': domain.CategoricalAttribute(['U', 'R']),
+            'income': dpsynth.NumericalAttribute(0, 100),
+            'region': dpsynth.CategoricalAttribute(['U', 'R']),
         },
         'Person': {
-            'age': domain.NumericalAttribute(0, 100),
+            'age': dpsynth.NumericalAttribute(0, 100),
         },
     }
     table_measurements = {
         'Household': {
             'income': initialization.NumericalMeasurement(
-                categorical_attribute=domain.CategoricalAttribute([
+                categorical_attribute=dpsynth.CategoricalAttribute([
                     '0',
                     '1',
                     '2',
@@ -868,14 +871,14 @@ class SynthesizerTest(absltest.TestCase):
                 stddev=1.0,
             ),
             'region': initialization.CategoricalMeasurement(
-                categorical_attribute=domain.CategoricalAttribute(['U', 'R']),
+                categorical_attribute=dpsynth.CategoricalAttribute(['U', 'R']),
                 noisy_counts=np.array([10.0, 10.0]),
                 stddev=1.0,
             ),
         },
         'Person': {
             'age': initialization.NumericalMeasurement(
-                categorical_attribute=domain.CategoricalAttribute(['0', '1']),
+                categorical_attribute=dpsynth.CategoricalAttribute(['0', '1']),
                 bin_edges=np.array([50.0]),
                 noisy_counts=np.array([10.0, 10.0]),
                 stddev=1.0,
@@ -926,16 +929,16 @@ class SynthesizerTest(absltest.TestCase):
   def test_run_table_preprocessing_end_to_end(self):
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(0, 100),
-            'region': domain.CategoricalAttribute(['U', 'R']),
+            'income': dpsynth.NumericalAttribute(0, 100),
+            'region': dpsynth.CategoricalAttribute(['U', 'R']),
         },
         'Person': {
-            'age': domain.NumericalAttribute(0, 100),
-            'gender': domain.CategoricalAttribute(['M', 'F']),
+            'age': dpsynth.NumericalAttribute(0, 100),
+            'gender': dpsynth.CategoricalAttribute(['M', 'F']),
         },
     }
     foreign_keys = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
@@ -1079,16 +1082,16 @@ class SynthesizerTest(absltest.TestCase):
     child_ds = mbi.Dataset({'age': np.array([0, 1, 2, 0] * 10)}, child_dom)
     parent_pks = [f'H{i}' for i in range(20)]
     child_fks = [f'H{i // 2}' for i in range(40)]
-    fk = rel_domain.ForeignKeyRelation(
+    fk = dpsynth.ForeignKeyRelation(
         parent_table='Household',
         parent_primary_key='hid',
         child_table='Person',
         child_foreign_key='hid',
         max_children_per_parent=2,
     )
-    discrete_mech = discrete_mechanisms.AIMConfig(
-        pgm_iters=10, max_rounds=2
-    ).configure(budget=0.5)
+    discrete_mech = dpsynth.AIMConfig(pgm_iters=10, max_rounds=2).configure(
+        budget=0.5
+    )
 
     res = synthesizer._synthesize_relational_link(
         parent_dataset=parent_ds,
@@ -1121,16 +1124,16 @@ class SynthesizerTest(absltest.TestCase):
     child_ds = mbi.Dataset({'amt': np.array([0, 1, 1])}, child_dom)
     parent_pks = ['P1', 'P2', 'P3']
     child_fks = ['P1', 'P2', 'P2']
-    fk = rel_domain.ForeignKeyRelation(
+    fk = dpsynth.ForeignKeyRelation(
         parent_table='Person',
         parent_primary_key='pid',
         child_table='Activity',
         child_foreign_key='pid',
         max_children_per_parent=2,
     )
-    discrete_mech = discrete_mechanisms.AIMConfig(
-        pgm_iters=10, max_rounds=2
-    ).configure(budget=0.5)
+    discrete_mech = dpsynth.AIMConfig(pgm_iters=10, max_rounds=2).configure(
+        budget=0.5
+    )
 
     # Simulated synth_parents from Level 1
     synth_parents = mbi.Dataset({'age': np.array([2, 0, 1])}, parent_dom)
@@ -1173,24 +1176,24 @@ class SynthesizerTest(absltest.TestCase):
     }
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(0, 100),
+            'income': dpsynth.NumericalAttribute(0, 100),
         },
         'Person': {
-            'age': domain.NumericalAttribute(0, 100),
+            'age': dpsynth.NumericalAttribute(0, 100),
         },
         'Activity': {
-            'amt': domain.NumericalAttribute(0, 500),
+            'amt': dpsynth.NumericalAttribute(0, 500),
         },
     }
     fks = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
             child_foreign_key='hid',
             max_children_per_parent=2,
         ),
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Person',
             parent_primary_key='pid',
             child_table='Activity',
@@ -1203,9 +1206,7 @@ class SynthesizerTest(absltest.TestCase):
     )
     cfg = synthesizer.MultiTableConfig(
         foreign_keys=fks,
-        discrete_mechanism=discrete_mechanisms.AIMConfig(
-            pgm_iters=10, max_rounds=2
-        ),
+        discrete_mechanism=dpsynth.AIMConfig(pgm_iters=10, max_rounds=2),
         num_permutation_slots=2,
     )
     mech = cfg.configure(domains, budget=0.5)
@@ -1263,24 +1264,24 @@ class SynthesizerTest(absltest.TestCase):
     }
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(0, 100),
+            'income': dpsynth.NumericalAttribute(0, 100),
         },
         'Person': {
-            'age': domain.NumericalAttribute(0, 100),
+            'age': dpsynth.NumericalAttribute(0, 100),
         },
         'Vehicle': {
-            'type': domain.CategoricalAttribute(['sedan', 'suv']),
+            'type': dpsynth.CategoricalAttribute(['sedan', 'suv']),
         },
     }
     fks = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
             child_foreign_key='hid',
             max_children_per_parent=2,
         ),
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Vehicle',
@@ -1293,9 +1294,7 @@ class SynthesizerTest(absltest.TestCase):
     )
     cfg = synthesizer.MultiTableConfig(
         foreign_keys=fks,
-        discrete_mechanism=discrete_mechanisms.AIMConfig(
-            pgm_iters=10, max_rounds=2
-        ),
+        discrete_mechanism=dpsynth.AIMConfig(pgm_iters=10, max_rounds=2),
         num_permutation_slots=2,
     )
     mech = cfg.configure(domains, budget=0.5)
@@ -1375,26 +1374,28 @@ class SynthesizerTest(absltest.TestCase):
     rng = np.random.default_rng(42)
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(min_value=0.0, max_value=100.0),
-            'region': domain.CategoricalAttribute(
+            'income': dpsynth.NumericalAttribute(
+                min_value=0.0, max_value=100.0
+            ),
+            'region': dpsynth.CategoricalAttribute(
                 possible_values=['Urban', 'Rural']
             ),
         },
         'Person': {
-            'age': domain.NumericalAttribute(min_value=0, max_value=100),
-            'gender': domain.CategoricalAttribute(possible_values=['M', 'F']),
+            'age': dpsynth.NumericalAttribute(min_value=0, max_value=100),
+            'gender': dpsynth.CategoricalAttribute(possible_values=['M', 'F']),
         },
     }
     # Mock column measurements for initializers
     h_measurements = {
         'income': initialization.NumericalMeasurement(
-            categorical_attribute=domain.CategoricalAttribute(
+            categorical_attribute=dpsynth.CategoricalAttribute(
                 possible_values=['[0.0, 50.0)', '[50.0, 100.0]']
             ),
             bin_edges=np.array([50.0]),
         ),
         'region': initialization.CategoricalMeasurement(
-            categorical_attribute=domain.CategoricalAttribute(
+            categorical_attribute=dpsynth.CategoricalAttribute(
                 possible_values=['Urban', 'Rural']
             ),
             noisy_counts=np.array([10.0, 10.0]),
@@ -1403,13 +1404,13 @@ class SynthesizerTest(absltest.TestCase):
     }
     p_measurements = {
         'age': initialization.NumericalMeasurement(
-            categorical_attribute=domain.CategoricalAttribute(
+            categorical_attribute=dpsynth.CategoricalAttribute(
                 possible_values=['[0, 50)', '[50, 100]']
             ),
             bin_edges=np.array([50.0]),
         ),
         'gender': initialization.CategoricalMeasurement(
-            categorical_attribute=domain.CategoricalAttribute(
+            categorical_attribute=dpsynth.CategoricalAttribute(
                 possible_values=['M', 'F']
             ),
             noisy_counts=np.array([10.0, 10.0]),
@@ -1469,14 +1470,14 @@ class SynthesizerTest(absltest.TestCase):
         'Activity': pd.DataFrame({'amt': [10.0, 20.0, 30.0, 40.0]}),
     }
     fks = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
             child_foreign_key='hid',
             max_children_per_parent=2,
         ),
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Person',
             parent_primary_key='pid',
             child_table='Activity',
@@ -1521,14 +1522,14 @@ class SynthesizerTest(absltest.TestCase):
         'Vehicle': pd.DataFrame({'type': []}),
     }
     fks = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
             child_foreign_key='hid',
             max_children_per_parent=2,
         ),
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Vehicle',
@@ -1576,18 +1577,20 @@ class SynthesizerTest(absltest.TestCase):
 
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(min_value=0.0, max_value=100.0),
-            'region': domain.CategoricalAttribute(
+            'income': dpsynth.NumericalAttribute(
+                min_value=0.0, max_value=100.0
+            ),
+            'region': dpsynth.CategoricalAttribute(
                 possible_values=['Urban', 'Rural']
             ),
         },
         'Person': {
-            'age': domain.NumericalAttribute(min_value=0, max_value=100),
-            'gender': domain.CategoricalAttribute(possible_values=['M', 'F']),
+            'age': dpsynth.NumericalAttribute(min_value=0, max_value=100),
+            'gender': dpsynth.CategoricalAttribute(possible_values=['M', 'F']),
         },
     }
     fks = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
@@ -1598,7 +1601,7 @@ class SynthesizerTest(absltest.TestCase):
 
     cfg = synthesizer.MultiTableConfig(
         foreign_keys=fks,
-        discrete_mechanism=discrete_mechanisms.MSTConfig(
+        discrete_mechanism=dpsynth.MSTConfig(
             pgm_iters=50,
         ),
         numerical_bins=4,
@@ -1654,18 +1657,20 @@ class SynthesizerTest(absltest.TestCase):
 
     domains = {
         'Household': {
-            'income': domain.NumericalAttribute(min_value=0.0, max_value=100.0),
-            'region': domain.CategoricalAttribute(
+            'income': dpsynth.NumericalAttribute(
+                min_value=0.0, max_value=100.0
+            ),
+            'region': dpsynth.CategoricalAttribute(
                 possible_values=['Urban', 'Rural']
             ),
         },
         'Person': {
-            'age': domain.NumericalAttribute(min_value=0, max_value=100),
-            'gender': domain.CategoricalAttribute(possible_values=['M', 'F']),
+            'age': dpsynth.NumericalAttribute(min_value=0, max_value=100),
+            'gender': dpsynth.CategoricalAttribute(possible_values=['M', 'F']),
         },
     }
     fks = [
-        rel_domain.ForeignKeyRelation(
+        dpsynth.ForeignKeyRelation(
             parent_table='Household',
             parent_primary_key='hid',
             child_table='Person',
@@ -1676,7 +1681,7 @@ class SynthesizerTest(absltest.TestCase):
 
     cfg = synthesizer.MultiTableConfig(
         foreign_keys=fks,
-        discrete_mechanism=discrete_mechanisms.AIMConfig(
+        discrete_mechanism=dpsynth.AIMConfig(
             max_rounds=2,
             pgm_iters=50,
         ),
@@ -1704,12 +1709,12 @@ class SynthesizerTest(absltest.TestCase):
     self.assertIn('Household->Person', result.discrete_mechanism_results)
 
   def test_public_api_exports(self):
-    self.assertIs(rel_pkg.MultiTableConfig, synthesizer.MultiTableConfig)
-    self.assertIs(rel_pkg.MultiTableMechanism, synthesizer.MultiTableMechanism)
+    self.assertIs(dpsynth.MultiTableConfig, synthesizer.MultiTableConfig)
+    self.assertIs(dpsynth.MultiTableMechanism, synthesizer.MultiTableMechanism)
     self.assertIs(
-        rel_pkg.MultiDataGenerationResult, synthesizer.MultiDataGenerationResult
+        dpsynth.MultiDataGenerationResult, synthesizer.MultiDataGenerationResult
     )
-    self.assertIs(rel_pkg.ForeignKeyRelation, rel_domain.ForeignKeyRelation)
+    self.assertIs(dpsynth.ForeignKeyRelation, rel_domain.ForeignKeyRelation)
 
 
 if __name__ == '__main__':

@@ -14,7 +14,7 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from dpsynth import domain
+import dpsynth
 from dpsynth.local_mode import vectorized_transformations
 import numpy as np
 
@@ -22,13 +22,13 @@ import numpy as np
 class DiscreteEncodeTest(parameterized.TestCase):
 
   def test_basic_encoding(self):
-    attr = domain.CategoricalAttribute(['None', 'a', 'b', 'c'])
+    attr = dpsynth.CategoricalAttribute(['None', 'a', 'b', 'c'])
     data = np.array(['None', 'a', 'b', 'c', 'a'])
     result = vectorized_transformations.discrete_encode(data, attr)
     np.testing.assert_array_equal(result, [0, 1, 2, 3, 1])
 
   def test_out_of_domain_maps_to_default(self):
-    attr = domain.CategoricalAttribute(
+    attr = dpsynth.CategoricalAttribute(
         ['None', 'a', 'b'], out_of_domain_index=0
     )
     data = np.array(['a', 'x', 'b', 'z'])
@@ -36,13 +36,13 @@ class DiscreteEncodeTest(parameterized.TestCase):
     np.testing.assert_array_equal(result, [1, 0, 2, 0])
 
   def test_integer_possible_values(self):
-    attr = domain.CategoricalAttribute([10, 20, 30])
+    attr = dpsynth.CategoricalAttribute([10, 20, 30])
     data = np.array([20, 30, 10, 10])
     result = vectorized_transformations.discrete_encode(data, attr)
     np.testing.assert_array_equal(result, [1, 2, 0, 0])
 
   def test_empty_data(self):
-    attr = domain.CategoricalAttribute(['a', 'b'])
+    attr = dpsynth.CategoricalAttribute(['a', 'b'])
     data = np.array([], dtype=object)
     result = vectorized_transformations.discrete_encode(data, attr)
     self.assertEqual(result.shape, (0,))
@@ -55,7 +55,7 @@ class DiscreteEncodeTest(parameterized.TestCase):
   def test_heterogeneous_object_array_with_none_and_nan(
       self, possible_values, raw_data, expected
   ):
-    attr = domain.CategoricalAttribute(possible_values, out_of_domain_index=0)
+    attr = dpsynth.CategoricalAttribute(possible_values, out_of_domain_index=0)
     data = np.array(raw_data, dtype=object)
     result = vectorized_transformations.discrete_encode(data, attr)
     np.testing.assert_array_equal(result, expected)
@@ -63,7 +63,7 @@ class DiscreteEncodeTest(parameterized.TestCase):
   def test_random_unsorted_domain_matches_lookup(self):
     rng = np.random.default_rng(42)
     vocab = [f'cat_{i}' for i in rng.permutation(50)]
-    attr = domain.CategoricalAttribute(vocab, out_of_domain_index=7)
+    attr = dpsynth.CategoricalAttribute(vocab, out_of_domain_index=7)
     pool = np.array(vocab + ['ood_1', 'ood_2', ''], dtype=object)
     data = rng.choice(pool, size=1000)
     result = vectorized_transformations.discrete_encode(data, attr)
@@ -74,21 +74,21 @@ class DiscreteEncodeTest(parameterized.TestCase):
 class DiscreteDecodeTest(absltest.TestCase):
 
   def test_basic_decoding(self):
-    attr = domain.CategoricalAttribute(['<OOD>', 'a', 'b', 'c'])
+    attr = dpsynth.CategoricalAttribute(['<OOD>', 'a', 'b', 'c'])
     encoded = np.array([0, 1, 2, 3, 1])
     result = vectorized_transformations.discrete_decode(encoded, attr)
     expected = np.array(['<OOD>', 'a', 'b', 'c', 'a'], dtype=object)
     np.testing.assert_array_equal(result, expected)
 
   def test_roundtrip(self):
-    attr = domain.CategoricalAttribute(['x', 'y', 'z'])
+    attr = dpsynth.CategoricalAttribute(['x', 'y', 'z'])
     data = np.array(['x', 'y', 'z', 'y', 'x'], dtype=object)
     encoded = vectorized_transformations.discrete_encode(data, attr)
     decoded = vectorized_transformations.discrete_decode(encoded, attr)
     np.testing.assert_array_equal(decoded, data)
 
   def test_empty(self):
-    attr = domain.CategoricalAttribute(['a'])
+    attr = dpsynth.CategoricalAttribute(['a'])
     result = vectorized_transformations.discrete_decode(
         np.array([], dtype=int), attr
     )
@@ -98,7 +98,7 @@ class DiscreteDecodeTest(absltest.TestCase):
 class DiscretizeTest(parameterized.TestCase):
 
   def test_clip_to_range_basic(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=True
     )
     data = np.array([1.0, 5.0, 5.00001, 8.0, -1.0, 11.0])
@@ -107,7 +107,7 @@ class DiscretizeTest(parameterized.TestCase):
     np.testing.assert_array_equal(result, [0, 0, 1, 1, 0, 1])
 
   def test_no_clip_to_range_ood(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=False
     )
     data = np.array([5.0, 8.0, -1.0, 11.0, np.nan])
@@ -116,7 +116,7 @@ class DiscretizeTest(parameterized.TestCase):
     np.testing.assert_array_equal(result, [1, 2, 0, 0, 0])
 
   def test_multiple_bins(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=100, clip_to_range=True
     )
     data = np.array([10.0, 25.0, 50.0, 75.0, 90.0])
@@ -126,7 +126,7 @@ class DiscretizeTest(parameterized.TestCase):
     np.testing.assert_array_equal(result, [0, 0, 1, 2, 3])
 
   def test_integer_attribute(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, dtype='int', clip_to_range=True
     )
     data = np.array([0.0, 5.0, 6.0, 10.0])
@@ -135,7 +135,7 @@ class DiscretizeTest(parameterized.TestCase):
     np.testing.assert_array_equal(result, [0, 0, 1, 1])
 
   def test_empty_data(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=True
     )
     data = np.array([], dtype=float)
@@ -143,7 +143,7 @@ class DiscretizeTest(parameterized.TestCase):
     self.assertEqual(result.shape, (0,))
 
   def test_invalid_bin_edges_raises(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=10)
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10)
     # Empty edges = 1-bin case: all data maps to bin 0.
     result = vectorized_transformations.discretize(
         np.array([1.0, 5.0]), np.array([]), attr
@@ -160,7 +160,7 @@ class DiscretizeTest(parameterized.TestCase):
 
   @parameterized.parameters((True, [0, 0, 0, 0]), (False, [1, 0, 0, 0]))
   def test_empty_bin_edges(self, clip_to_range, expected):
-    attr = domain.NumericalAttribute(0, 10, clip_to_range=clip_to_range)
+    attr = dpsynth.NumericalAttribute(0, 10, clip_to_range=clip_to_range)
     data = np.array([5.0, -1.0, np.nan, '?'], dtype=object)
     result = vectorized_transformations.discretize(data, np.array([]), attr)
     np.testing.assert_array_equal(result, expected)
@@ -169,7 +169,7 @@ class DiscretizeTest(parameterized.TestCase):
 class UndiscretizeTest(parameterized.TestCase):
 
   def test_clip_to_range_midpoints(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=True
     )
     bin_indices = np.array([0, 1])
@@ -182,7 +182,7 @@ class UndiscretizeTest(parameterized.TestCase):
     self.assertBetween(result[1], 5, 10)
 
   def test_no_clip_to_range_ood_nan(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=False
     )
     bin_indices = np.array([0, 1, 2])
@@ -194,7 +194,7 @@ class UndiscretizeTest(parameterized.TestCase):
     self.assertBetween(result[2], 5, 10)
 
   def test_integer_dtype_ceils(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=1, max_value=5, dtype='int', clip_to_range=True
     )
     bin_indices = np.array([0, 1])
@@ -206,7 +206,7 @@ class UndiscretizeTest(parameterized.TestCase):
       self.assertEqual(v, int(v))
 
   def test_roundtrip_clip(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=100, clip_to_range=True
     )
     edges = np.array([25.0, 50.0, 75.0])
@@ -219,7 +219,7 @@ class UndiscretizeTest(parameterized.TestCase):
       self.assertBetween(midpoints[i], full_edges[idx], full_edges[idx + 1])
 
   def test_empty(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=True
     )
     result = vectorized_transformations.undiscretize(
@@ -229,7 +229,7 @@ class UndiscretizeTest(parameterized.TestCase):
 
   def test_sample_mode_values_in_bins(self):
     rng = np.random.default_rng(0)
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0,
         max_value=10,
         clip_to_range=True,
@@ -246,7 +246,7 @@ class UndiscretizeTest(parameterized.TestCase):
 
   def test_sample_mode_ood_nan(self):
     rng = np.random.default_rng(0)
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0,
         max_value=10,
         clip_to_range=False,
@@ -258,7 +258,7 @@ class UndiscretizeTest(parameterized.TestCase):
     self.assertTrue(np.isnan(result[0]))
 
   def test_interval_mode(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0,
         max_value=10,
         clip_to_range=True,
@@ -272,7 +272,7 @@ class UndiscretizeTest(parameterized.TestCase):
     self.assertIn(']', result[0])
 
   def test_string_sentinel_interval(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0,
         max_value=10,
         clip_to_range=False,
@@ -286,7 +286,7 @@ class UndiscretizeTest(parameterized.TestCase):
     self.assertIn('[', result[1])  # First in-domain interval is closed
 
   def test_invalid_bin_edges_raises(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, interval_handling='midpoint'
     )
     # Empty edges = 1-bin case: undiscretize returns domain midpoint.
@@ -304,7 +304,7 @@ class UndiscretizeTest(parameterized.TestCase):
       )
 
   def test_custom_sentinel_midpoint(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=False, sentinel=-1
     )
     result = vectorized_transformations.undiscretize(
@@ -316,7 +316,7 @@ class UndiscretizeTest(parameterized.TestCase):
 
   def test_custom_sentinel_sample(self):
     rng = np.random.default_rng(0)
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0,
         max_value=10,
         clip_to_range=False,
@@ -331,7 +331,7 @@ class UndiscretizeTest(parameterized.TestCase):
   @parameterized.parameters(('midpoint', None), ('sample', -1))
   def test_integer_dtype_no_clip(self, interval_handling, sentinel):
     rng = np.random.default_rng(0)
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0,
         max_value=3,
         dtype='int',
@@ -353,7 +353,7 @@ class UndiscretizeTest(parameterized.TestCase):
   def test_empty_bin_edges_no_clip(self, interval_handling):
     rng = np.random.default_rng(0)
     sentinel = 'MISSING' if interval_handling == 'interval' else -1
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         0,
         10,
         clip_to_range=False,

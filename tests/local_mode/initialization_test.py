@@ -14,7 +14,7 @@
 
 from absl.testing import absltest
 import dp_accounting
-from dpsynth import domain
+import dpsynth
 from dpsynth.local_mode import initialization
 from dpsynth.local_mode import primitives
 from dpsynth.local_mode import vectorized_transformations as vtx
@@ -24,7 +24,7 @@ import numpy as np
 class InitializationTest(absltest.TestCase):
 
   def test_numerical_initializer_dp_event(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=10)
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10)
     initializer = initialization.NumericalInitializerConfig(num_partitions=4)
     event = initializer.configure(attr, budget=1.0).dp_event
     self.assertIsInstance(event, dp_accounting.ComposedDpEvent)
@@ -35,7 +35,7 @@ class InitializationTest(absltest.TestCase):
     self.assertAlmostEqual(event.events[2].noise_multiplier, 1.0)
 
   def test_numerical_initializer_call(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=10)
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10)
     rng = np.random.default_rng(0)
     initializer = initialization.NumericalInitializerConfig(num_partitions=4)
 
@@ -58,7 +58,7 @@ class InitializationTest(absltest.TestCase):
     np.testing.assert_array_equal(measurement.noisy_counts, counts)
 
   def test_numerical_initializer_out_of_domain_values(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=False
     )
     rng = np.random.default_rng(0)
@@ -78,7 +78,7 @@ class InitializationTest(absltest.TestCase):
 
   def test_numerical_initializer_deduplicates_bin_edges(self):
     """Concentrated data can make quantiles return duplicate edges."""
-    attr = domain.NumericalAttribute(min_value=0, max_value=100)
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=100)
     rng = np.random.default_rng(42)
     initializer = initialization.NumericalInitializerConfig(num_partitions=8)
     # Data is heavily concentrated at 50.
@@ -97,7 +97,7 @@ class InitializationTest(absltest.TestCase):
 
   def test_numerical_initializer_integer_data(self):
     """Integer data within a narrow range can collapse quantile edges."""
-    attr = domain.NumericalAttribute(min_value=0, max_value=10, dtype='int')
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10, dtype='int')
     rng = np.random.default_rng(0)
     initializer = initialization.NumericalInitializerConfig(num_partitions=8)
     # Only 3 distinct values but 8 partitions requested.
@@ -114,7 +114,7 @@ class InitializationTest(absltest.TestCase):
 
   def test_numerical_initializer_integer_edges_are_floored(self):
     """Integer attributes should produce integer-valued bin edges."""
-    attr = domain.NumericalAttribute(min_value=0, max_value=100, dtype='int')
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=100, dtype='int')
     rng = np.random.default_rng(42)
     initializer = initialization.NumericalInitializerConfig(num_partitions=4)
     data = np.arange(100)
@@ -135,7 +135,7 @@ class InitializationTest(absltest.TestCase):
   def test_int_grid_reserves_budget_for_jitter_refinement(self):
     # A wide integer range with many partitions must not blow past
     # max_grid_size once the m-fold jitter refinement is applied.
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10_000_000, dtype='int'
     )
     max_grid_size = 100_000
@@ -148,7 +148,7 @@ class InitializationTest(absltest.TestCase):
     )
 
   def test_numerical_initializer_epsilon_ratio_default_and_custom(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=10)
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10)
     # Default is 1.0 (uniform), and quantile_budget_fraction defaults to 0.5.
     init_default = initialization.NumericalInitializerConfig(num_partitions=4)
     self.assertEqual(init_default.epsilon_ratio, 1.0)
@@ -180,7 +180,7 @@ class InitializationTest(absltest.TestCase):
 
   def test_integer_edges_at_max_value_absorbed_into_last_bin(self):
     """Edges at max_value are removed; their count goes to the last bin."""
-    attr = domain.NumericalAttribute(min_value=0, max_value=10, dtype='int')
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10, dtype='int')
     rng = np.random.default_rng(0)
     initializer = initialization.NumericalInitializerConfig(num_partitions=8)
     # A spread of lower values carrying most of the mass, plus a moderate spike
@@ -196,7 +196,7 @@ class InitializationTest(absltest.TestCase):
 
   def test_integer_jitter_prevents_spurious_splits(self):
     """Positive jitter should prevent edges from splitting across integers."""
-    attr = domain.NumericalAttribute(min_value=0, max_value=100, dtype='int')
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=100, dtype='int')
     rng = np.random.default_rng(42)
     initializer = initialization.NumericalInitializerConfig(num_partitions=4)
     # Uniform data: with high budget, edges should land at 25, 50, 75.
@@ -209,7 +209,7 @@ class InitializationTest(absltest.TestCase):
 
   def test_integer_heterogeneous_data_buckets(self):
     """Heterogeneous integer data produces sensible bucket partitioning."""
-    attr = domain.NumericalAttribute(min_value=0, max_value=10, dtype='int')
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10, dtype='int')
     rng = np.random.default_rng(42)
     initializer = initialization.NumericalInitializerConfig(num_partitions=4)
     # Deliberately lumpy distribution: 45 points across 4 distinct values.
@@ -237,7 +237,7 @@ class InitializationTest(absltest.TestCase):
     )
 
   def test_numerical_initializer_fixed_bin_edges_dp_event(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, bin_edges=[2.0, 5.0, 8.0]
     )
     initializer = initialization.NumericalInitializerConfig(num_partitions=4)
@@ -255,7 +255,7 @@ class InitializationTest(absltest.TestCase):
     )
 
   def test_numerical_initializer_fixed_bin_edges_call(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, bin_edges=[3.0, 7.0]
     )
     rng = np.random.default_rng(0)
@@ -271,7 +271,7 @@ class InitializationTest(absltest.TestCase):
 class CategoricalInitializerTest(absltest.TestCase):
 
   def test_dp_event(self):
-    attr = domain.CategoricalAttribute(possible_values=['A', 'B', 'C'])
+    attr = dpsynth.CategoricalAttribute(possible_values=['A', 'B', 'C'])
     initializer = initialization.CategoricalInitializerConfig()
     event = initializer.configure(attr, budget=0.5).dp_event
     self.assertIsInstance(event, dp_accounting.GaussianDpEvent)
@@ -279,7 +279,7 @@ class CategoricalInitializerTest(absltest.TestCase):
     self.assertEqual(event.noise_multiplier, 1.0)
 
   def test_call_noiseless(self):
-    attr = domain.CategoricalAttribute(possible_values=['A', 'B', 'C'])
+    attr = dpsynth.CategoricalAttribute(possible_values=['A', 'B', 'C'])
     rng = np.random.default_rng(0)
     initializer = initialization.CategoricalInitializerConfig()
     data = np.array(['A', 'A', 'B', 'C', 'C', 'C'])
@@ -292,7 +292,7 @@ class CategoricalInitializerTest(absltest.TestCase):
     self.assertEqual(result.stddev, 0.0)
 
   def test_out_of_domain_values(self):
-    attr = domain.CategoricalAttribute(
+    attr = dpsynth.CategoricalAttribute(
         possible_values=['<OOD>', 'X', 'Y'], out_of_domain_index=0
     )
     rng = np.random.default_rng(0)
@@ -307,7 +307,7 @@ class CategoricalInitializerTest(absltest.TestCase):
 class OpenSetCategoricalInitializerTest(absltest.TestCase):
 
   def test_dp_event(self):
-    attr = domain.OpenSetCategoricalAttribute(default_value='<OOD>')
+    attr = dpsynth.OpenSetCategoricalAttribute(default_value='<OOD>')
     initializer = initialization.OpenSetInitializerConfig()
     event = initializer.configure(attr, budget=0.5, delta=1e-5).dp_event
     self.assertIsInstance(event, dp_accounting.ComposedDpEvent)
@@ -319,14 +319,14 @@ class OpenSetCategoricalInitializerTest(absltest.TestCase):
     self.assertEqual(event.events[1].delta, 1e-5)
 
   def test_calibrate(self):
-    attr = domain.OpenSetCategoricalAttribute(default_value='<OOD>')
+    attr = dpsynth.OpenSetCategoricalAttribute(default_value='<OOD>')
     config = initialization.OpenSetInitializerConfig()
     calibrated = config.calibrate(attr, epsilon=1.0, delta=1e-5)
     self.assertAlmostEqual(calibrated.delta, 5e-6)
     self.assertGreater(calibrated.sigma, 0.0)
 
   def test_call_noiseless(self):
-    attr = domain.OpenSetCategoricalAttribute(default_value='<OOD>')
+    attr = dpsynth.OpenSetCategoricalAttribute(default_value='<OOD>')
     rng = np.random.default_rng(42)
     initializer = initialization.OpenSetInitializerConfig()
     # 'A' appears 100 times, 'B' 50, 'C' 1 (rare).
@@ -345,7 +345,7 @@ class OpenSetCategoricalInitializerTest(absltest.TestCase):
     self.assertEqual(result.categorical_attribute.out_of_domain_index, 0)
 
   def test_undiscovered_values_map_to_default(self):
-    attr = domain.OpenSetCategoricalAttribute(default_value='OTHER')
+    attr = dpsynth.OpenSetCategoricalAttribute(default_value='OTHER')
     rng = np.random.default_rng(0)
     initializer = initialization.OpenSetInitializerConfig()
     data = np.array(['A'] * 100 + ['B'] * 50)
@@ -361,7 +361,7 @@ class OpenSetCategoricalInitializerTest(absltest.TestCase):
     self.assertEqual(encoded_z[0], 0)
 
   def test_empty_data(self):
-    attr = domain.OpenSetCategoricalAttribute(default_value='<OOD>')
+    attr = dpsynth.OpenSetCategoricalAttribute(default_value='<OOD>')
     rng = np.random.default_rng(0)
     initializer = initialization.OpenSetInitializerConfig()
     data = np.array([], dtype=str)
@@ -376,7 +376,7 @@ class NumericalInitializerFromSummaryTest(absltest.TestCase):
   """Tests that NumericalInitializer.from_summary produces valid results."""
 
   def test_calibrate_sets_dp_event(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=100)
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=100)
     init = initialization.NumericalInitializerConfig(
         num_partitions=4,
         max_grid_size=10001,
@@ -388,7 +388,7 @@ class NumericalInitializerFromSummaryTest(absltest.TestCase):
 
   def test_integer_attribute_snaps_edges(self):
     rng = np.random.default_rng(42)
-    attr = domain.NumericalAttribute(min_value=0, max_value=10, dtype='int')
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10, dtype='int')
     init = initialization.NumericalInitializerConfig(
         num_partitions=4,
     ).configure(attr, budget=1.0)
@@ -401,7 +401,7 @@ class NumericalInitializerFromSummaryTest(absltest.TestCase):
   def test_call_and_from_summary_produce_same_structure(self):
     """Both entry points should produce valid ColumnMeasurements."""
     rng = np.random.default_rng(42)
-    attr = domain.NumericalAttribute(min_value=0.0, max_value=100.0)
+    attr = dpsynth.NumericalAttribute(min_value=0.0, max_value=100.0)
     max_grid_size = 10001
     init = initialization.NumericalInitializerConfig(
         num_partitions=4,
@@ -424,7 +424,7 @@ class NumericalInitializerFromSummaryTest(absltest.TestCase):
     )
 
   def test_open_set_public_possible_values_retained(self):
-    attr = domain.OpenSetCategoricalAttribute(
+    attr = dpsynth.OpenSetCategoricalAttribute(
         default_value='<OOD>', public_possible_values=('PUB1', 'PUB2')
     )
     # 'a' has 100 occurrences (above threshold), 'b' has 1 (below min_count).
@@ -435,7 +435,7 @@ class NumericalInitializerFromSummaryTest(absltest.TestCase):
     )
     col_meas = init(np.random.default_rng(0), data)
     cat_attr = col_meas.categorical_attribute
-    self.assertIsInstance(cat_attr, domain.CategoricalAttribute)
+    self.assertIsInstance(cat_attr, dpsynth.CategoricalAttribute)
     self.assertIn('<OOD>', cat_attr.possible_values)
     self.assertIn('PUB1', cat_attr.possible_values)
     self.assertIn('PUB2', cat_attr.possible_values)
@@ -443,7 +443,7 @@ class NumericalInitializerFromSummaryTest(absltest.TestCase):
     self.assertNotIn('b', cat_attr.possible_values)
 
   def test_open_set_heterogeneous_input_with_none(self):
-    attr = domain.OpenSetCategoricalAttribute()
+    attr = dpsynth.OpenSetCategoricalAttribute()
     # Heterogeneous array containing None, strings, integers, and floats.
     data = np.array(
         ['a'] * 100 + [None] * 50 + [123] * 100 + [np.nan] * 10, dtype=object
@@ -453,12 +453,12 @@ class NumericalInitializerFromSummaryTest(absltest.TestCase):
     )
     col_meas = init(np.random.default_rng(0), data)
     cat_attr = col_meas.categorical_attribute
-    self.assertIsInstance(cat_attr, domain.CategoricalAttribute)
+    self.assertIsInstance(cat_attr, dpsynth.CategoricalAttribute)
     self.assertIn('a', cat_attr.possible_values)
     self.assertIn('123', cat_attr.possible_values)
 
   def test_categorical_heterogeneous_input_with_none(self):
-    attr = domain.CategoricalAttribute(possible_values=['a', 'b', 'c'])
+    attr = dpsynth.CategoricalAttribute(possible_values=['a', 'b', 'c'])
     data = np.array(['a', None, 'b', np.nan, 999, 'c'], dtype=object)
     init = initialization.CategoricalInitializerConfig().configure(
         attr, budget=1.0
@@ -468,7 +468,7 @@ class NumericalInitializerFromSummaryTest(absltest.TestCase):
     self.assertLen(col_meas.noisy_counts, 3)
 
   def test_numerical_heterogeneous_input_with_none(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=100)
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=100)
     data = np.array([10.5, None, 50.0, np.nan, '75.0', '?'], dtype=object)
     init = initialization.NumericalInitializerConfig(
         num_partitions=4

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from absl.testing import absltest
-from dpsynth.discrete_mechanisms import aim
+import dpsynth
 from dpsynth.discrete_mechanisms import common
 import mbi
 import numpy as np
@@ -59,7 +59,7 @@ class AIMTest(absltest.TestCase):
   def test_fits_one_way_marginals_with_aim(self):
     data = mbi.Dataset.synthetic(mbi.Domain(["a", "b", "c"], [3, 4, 5]), N=1000)
     workload = [("a",), ("b",), ("c",)]
-    config = aim.AIMConfig(workload=workload, max_rounds=4, pgm_iters=500)
+    config = dpsynth.AIMConfig(workload=workload, max_rounds=4, pgm_iters=500)
 
     calibrated = config.configure(budget=10000)
     result = calibrated(np.random.default_rng(0), data)
@@ -72,12 +72,12 @@ class AIMTest(absltest.TestCase):
       np.testing.assert_allclose(actual, expected, atol=1)
 
   def test_default_configuration_values(self):
-    config = aim.AIMConfig()
+    config = dpsynth.AIMConfig()
     self.assertEqual(config.pgm_iters, 1000)
 
   def test_workload_degree(self):
     domain = mbi.Domain(["a", "b", "c"], [3, 3, 3])
-    config = aim.AIMConfig(degree=2)
+    config = dpsynth.AIMConfig(degree=2)
     self.assertCountEqual(
         config.supporting_cliques(domain),
         [("a", "b"), ("a", "c"), ("b", "c")],
@@ -86,7 +86,7 @@ class AIMTest(absltest.TestCase):
   def test_call_with_constraints_raises(self):
     domain = mbi.Domain(["a", "b"], [2, 2])
     constraint = mbi.Constraint(domain, np.array([[1, 0], [0, 1]]))
-    calibrated = aim.AIMConfig().configure(budget=1.0)
+    calibrated = dpsynth.AIMConfig().configure(budget=1.0)
     data = mbi.Dataset.synthetic(domain, N=10)
     with self.assertRaisesRegex(ValueError, "AIM does not support constraints"):
       calibrated(np.random.default_rng(0), data, constraints=[constraint])
