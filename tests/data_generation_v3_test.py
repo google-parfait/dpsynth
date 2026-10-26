@@ -21,19 +21,13 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import dp_accounting
 import dpsynth
-from dpsynth import constraints
-from dpsynth import data_generation_v3
-from dpsynth import discrete_mechanisms
-from dpsynth import domain
-from dpsynth.discrete_mechanisms import aim
-from dpsynth.discrete_mechanisms.independent import IndependentConfig
 import mbi
 import numpy as np
 import pandas as pd
 
 TabularConfig = functools.partial(
-    data_generation_v3.TabularConfig,
-    discrete_mechanism=discrete_mechanisms.MSTConfig(pgm_iters=100),
+    dpsynth.TabularConfig,
+    discrete_mechanism=dpsynth.MSTConfig(pgm_iters=100),
 )
 
 
@@ -47,9 +41,9 @@ def _make_discrete_data(rng, n=1000):
 
 def _make_mixed_data(rng, n=1000):
   domains = {
-      'a': domain.CategoricalAttribute(possible_values=[0, 1, 2]),
-      'b': domain.CategoricalAttribute(possible_values=[0, 1, 2]),
-      'c': domain.NumericalAttribute(
+      'a': dpsynth.CategoricalAttribute(possible_values=[0, 1, 2]),
+      'b': dpsynth.CategoricalAttribute(possible_values=[0, 1, 2]),
+      'c': dpsynth.NumericalAttribute(
           min_value=0.0, max_value=1.0, dtype='float'
       ),
   }
@@ -129,10 +123,10 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_end_to_end_categorical(self):
     domains = {
-        'A': domain.CategoricalAttribute(
+        'A': dpsynth.CategoricalAttribute(
             possible_values=['a', 'b', 'c'], out_of_domain_index=0
         ),
-        'B': domain.CategoricalAttribute(
+        'B': dpsynth.CategoricalAttribute(
             possible_values=['x', 'y', 'z'], out_of_domain_index=0
         ),
     }
@@ -145,8 +139,8 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_end_to_end_numerical(self):
     domains = {
-        'A': domain.NumericalAttribute(min_value=0, max_value=10),
-        'B': domain.NumericalAttribute(min_value=-10, max_value=10),
+        'A': dpsynth.NumericalAttribute(min_value=0, max_value=10),
+        'B': dpsynth.NumericalAttribute(min_value=-10, max_value=10),
     }
     df = pd.DataFrame({'A': [5, 5, 0], 'B': [5, -10, -5]}, dtype=float)
     rng = np.random.default_rng(0)
@@ -160,8 +154,8 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_end_to_end_mixed_domain(self):
     domains = {
-        'A': domain.OpenSetCategoricalAttribute(),
-        'B': domain.NumericalAttribute(min_value=0, max_value=10),
+        'A': dpsynth.OpenSetCategoricalAttribute(),
+        'B': dpsynth.NumericalAttribute(min_value=0, max_value=10),
     }
     df = pd.DataFrame({'A': ['a', 'b', 'c'], 'B': [1.0, 5.0, 10.0]})
     rng = np.random.default_rng(0)
@@ -176,10 +170,10 @@ class DataGenerationV3Test(parameterized.TestCase):
   )
   def test_end_to_end_with_epsilon_delta(self, epsilon: float, delta: float):
     domains = {
-        'A': domain.CategoricalAttribute(
+        'A': dpsynth.CategoricalAttribute(
             possible_values=['a', 'b', 'c'], out_of_domain_index=0
         ),
-        'B': domain.CategoricalAttribute(
+        'B': dpsynth.CategoricalAttribute(
             possible_values=['x', 'y', 'z'], out_of_domain_index=0
         ),
     }
@@ -195,8 +189,8 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_raises_on_freeform_text_attribute(self):
     domains = {
-        'A': domain.CategoricalAttribute(possible_values=['a', 'b']),
-        'text': domain.FreeFormTextAttribute(max_tokens=128),
+        'A': dpsynth.CategoricalAttribute(possible_values=['a', 'b']),
+        'text': dpsynth.FreeFormTextAttribute(max_tokens=128),
     }
     v3 = TabularConfig()
     with self.assertRaises(Exception):
@@ -211,7 +205,7 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_dp_event_returns_composed_event(self):
     domains = {
-        'A': domain.CategoricalAttribute(
+        'A': dpsynth.CategoricalAttribute(
             possible_values=['a', 'b', 'c'], out_of_domain_index=0
         ),
     }
@@ -220,7 +214,7 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_calibrate_domain_positional_only(self):
     domains = {
-        'A': domain.CategoricalAttribute(possible_values=['a', 'b', 'c']),
+        'A': dpsynth.CategoricalAttribute(possible_values=['a', 'b', 'c']),
     }
     config = TabularConfig()
     # Passing domain positionally works via both method and top-level function.
@@ -241,9 +235,9 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_calibrate_delta_split(self):
     domains = {
-        'A': domain.OpenSetCategoricalAttribute(),
-        'B': domain.OpenSetCategoricalAttribute(),
-        'C': domain.CategoricalAttribute(possible_values=['x', 'y']),
+        'A': dpsynth.OpenSetCategoricalAttribute(),
+        'B': dpsynth.OpenSetCategoricalAttribute(),
+        'C': dpsynth.CategoricalAttribute(possible_values=['x', 'y']),
     }
     config = TabularConfig()
     calibrated = dpsynth.calibrate(config, domains, epsilon=1.0, delta=1e-5)
@@ -271,13 +265,13 @@ class DataGenerationV3Test(parameterized.TestCase):
     """Regression test: NaN/None/pd.NA numerical columns should not crash."""
     max_value = 100 if dtype == 'int' else 10
     domains = {
-        'A': domain.NumericalAttribute(
+        'A': dpsynth.NumericalAttribute(
             min_value=0,
             max_value=max_value,
             clip_to_range=clip_to_range,
             dtype=dtype,
         ),
-        'B': domain.CategoricalAttribute(possible_values=['x', 'y']),
+        'B': dpsynth.CategoricalAttribute(possible_values=['x', 'y']),
     }
     df = pd.DataFrame({
         'A': [sentinel, sentinel, sentinel],
@@ -292,10 +286,10 @@ class DataGenerationV3Test(parameterized.TestCase):
   def test_heterogeneous_input_dataframe_with_none(self):
     """Verifies that DataFrames containing None, NaN, and mixed types run cleanly."""
     domains = {
-        'cat_str': domain.CategoricalAttribute(possible_values=['a', 'b']),
-        'cat_int': domain.CategoricalAttribute(possible_values=[1, 2, 3]),
-        'num': domain.NumericalAttribute(min_value=0.0, max_value=100.0),
-        'openset': domain.OpenSetCategoricalAttribute(),
+        'cat_str': dpsynth.CategoricalAttribute(possible_values=['a', 'b']),
+        'cat_int': dpsynth.CategoricalAttribute(possible_values=[1, 2, 3]),
+        'num': dpsynth.NumericalAttribute(min_value=0.0, max_value=100.0),
+        'openset': dpsynth.OpenSetCategoricalAttribute(),
     }
     df = pd.DataFrame({
         'cat_str': ['a', None, 'b', np.nan, 'other'],
@@ -314,8 +308,8 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_discrete_workload_regression_with_aim(self):
     workload = [('a',), ('b',), ('c',), ('a', 'b'), ('a', 'c'), ('b', 'c')]
-    config = aim.AIMConfig(workload=workload, max_rounds=4, pgm_iters=500)
-    baseline_config = IndependentConfig(pgm_iters=500)
+    config = dpsynth.AIMConfig(workload=workload, max_rounds=4, pgm_iters=500)
+    baseline_config = dpsynth.IndependentConfig(pgm_iters=500)
     mechanism_error, baseline_error = (
         _discrete_workload_mechanism_baseline_errors(
             config, baseline_config, workload
@@ -325,8 +319,8 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_mixed_workload_regression_with_aim(self):
     workload = [('a',), ('b',), ('c',), ('a', 'b'), ('a', 'c'), ('b', 'c')]
-    config = aim.AIMConfig(workload=workload, max_rounds=4, pgm_iters=500)
-    baseline_config = IndependentConfig(pgm_iters=500)
+    config = dpsynth.AIMConfig(workload=workload, max_rounds=4, pgm_iters=500)
+    baseline_config = dpsynth.IndependentConfig(pgm_iters=500)
     mechanism_error, baseline_error = _mixed_workload_mechanism_baseline_errors(
         config, baseline_config, workload
     )
@@ -335,8 +329,8 @@ class DataGenerationV3Test(parameterized.TestCase):
   def test_empty_dataset(self):
     """Tests that DPSynth works without crashing on empty datasets, and outputs noisy rows."""
     domains = {
-        'A': domain.CategoricalAttribute(possible_values=['a', 'b', 'c']),
-        'B': domain.NumericalAttribute(min_value=0, max_value=10),
+        'A': dpsynth.CategoricalAttribute(possible_values=['a', 'b', 'c']),
+        'B': dpsynth.NumericalAttribute(min_value=0, max_value=10),
     }
     df = pd.DataFrame(columns=['A', 'B'])
     rng = np.random.default_rng(0)
@@ -351,10 +345,10 @@ class DataGenerationV3Test(parameterized.TestCase):
   def test_checkpointing(self):
     temp_dir = self.create_tempdir().full_path
     domains = {
-        'A': domain.CategoricalAttribute(
+        'A': dpsynth.CategoricalAttribute(
             possible_values=['a', 'b', 'c'], out_of_domain_index=0
         ),
-        'B': domain.NumericalAttribute(min_value=0.0, max_value=10.0),
+        'B': dpsynth.NumericalAttribute(min_value=0.0, max_value=10.0),
     }
     df = pd.DataFrame({'A': ['a', 'b', 'c'], 'B': [1.0, 5.0, 10.0]})
     rng = np.random.default_rng(0)
@@ -378,7 +372,7 @@ class DataGenerationV3Test(parameterized.TestCase):
     self.assertListEqual(result2.synthetic_data.columns.tolist(), ['A', 'B'])
 
   def test_numerical_epsilon_ratio_plumbing(self):
-    domains = {'A': domain.NumericalAttribute(min_value=0, max_value=10)}
+    domains = {'A': dpsynth.NumericalAttribute(min_value=0, max_value=10)}
     config = TabularConfig(numerical_epsilon_ratio=1.414)
     calibrated = config.configure(domains, budget=10.0)
     init_mech = calibrated.initializers['A']
@@ -386,11 +380,11 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_poisson_calibrate_with_categorical_domains_and_gdp_mech(self):
     domains = {
-        'A': domain.CategoricalAttribute(possible_values=['a', 'b', 'c']),
-        'B': domain.CategoricalAttribute(possible_values=['x', 'y', 'z']),
+        'A': dpsynth.CategoricalAttribute(possible_values=['a', 'b', 'c']),
+        'B': dpsynth.CategoricalAttribute(possible_values=['x', 'y', 'z']),
     }
     config = TabularConfig(
-        discrete_mechanism=discrete_mechanisms.IndependentConfig(),
+        discrete_mechanism=dpsynth.IndependentConfig(),
     )
     mechanism = config.calibrate(
         domains,
@@ -402,9 +396,9 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_poisson_calibrate_with_mixed_domains(self):
     domains = {
-        'A': domain.CategoricalAttribute(possible_values=['a', 'b', 'c']),
-        'B': domain.NumericalAttribute(min_value=0, max_value=10),
-        'C': domain.OpenSetCategoricalAttribute(),
+        'A': dpsynth.CategoricalAttribute(possible_values=['a', 'b', 'c']),
+        'B': dpsynth.NumericalAttribute(min_value=0, max_value=10),
+        'C': dpsynth.OpenSetCategoricalAttribute(),
     }
     config = TabularConfig()
     mechanism = config.calibrate(
@@ -417,8 +411,8 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_configure_infinite_zcdp_rho(self):
     domains = {
-        'A': domain.CategoricalAttribute(possible_values=['a', 'b', 'c']),
-        'B': domain.NumericalAttribute(min_value=0, max_value=10),
+        'A': dpsynth.CategoricalAttribute(possible_values=['a', 'b', 'c']),
+        'B': dpsynth.NumericalAttribute(min_value=0, max_value=10),
     }
     config = TabularConfig()
     mechanism = config.configure(domains, budget=np.inf)
@@ -426,18 +420,18 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_configure_with_schema(self):
     domains = {
-        'A': domain.CategoricalAttribute(possible_values=['a', 'b', 'c']),
-        'B': domain.CategoricalAttribute(possible_values=['x', 'y', 'z']),
+        'A': dpsynth.CategoricalAttribute(possible_values=['a', 'b', 'c']),
+        'B': dpsynth.CategoricalAttribute(possible_values=['x', 'y', 'z']),
     }
     preset = TabularConfig()
     calibrated = preset.configure(domains, budget=100.0)
-    self.assertIsInstance(calibrated, data_generation_v3.TabularMechanism)
+    self.assertIsInstance(calibrated, dpsynth.TabularMechanism)
 
   def test_configure_schema_overrides_domains(self):
-    old = {'A': domain.CategoricalAttribute(possible_values=['a', 'b'])}
+    old = {'A': dpsynth.CategoricalAttribute(possible_values=['a', 'b'])}
     new = {
-        'X': domain.CategoricalAttribute(possible_values=['x', 'y', 'z']),
-        'Y': domain.CategoricalAttribute(possible_values=['1', '2']),
+        'X': dpsynth.CategoricalAttribute(possible_values=['x', 'y', 'z']),
+        'Y': dpsynth.CategoricalAttribute(possible_values=['1', '2']),
     }
     config = TabularConfig(domains=old)
     calibrated = config.configure(new, budget=100.0)
@@ -450,10 +444,10 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_configure_schema_with_constraints(self):
     domains = {
-        'A': domain.CategoricalAttribute(possible_values=['a', 'b']),
+        'A': dpsynth.CategoricalAttribute(possible_values=['a', 'b']),
     }
     mock_constraint = object()
-    schema = domain.Schema(domains, constraints=[mock_constraint])
+    schema = dpsynth.Schema(domains, constraints=[mock_constraint])
     config = TabularConfig()
     calibrated = config.configure(schema, budget=100.0)
     self.assertEqual(calibrated.schema.constraints, (mock_constraint,))
@@ -464,15 +458,15 @@ class DataGenerationV3Test(parameterized.TestCase):
         'TabularSynthesizer is deprecated. Use TabularConfig for configuration '
         'and TabularMechanism for the calibrated runnable mechanism.',
     ):
-      data_generation_v3.TabularSynthesizer(domains={})
+      dpsynth.TabularSynthesizer(domains={})
 
   def test_compress_columns(self):
     domains = {
-        'A': domain.CategoricalAttribute(
+        'A': dpsynth.CategoricalAttribute(
             possible_values=['common1', 'common2', 'rare1', 'rare2', 'rare3'],
             out_of_domain_index=0,
         ),
-        'B': domain.CategoricalAttribute(
+        'B': dpsynth.CategoricalAttribute(
             possible_values=['x', 'y'], out_of_domain_index=0
         ),
     }
@@ -491,11 +485,11 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_compress_columns_respects_constraints(self):
     domains = {
-        'A': domain.CategoricalAttribute(
+        'A': dpsynth.CategoricalAttribute(
             possible_values=['common1', 'common2', 'rare1', 'rare2', 'rare3'],
             out_of_domain_index=0,
         ),
-        'B': domain.CategoricalAttribute(
+        'B': dpsynth.CategoricalAttribute(
             possible_values=['x', 'y'], out_of_domain_index=0
         ),
     }
@@ -503,7 +497,7 @@ class DataGenerationV3Test(parameterized.TestCase):
         'A': ['common1'] * 500 + ['common2'] * 500,
         'B': ['x'] * 500 + ['y'] * 500,
     })
-    constraint = constraints.Constraint(
+    constraint = dpsynth.Constraint(
         attribute_names=('A', 'B'),
         attribute_domains=(
             domains['A'],
@@ -511,7 +505,7 @@ class DataGenerationV3Test(parameterized.TestCase):
         ),
         impossible_combinations=[('rare1', 'x')],
     )
-    schema = domain.Schema(domains, constraints=[constraint])
+    schema = dpsynth.Schema(domains, constraints=[constraint])
     rng = np.random.default_rng(0)
     calibrated = TabularConfig(compress_columns=True).configure(
         schema, budget=10000.0
@@ -521,8 +515,8 @@ class DataGenerationV3Test(parameterized.TestCase):
 
   def test_use_jax_for_generation_and_bincount(self):
     domains = {
-        'A': domain.CategoricalAttribute(possible_values=['a1', 'a2']),
-        'B': domain.CategoricalAttribute(possible_values=['b1', 'b2']),
+        'A': dpsynth.CategoricalAttribute(possible_values=['a1', 'a2']),
+        'B': dpsynth.CategoricalAttribute(possible_values=['b1', 'b2']),
     }
     df = pd.DataFrame({
         'A': ['a1', 'a2'] * 10,
@@ -555,8 +549,8 @@ class GroupSizeTest(parameterized.TestCase):
 
   def _categorical_domains(self):
     return {
-        'A': domain.CategoricalAttribute(['a', 'b', 'c']),
-        'B': domain.CategoricalAttribute(['x', 'y', 'z']),
+        'A': dpsynth.CategoricalAttribute(['a', 'b', 'c']),
+        'B': dpsynth.CategoricalAttribute(['x', 'y', 'z']),
     }
 
   def test_calibrate_scales_noise_with_group_size(self):
@@ -584,8 +578,8 @@ class GroupSizeTest(parameterized.TestCase):
   def test_end_to_end_with_group_size(self):
     df = pd.DataFrame({'A': ['a', 'b', 'c'], 'B': [1.0, 5.0, 10.0]})
     domains = {
-        'A': domain.CategoricalAttribute(['a', 'b', 'c']),
-        'B': domain.NumericalAttribute(0.0, 10.0),
+        'A': dpsynth.CategoricalAttribute(['a', 'b', 'c']),
+        'B': dpsynth.NumericalAttribute(0.0, 10.0),
     }
     config = TabularConfig()
     calibrated = dpsynth.calibrate(
@@ -599,7 +593,7 @@ class GroupSizeTest(parameterized.TestCase):
     self.assertListEqual(synthetic_df.columns.tolist(), ['A', 'B'])
 
   def test_open_set_with_group_size_greater_than_one_raises(self):
-    domains = {'A': domain.OpenSetCategoricalAttribute()}
+    domains = {'A': dpsynth.OpenSetCategoricalAttribute()}
     config = TabularConfig()
     with self.assertRaises(dp_accounting.UnsupportedEventError):
       dpsynth.calibrate(config, domains, epsilon=1.0, delta=1e-5, group_size=3)

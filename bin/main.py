@@ -110,11 +110,11 @@ def main(_):
 
   match _MECHANISM.value:
     case 'mst':
-      mechanism_config = dpsynth.discrete_mechanisms.MSTConfig()
+      mechanism_config = dpsynth.MSTConfig()
     case 'aim':
-      mechanism_config = dpsynth.discrete_mechanisms.AIMConfig()
+      mechanism_config = dpsynth.AIMConfig()
     case 'independent':
-      mechanism_config = dpsynth.discrete_mechanisms.IndependentConfig()
+      mechanism_config = dpsynth.IndependentConfig()
     case _:
       raise ValueError(f'Unknown mechanism: {_MECHANISM.value}')
 

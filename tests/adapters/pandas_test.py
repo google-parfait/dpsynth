@@ -19,14 +19,14 @@ from typing import Any
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from dpsynth import domain
+import dpsynth
 from dpsynth.adapters import pandas as pandas_adapter
 import numpy as np
 import pandas as pd
 
-CategoricalAttribute = domain.CategoricalAttribute
-NumericalAttribute = domain.NumericalAttribute
-OpenSetCategoricalAttribute = domain.OpenSetCategoricalAttribute
+CategoricalAttribute = dpsynth.CategoricalAttribute
+NumericalAttribute = dpsynth.NumericalAttribute
+OpenSetCategoricalAttribute = dpsynth.OpenSetCategoricalAttribute
 
 _BOUNDS = {"user_id": (0.0, 100.0), "score": (0.0, 100.0)}
 

@@ -13,8 +13,7 @@
 # limitations under the License.
 
 from absl.testing import absltest
-from dpsynth import domain
-from dpsynth import postprocessing
+import dpsynth
 import mbi
 import numpy as np
 import pandas as pd
@@ -24,9 +23,9 @@ class PostprocessingTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    attr1 = domain.CategoricalAttribute(possible_values=['a', 'b', 'c'])
-    attr2 = domain.CategoricalAttribute(possible_values=['x', 'y'])
-    attr3 = domain.CategoricalAttribute(possible_values=['1', '2', '3'])
+    attr1 = dpsynth.CategoricalAttribute(possible_values=['a', 'b', 'c'])
+    attr2 = dpsynth.CategoricalAttribute(possible_values=['x', 'y'])
+    attr3 = dpsynth.CategoricalAttribute(possible_values=['1', '2', '3'])
 
     self.marginals = [
         pd.DataFrame({
@@ -43,7 +42,7 @@ class PostprocessingTest(absltest.TestCase):
 
   def test_infer_categorical_domain(self):
 
-    inferred_domain = postprocessing.infer_categorical_domain(self.marginals)
+    inferred_domain = dpsynth.infer_categorical_domain(self.marginals)
     expected_domain = self.attribute_domains
 
     for key in ['A', 'B', 'C']:
@@ -55,19 +54,17 @@ class PostprocessingTest(absltest.TestCase):
     marginals = [self.marginals[0].drop(columns='count')]
 
     with self.assertRaisesRegex(ValueError, 'found B instead'):
-      postprocessing.infer_categorical_domain(marginals)
+      dpsynth.infer_categorical_domain(marginals)
 
     with self.assertRaisesRegex(ValueError, 'found B instead'):
-      postprocessing.encode_marginals(marginals, {})
+      dpsynth.encode_marginals(marginals, {})
 
     with self.assertRaisesRegex(ValueError, 'found B instead'):
-      postprocessing.generate_synthetic_data_from_marginals(marginals)
+      dpsynth.generate_synthetic_data_from_marginals(marginals)
 
   def test_encode_marginals(self):
 
-    encoded = postprocessing.encode_marginals(
-        self.marginals, self.attribute_domains
-    )
+    encoded = dpsynth.encode_marginals(self.marginals, self.attribute_domains)
     self.assertLen(encoded, 2)
     self.assertEqual(encoded[0].domain, mbi.Domain.fromdict({'A': 3, 'B': 2}))
     self.assertEqual(encoded[1].domain, mbi.Domain.fromdict({'C': 3}))
@@ -83,7 +80,7 @@ class PostprocessingTest(absltest.TestCase):
 
   def test_estimate_model_from_marginals(self):
 
-    synthetic_data = postprocessing.generate_synthetic_data_from_marginals(
+    synthetic_data = dpsynth.generate_synthetic_data_from_marginals(
         self.marginals, iters=100
     )
 
@@ -106,7 +103,7 @@ class PostprocessingTest(absltest.TestCase):
         }),
     ]
 
-    synthetic_data = postprocessing.generate_synthetic_data_from_marginals(
+    synthetic_data = dpsynth.generate_synthetic_data_from_marginals(
         self.marginals,
         iters=100,
         exact_marginals=exact_marginals,
@@ -126,7 +123,7 @@ class PostprocessingTest(absltest.TestCase):
         pd.DataFrame({'B': ['x', 'y'], 'count': [40, 40]}),
     ]
 
-    synthetic_data = postprocessing.generate_synthetic_data_from_marginals(
+    synthetic_data = dpsynth.generate_synthetic_data_from_marginals(
         marginals,
         iters=100,
         extra_domain_elements={'A': ['d']},

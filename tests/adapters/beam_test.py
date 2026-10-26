@@ -24,12 +24,8 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import apache_beam as beam
 from apache_beam.options import pipeline_options
-from dpsynth import constraints
-from dpsynth import data_generation_v3
-from dpsynth import discrete_mechanisms
-from dpsynth import domain
+import dpsynth
 from dpsynth.adapters import beam as beam_adapter
-from dpsynth.local_mode import initialization
 import mbi
 import numpy as np
 
@@ -60,7 +56,7 @@ def _rows_fn(rows):
 class NumericalHistogramTest(absltest.TestCase):
 
   def _run(self, rows, attr, max_grid_size=101, num_partitions=4):
-    init = initialization.NumericalInitializerConfig(
+    init = dpsynth.NumericalInitializerConfig(
         num_partitions=num_partitions,
         max_grid_size=max_grid_size,
     ).configure(attr, budget=np.inf)
@@ -76,7 +72,7 @@ class NumericalHistogramTest(absltest.TestCase):
 
   def _ref_counts(self, values, attr, max_grid_size=101, num_partitions=4):
     """In-memory grid histogram as an {index: count} dict."""
-    init = initialization.NumericalInitializerConfig(
+    init = dpsynth.NumericalInitializerConfig(
         num_partitions=num_partitions,
         max_grid_size=max_grid_size,
     ).configure(attr, budget=np.inf)
@@ -84,7 +80,7 @@ class NumericalHistogramTest(absltest.TestCase):
     return {i: int(c) for i, c in enumerate(dense) if c}
 
   def test_basic_histogram(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=100)
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=100)
     rows = [{'x': 10}, {'x': 10}, {'x': 50}, {'x': 90}]
     counts = self._run(rows, attr)
     self.assertEqual(counts.get(10, 0), 2)
@@ -93,7 +89,7 @@ class NumericalHistogramTest(absltest.TestCase):
     self.assertEqual(sum(counts.values()), 4)
 
   def test_nan_clip_to_range_true(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=100, clip_to_range=True
     )
     rows = [{'x': float('nan')}, {'x': None}, {'x': 50}]
@@ -103,7 +99,7 @@ class NumericalHistogramTest(absltest.TestCase):
     self.assertEqual(sum(counts.values()), 3)
 
   def test_nan_clip_to_range_false(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=100, clip_to_range=False
     )
     rows = [{'x': float('nan')}, {'x': 50}, {'x': 75}]
@@ -115,7 +111,7 @@ class NumericalHistogramTest(absltest.TestCase):
 
   def test_beam_matches_in_memory_clip_true_nan(self):
     # clip_to_range=True: NaN/None fold into the minimum bin; nothing dropped.
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=100, clip_to_range=True
     )
     values = [float('nan'), None, 50]
@@ -126,7 +122,7 @@ class NumericalHistogramTest(absltest.TestCase):
 
   def test_beam_matches_in_memory_clip_false_drops_ood(self):
     # clip_to_range=False: NaN and values outside [min, max] are dropped.
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=100, clip_to_range=False
     )
     values = [float('nan'), -5, 150, 50, 75]
@@ -139,7 +135,7 @@ class NumericalHistogramTest(absltest.TestCase):
     # Regression: an integer value at max_value used to yield a grid index of
     # grid_size (IndexError) when the grid step > 1. Both paths must now fold
     # it into the top bin and agree.
-    attr = domain.NumericalAttribute(min_value=0, max_value=100, dtype='int')
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=100, dtype='int')
     values = [0, 50, 100, 100]
     beam_counts = self._run(
         [{'x': v} for v in values], attr, max_grid_size=2, num_partitions=1
@@ -154,13 +150,11 @@ class NumericalHistogramTest(absltest.TestCase):
 class CategoricalCountsTest(absltest.TestCase):
 
   def test_basic_counts(self):
-    attr = domain.CategoricalAttribute(
+    attr = dpsynth.CategoricalAttribute(
         possible_values=['unk', 'a', 'b', 'c'],
         out_of_domain_index=0,
     )
-    init = initialization.CategoricalInitializerConfig().configure(
-        attr, budget=np.inf
-    )
+    init = dpsynth.CategoricalInitializerConfig().configure(attr, budget=np.inf)
     rows = [
         {'col': 'a'},
         {'col': 'a'},
@@ -189,8 +183,8 @@ class CategoricalCountsTest(absltest.TestCase):
 class OpenSetCountsTest(absltest.TestCase):
 
   def test_basic_counts(self):
-    attr = domain.OpenSetCategoricalAttribute(default_value='<OOD>')
-    init = initialization.OpenSetInitializerConfig(min_count=1).configure(
+    attr = dpsynth.OpenSetCategoricalAttribute(default_value='<OOD>')
+    init = dpsynth.OpenSetInitializerConfig(min_count=1).configure(
         attr, budget=np.inf
     )
     rows = [
@@ -219,23 +213,23 @@ class OpenSetCountsTest(absltest.TestCase):
 class RunFromSummaryTest(absltest.TestCase):
 
   def test_end_to_end_mixed(self):
-    num_attr = domain.NumericalAttribute(min_value=0, max_value=100)
-    cat_attr = domain.CategoricalAttribute(possible_values=['a', 'b'])
-    open_attr = domain.OpenSetCategoricalAttribute(default_value='<OOD>')
+    num_attr = dpsynth.NumericalAttribute(min_value=0, max_value=100)
+    cat_attr = dpsynth.CategoricalAttribute(possible_values=['a', 'b'])
+    open_attr = dpsynth.OpenSetCategoricalAttribute(default_value='<OOD>')
 
     inits = {
         'score': (
-            initialization.NumericalInitializerConfig(
-                num_partitions=4
-            ).configure(num_attr, budget=np.inf, delta=1)
+            dpsynth.NumericalInitializerConfig(num_partitions=4).configure(
+                num_attr, budget=np.inf, delta=1
+            )
         ),
         'grade': (
-            initialization.CategoricalInitializerConfig().configure(
+            dpsynth.CategoricalInitializerConfig().configure(
                 cat_attr, budget=np.inf, delta=1
             )
         ),
         'tag': (
-            initialization.OpenSetInitializerConfig(min_count=1).configure(
+            dpsynth.OpenSetInitializerConfig(min_count=1).configure(
                 open_attr, budget=np.inf, delta=1
             )
         ),
@@ -257,18 +251,18 @@ class RunFromSummaryTest(absltest.TestCase):
 
     self.assertLen(measurements, 3)
     for cm in measurements.values():
-      self.assertIsInstance(cm, initialization.ColumnMeasurement)
+      self.assertIsInstance(cm, dpsynth.ColumnMeasurement)
 
 
 class ComputeMarginalsTest(absltest.TestCase):
 
   def test_marginals_match_manual_counts(self):
-    cat_attr = domain.CategoricalAttribute(possible_values=['a', 'b', 'c'])
-    num_attr = domain.NumericalAttribute(min_value=0, max_value=10)
-    cat_init = initialization.CategoricalInitializerConfig().configure(
+    cat_attr = dpsynth.CategoricalAttribute(possible_values=['a', 'b', 'c'])
+    num_attr = dpsynth.NumericalAttribute(min_value=0, max_value=10)
+    cat_init = dpsynth.CategoricalInitializerConfig().configure(
         cat_attr, budget=np.inf
     )
-    num_init = initialization.NumericalInitializerConfig(
+    num_init = dpsynth.NumericalInitializerConfig(
         num_partitions=4,
         max_grid_size=11,
     ).configure(num_attr, budget=np.inf)
@@ -334,12 +328,12 @@ class BeamTabularConfigTest(parameterized.TestCase):
 
   def _domains(self):
     return {
-        'color': domain.CategoricalAttribute(possible_values=['r', 'g', 'b']),
-        'size': domain.CategoricalAttribute(possible_values=['s', 'm', 'l']),
+        'color': dpsynth.CategoricalAttribute(possible_values=['r', 'g', 'b']),
+        'size': dpsynth.CategoricalAttribute(possible_values=['s', 'm', 'l']),
     }
 
   def test_end_to_end_generates_synthetic_data(self):
-    synth = data_generation_v3.TabularConfig()
+    synth = dpsynth.TabularConfig()
     beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
         self._domains(), budget=100.0
     )
@@ -351,17 +345,17 @@ class BeamTabularConfigTest(parameterized.TestCase):
 
     result = beam_synth(np.random.default_rng(42), _rows_fn(rows))
 
-    self.assertIsInstance(result, data_generation_v3.DataGenerationResult)
+    self.assertIsInstance(result, dpsynth.DataGenerationResult)
     # MST uses a noisy total count, so the row count is approximate.
     self.assertBetween(len(result.synthetic_data), 550, 650)
     self.assertCountEqual(result.synthetic_data.columns, ['color', 'size'])
 
   def test_end_to_end_mixed_types(self):
     domains = {
-        'age': domain.NumericalAttribute(min_value=0, max_value=100),
-        'grade': domain.CategoricalAttribute(possible_values=['a', 'b', 'c']),
+        'age': dpsynth.NumericalAttribute(min_value=0, max_value=100),
+        'grade': dpsynth.CategoricalAttribute(possible_values=['a', 'b', 'c']),
     }
-    synth = data_generation_v3.TabularConfig()
+    synth = dpsynth.TabularConfig()
     beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
         domains, budget=100.0
     )
@@ -376,19 +370,19 @@ class BeamTabularConfigTest(parameterized.TestCase):
 
     result = beam_synth(np.random.default_rng(42), _rows_fn(rows))
 
-    self.assertIsInstance(result, data_generation_v3.DataGenerationResult)
+    self.assertIsInstance(result, dpsynth.DataGenerationResult)
     self.assertBetween(len(result.synthetic_data), 450, 550)
     self.assertCountEqual(result.synthetic_data.columns, ['age', 'grade'])
 
   @parameterized.named_parameters(
-      ('mst', discrete_mechanisms.MSTConfig(pgm_iters=250)),
+      ('mst', dpsynth.MSTConfig(pgm_iters=250)),
       (
           'independent',
-          discrete_mechanisms.IndependentConfig(),
+          dpsynth.IndependentConfig(),
       ),
       (
           'direct',
-          discrete_mechanisms.DirectConfig(
+          dpsynth.DirectConfig(
               prespecified_marginal_queries=[('a',), ('b',), ('a', 'b')],
               pgm_iters=250,
           ),
@@ -397,10 +391,10 @@ class BeamTabularConfigTest(parameterized.TestCase):
   def test_runs_across_mechanisms(self, mechanism):
     """The pipeline generalizes to any mechanism via supporting_cliques."""
     domains = {
-        'a': domain.CategoricalAttribute(possible_values=['x', 'y']),
-        'b': domain.CategoricalAttribute(possible_values=['p', 'q', 'r']),
+        'a': dpsynth.CategoricalAttribute(possible_values=['x', 'y']),
+        'b': dpsynth.CategoricalAttribute(possible_values=['p', 'q', 'r']),
     }
-    synth = data_generation_v3.TabularConfig(discrete_mechanism=mechanism)
+    synth = dpsynth.TabularConfig(discrete_mechanism=mechanism)
     beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
         domains, budget=100.0
     )
@@ -412,14 +406,14 @@ class BeamTabularConfigTest(parameterized.TestCase):
 
     result = beam_synth(np.random.default_rng(0), _rows_fn(rows))
 
-    self.assertIsInstance(result, data_generation_v3.DataGenerationResult)
+    self.assertIsInstance(result, dpsynth.DataGenerationResult)
     self.assertCountEqual(result.synthetic_data.columns, ['a', 'b'])
     self.assertNotEmpty(result.synthetic_data)
 
   def test_total_count_matches_input_under_high_budget(self):
     """With negligible noise, synthetic row count matches the input (F2)."""
-    domains = {'a': domain.CategoricalAttribute(possible_values=['x', 'y'])}
-    synth = data_generation_v3.TabularConfig()
+    domains = {'a': dpsynth.CategoricalAttribute(possible_values=['x', 'y'])}
+    synth = dpsynth.TabularConfig()
     beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
         domains, budget=1e8
     )
@@ -431,16 +425,16 @@ class BeamTabularConfigTest(parameterized.TestCase):
 
   def test_respects_impossible_combinations(self):
     """Cross-attribute constraints reach the discrete mechanism (F4)."""
-    a_attr = domain.CategoricalAttribute(possible_values=['a0', 'a1'])
-    b_attr = domain.CategoricalAttribute(possible_values=['b0', 'b1'])
+    a_attr = dpsynth.CategoricalAttribute(possible_values=['a0', 'a1'])
+    b_attr = dpsynth.CategoricalAttribute(possible_values=['b0', 'b1'])
     domains = {'a': a_attr, 'b': b_attr}
-    constraint = constraints.Constraint(
+    constraint = dpsynth.Constraint(
         attribute_names=('a', 'b'),
         attribute_domains=(a_attr, b_attr),
         impossible_combinations=[('a0', 'b1')],
     )
-    schema = domain.Schema(domains, constraints=(constraint,))
-    synth = data_generation_v3.TabularConfig()
+    schema = dpsynth.Schema(domains, constraints=(constraint,))
+    synth = dpsynth.TabularConfig()
     beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
         schema, budget=100.0
     )
@@ -463,11 +457,11 @@ class BeamTabularConfigTest(parameterized.TestCase):
   def test_preserves_domain_column_order(self):
     """Output columns follow domain declaration order (F5)."""
     domains = {
-        'z': domain.CategoricalAttribute(possible_values=['a', 'b']),
-        'm': domain.CategoricalAttribute(possible_values=['c', 'd']),
-        'a': domain.CategoricalAttribute(possible_values=['e', 'f']),
+        'z': dpsynth.CategoricalAttribute(possible_values=['a', 'b']),
+        'm': dpsynth.CategoricalAttribute(possible_values=['c', 'd']),
+        'a': dpsynth.CategoricalAttribute(possible_values=['e', 'f']),
     }
-    synth = data_generation_v3.TabularConfig()
+    synth = dpsynth.TabularConfig()
     beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
         domains, budget=100.0
     )
@@ -481,9 +475,7 @@ class BeamTabularConfigTest(parameterized.TestCase):
     self.assertEqual(list(result.synthetic_data.columns), ['z', 'm', 'a'])
 
   def test_configure_returns_calibrated_wrapper(self):
-    beam_synth = beam_adapter.BeamTabularConfig(
-        data_generation_v3.TabularConfig()
-    )
+    beam_synth = beam_adapter.BeamTabularConfig(dpsynth.TabularConfig())
 
     configured = beam_synth.configure(self._domains(), budget=1.0)
 
@@ -497,9 +489,7 @@ class BeamTabularConfigTest(parameterized.TestCase):
   def test_inherited_calibrate_produces_calibrated_wrapper(self):
     # calibrate is inherited from DPMechanism; it binary-searches a zCDP budget
     # by repeatedly calling our configure (which delegates to the synthesizer).
-    beam_synth = beam_adapter.BeamTabularConfig(
-        data_generation_v3.TabularConfig()
-    )
+    beam_synth = beam_adapter.BeamTabularConfig(dpsynth.TabularConfig())
 
     calibrated = beam_synth.calibrate(self._domains(), epsilon=1.0, delta=1e-6)
 
@@ -507,15 +497,13 @@ class BeamTabularConfigTest(parameterized.TestCase):
     self.assertIsNotNone(calibrated.dp_event)
 
   def test_uncalibrated_call_raises(self):
-    beam_synth = beam_adapter.BeamTabularConfig(
-        data_generation_v3.TabularConfig()
-    )
+    beam_synth = beam_adapter.BeamTabularConfig(dpsynth.TabularConfig())
     with self.assertRaises(Exception):
       beam_synth(np.random.default_rng(0), lambda p: p)
 
   def test_honors_temp_location(self):
-    domains = {'a': domain.CategoricalAttribute(possible_values=['x', 'y'])}
-    synth = data_generation_v3.TabularConfig()
+    domains = {'a': dpsynth.CategoricalAttribute(possible_values=['x', 'y'])}
+    synth = dpsynth.TabularConfig()
     temp_dir = self.create_tempdir().full_path
     beam_synth = beam_adapter.BeamTabularConfig(
         synth, temp_location=temp_dir
@@ -524,12 +512,12 @@ class BeamTabularConfigTest(parameterized.TestCase):
 
     result = beam_synth(np.random.default_rng(0), _rows_fn(rows))
 
-    self.assertIsInstance(result, data_generation_v3.DataGenerationResult)
+    self.assertIsInstance(result, dpsynth.DataGenerationResult)
     self.assertTrue(os.path.exists(os.path.join(temp_dir, 'clique_vector.bin')))
 
   def _single_col_synth(self):
-    domains = {'a': domain.CategoricalAttribute(possible_values=['x', 'y'])}
-    synth = data_generation_v3.TabularConfig()
+    domains = {'a': dpsynth.CategoricalAttribute(possible_values=['x', 'y'])}
+    synth = dpsynth.TabularConfig()
     return beam_adapter.BeamTabularConfig(synth).configure(
         domains, budget=100.0
     )
@@ -577,8 +565,8 @@ class BeamTabularConfigTest(parameterized.TestCase):
     self.assertFalse(os.path.exists(created[0]))
 
   def test_forwards_pipeline_options_to_both_passes(self):
-    domains = {'a': domain.CategoricalAttribute(possible_values=['x', 'y'])}
-    synth = data_generation_v3.TabularConfig()
+    domains = {'a': dpsynth.CategoricalAttribute(possible_values=['x', 'y'])}
+    synth = dpsynth.TabularConfig()
     options = pipeline_options.PipelineOptions(flags=['--runner=DirectRunner'])
     beam_synth = beam_adapter.BeamTabularConfig(
         synth, pipeline_options=options

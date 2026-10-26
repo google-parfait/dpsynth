@@ -17,8 +17,7 @@ import math
 from typing import Literal
 
 from absl.testing import absltest
-from dpsynth import data_generation_v3
-from dpsynth import domain
+import dpsynth
 from dpsynth.adapters import pydantic as pydantic_api
 import numpy as np
 import pandas as pd
@@ -131,7 +130,7 @@ class PydanticTest(absltest.TestCase):
     attr_int = pydantic_api._numerical_attribute_from_field_info(field_info_int)
     self.assertEqual(
         attr_int,
-        domain.NumericalAttribute(
+        dpsynth.NumericalAttribute(
             min_value=10, max_value=20, clip_to_range=True, dtype="int"
         ),
     )
@@ -144,7 +143,7 @@ class PydanticTest(absltest.TestCase):
     )
     self.assertEqual(
         attr_float_gt_lt,
-        domain.NumericalAttribute(
+        dpsynth.NumericalAttribute(
             min_value=math.nextafter(10.0, math.inf),
             max_value=math.nextafter(20.0, -math.inf),
             clip_to_range=True,
@@ -166,7 +165,7 @@ class PydanticTest(absltest.TestCase):
     )
     self.assertEqual(
         attr_bool,
-        domain.CategoricalAttribute(
+        dpsynth.CategoricalAttribute(
             possible_values=["False", "True"], out_of_domain_index=0
         ),
     )
@@ -177,7 +176,7 @@ class PydanticTest(absltest.TestCase):
     )
     self.assertEqual(
         attr_enum_opt,
-        domain.CategoricalAttribute(
+        dpsynth.CategoricalAttribute(
             possible_values=["None", "red", "green", "blue"],
             out_of_domain_index=0,
         ),
@@ -189,7 +188,7 @@ class PydanticTest(absltest.TestCase):
     )
     self.assertEqual(
         attr_literal,
-        domain.CategoricalAttribute(
+        dpsynth.CategoricalAttribute(
             possible_values=["A", "B", "C"], out_of_domain_index=0
         ),
     )
@@ -197,36 +196,36 @@ class PydanticTest(absltest.TestCase):
   def test_infer_domain(self):
     domain_spec = pydantic_api.infer_domain(SupportedModel)
     expected_domain_spec = {
-        "age": domain.NumericalAttribute(
+        "age": dpsynth.NumericalAttribute(
             min_value=0, max_value=100, clip_to_range=True, dtype="int"
         ),
-        "height": domain.NumericalAttribute(
+        "height": dpsynth.NumericalAttribute(
             min_value=math.nextafter(0.0, math.inf),
             max_value=math.nextafter(3.0, -math.inf),
             clip_to_range=True,
             dtype="float",
         ),
-        "is_member": domain.CategoricalAttribute(
+        "is_member": dpsynth.CategoricalAttribute(
             possible_values=["False", "True"], out_of_domain_index=0
         ),
-        "favorite_color": domain.CategoricalAttribute(
+        "favorite_color": dpsynth.CategoricalAttribute(
             possible_values=["red", "green", "blue"],
             out_of_domain_index=0,
         ),
-        "optional_code": domain.NumericalAttribute(
+        "optional_code": dpsynth.NumericalAttribute(
             min_value=100, max_value=200, clip_to_range=False, dtype="int"
         ),
-        "literal_status": domain.CategoricalAttribute(
+        "literal_status": dpsynth.CategoricalAttribute(
             possible_values=["active", "inactive"], out_of_domain_index=0
         ),
-        "optional_bool": domain.CategoricalAttribute(
+        "optional_bool": dpsynth.CategoricalAttribute(
             possible_values=["None", "False", "True"], out_of_domain_index=0
         ),
-        "optional_enum": domain.CategoricalAttribute(
+        "optional_enum": dpsynth.CategoricalAttribute(
             possible_values=["None", "red", "green", "blue"],
             out_of_domain_index=0,
         ),
-        "optional_literal": domain.CategoricalAttribute(
+        "optional_literal": dpsynth.CategoricalAttribute(
             possible_values=["None", "a", "b"], out_of_domain_index=0
         ),
     }
@@ -256,14 +255,14 @@ class PydanticTest(absltest.TestCase):
     self.assertEqual(
         schema,
         {
-            "steps.val": domain.NumericalAttribute(
+            "steps.val": dpsynth.NumericalAttribute(
                 min_value=0.0,
                 max_value=50000.0,
                 clip_to_range=False,
                 dtype="float",
                 description="Signal value",
             ),
-            "hrv.val": domain.NumericalAttribute(
+            "hrv.val": dpsynth.NumericalAttribute(
                 min_value=0.0,
                 max_value=300.0,
                 clip_to_range=False,
@@ -285,17 +284,17 @@ class PydanticTest(absltest.TestCase):
     self.assertEqual(
         schema,
         {
-            "timezone": domain.OpenSetCategoricalAttribute(
+            "timezone": dpsynth.OpenSetCategoricalAttribute(
                 description="IANA timezone"
             ),
-            "rhr_bpm": domain.NumericalAttribute(
+            "rhr_bpm": dpsynth.NumericalAttribute(
                 min_value=30,
                 max_value=120,
                 clip_to_range=False,
                 dtype="int",
                 description="Resting heart rate",
             ),
-            "is_active": domain.CategoricalAttribute(
+            "is_active": dpsynth.CategoricalAttribute(
                 possible_values=["False", "True"],
                 out_of_domain_index=0,
                 description="Active flag",
@@ -341,10 +340,10 @@ class PydanticTest(absltest.TestCase):
             "metrics.primary_device.ram_gb",
         ],
     )
-    self.assertEqual(schema["country"], domain.OpenSetCategoricalAttribute())
+    self.assertEqual(schema["country"], dpsynth.OpenSetCategoricalAttribute())
     self.assertEqual(
         schema["metrics.primary_device.os"],
-        domain.OpenSetCategoricalAttribute(),
+        dpsynth.OpenSetCategoricalAttribute(),
     )
 
     record = CustomerRecord(
@@ -404,7 +403,7 @@ class PydanticTest(absltest.TestCase):
     domains = pydantic_api.infer_domain(SupportedModel)
     rows = [pydantic_api.to_tuple(r, schema=domains) for r in real_data]
     df = pd.DataFrame(rows, columns=list(domains))
-    synth = data_generation_v3.TabularConfig().calibrate(
+    synth = dpsynth.TabularConfig().calibrate(
         domains, epsilon=epsilon, delta=delta
     )
     synthetic_df = synth(np.random.default_rng(), df).synthetic_data
@@ -444,7 +443,7 @@ class PydanticTest(absltest.TestCase):
     domains = pydantic_api.infer_domain(ModelForNumericalDefaults)
     rows = [pydantic_api.to_tuple(r, schema=domains) for r in real_data]
     df = pd.DataFrame(rows, columns=list(domains))
-    synth = data_generation_v3.TabularConfig().calibrate(
+    synth = dpsynth.TabularConfig().calibrate(
         domains, epsilon=epsilon, delta=delta
     )
     synthetic_df = synth(np.random.default_rng(), df).synthetic_data
@@ -486,7 +485,7 @@ class PydanticTest(absltest.TestCase):
     domains = pydantic_api.infer_domain(ModelForCategorical)
     rows = [pydantic_api.to_tuple(r, schema=domains) for r in real_data]
     df = pd.DataFrame(rows, columns=list(domains))
-    synth = data_generation_v3.TabularConfig().calibrate(
+    synth = dpsynth.TabularConfig().calibrate(
         domains, epsilon=epsilon, delta=delta
     )
     synthetic_df = synth(np.random.default_rng(), df).synthetic_data
