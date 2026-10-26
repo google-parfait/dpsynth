@@ -20,12 +20,12 @@ from typing import Any
 from absl import app
 from absl import flags
 import apache_beam as beam
+import dpsynth
 from dpsynth import data_generation
-from dpsynth import domain
-from bin import _proto_class_flag
 from dpsynth.dataset_descriptors import csv_descriptor
 from dpsynth.dataset_descriptors import proto_descriptors
 from dpsynth.dataset_descriptors import tfrecord_descriptor
+from examples import _proto_class_flag
 from dpsynth.pipeline_transformations import aim
 from dpsynth.pipeline_transformations import input_output
 from dpsynth.pipeline_transformations import types
@@ -181,7 +181,7 @@ def get_config() -> data_generation.DataGenerationConfig:
     )
 
   if _DOMAIN_FILE.value:
-    domain_spec = domain.from_yaml_file(_DOMAIN_FILE.value)
+    domain_spec = dpsynth.from_yaml_file(_DOMAIN_FILE.value)
     descriptor.update_from_domain_specification(domain_spec)
 
   aim_parameters = (

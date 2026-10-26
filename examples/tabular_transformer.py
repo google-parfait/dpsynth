@@ -23,8 +23,7 @@ automatically.
 
 from absl import app
 from absl import flags
-from dpsynth import data_generation_v3
-from dpsynth import domain
+import dpsynth
 from dpsynth.experimental.synthetic_transformer import synth_transformer
 from etils import epath
 import numpy as np
@@ -58,7 +57,7 @@ def main(argv):
   # 2. LOAD DOMAIN
   domain_path = _DOMAIN_PATH.value
   print(f"\nLoading domain from {domain_path}...")
-  attribute_domains = domain.from_yaml_file(str(domain_path))
+  attribute_domains = dpsynth.domain.from_yaml_file(str(domain_path))
 
   # Use columns from the dataset that exist in the domain
   domain_spec = {
@@ -82,7 +81,7 @@ def main(argv):
 
   # 4. INITIALIZE AND CALIBRATE TABULAR SYNTHESIZER
   print("\nInitializing and calibrating TabularConfig...")
-  synth = data_generation_v3.TabularConfig(
+  synth = dpsynth.TabularConfig(
       # pyrefly: ignore[bad-argument-type]
       discrete_mechanism=discrete_mechanism,
       numerical_bins=8,
@@ -108,7 +107,7 @@ def main(argv):
   cat_cols = [
       col
       for col, spec in domain_spec.items()
-      if isinstance(spec, domain.CategoricalAttribute)
+      if isinstance(spec, dpsynth.CategoricalAttribute)
   ]
   if cat_cols:
     sample_cat = cat_cols[0]
@@ -123,7 +122,7 @@ def main(argv):
   num_cols = [
       col
       for col, spec in domain_spec.items()
-      if isinstance(spec, domain.NumericalAttribute)
+      if isinstance(spec, dpsynth.NumericalAttribute)
   ]
   if num_cols:
     print("\nMean values for numerical columns:")

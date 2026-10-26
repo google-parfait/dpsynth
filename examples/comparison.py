@@ -21,7 +21,7 @@ from typing import Any
 from absl import app
 from absl import flags
 from absl import logging
-from dpsynth import domain
+import dpsynth
 import pandas as pd
 import sdmetrics
 
@@ -204,14 +204,14 @@ def _create_metadata_from_domain_yaml(
     domain_path: PathType,
 ) -> dict[str, Any]:
   """Creates a metadata from the domain YAML file."""
-  dom = domain.from_yaml_file(domain_path)
+  dom = dpsynth.from_yaml_file(domain_path)
   metadata = {}
   cols = {}
   metadata['primary_key'] = ''
   for name, attr in dom.items():
-    if isinstance(attr, domain.NumericalAttribute):
+    if isinstance(attr, dpsynth.NumericalAttribute):
       cols[name] = {'sdtype': 'numerical'}
-    elif isinstance(attr, domain.CategoricalAttribute):
+    elif isinstance(attr, dpsynth.CategoricalAttribute):
       cols[name] = {'sdtype': 'categorical'}
     else:
       raise ValueError('Unknown attribute type: {type(attr)}')

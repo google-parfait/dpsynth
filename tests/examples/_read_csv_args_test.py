@@ -14,7 +14,7 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from bin import _read_csv_args
+from examples import _read_csv_args
 
 
 class ReadCsvArgsTest(parameterized.TestCase):

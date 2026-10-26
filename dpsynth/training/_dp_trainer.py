@@ -57,7 +57,6 @@ from absl import logging
 import dp_accounting
 from dpsynth import _checkpoint
 from dpsynth import api
-from dpsynth.text import callbacks
 import grain.python as grain
 import jax
 from jax.experimental import multihost_utils
@@ -66,6 +65,8 @@ from jax_privacy import execution_plan
 from jax_privacy import training
 import numpy as np
 import optax
+
+from . import _callbacks as callbacks
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

@@ -27,7 +27,7 @@ python3 bin/main.py \
 from absl import app
 from absl import flags
 import dpsynth
-from bin import _read_csv_args
+from examples import _read_csv_args
 import numpy as np
 import pandas as pd
 
@@ -106,15 +106,15 @@ def main(_):
       column_count=_CSV_COLUMN_COUNT.value,
   ).to_read_csv_kwargs()
   df = pd.read_csv(_DATASET_PATH.value, **read_csv_kwargs)
-  attribute_domains = dpsynth.domain.from_yaml_file(_DOMAIN_PATH.value)
+  attribute_domains = dpsynth.from_yaml_file(_DOMAIN_PATH.value)
 
   match _MECHANISM.value:
     case 'mst':
-      mechanism_config = dpsynth.discrete_mechanisms.MSTConfig()
+      mechanism_config = dpsynth.MSTConfig()
     case 'aim':
-      mechanism_config = dpsynth.discrete_mechanisms.AIMConfig()
+      mechanism_config = dpsynth.AIMConfig()
     case 'independent':
-      mechanism_config = dpsynth.discrete_mechanisms.IndependentConfig()
+      mechanism_config = dpsynth.IndependentConfig()
     case _:
       raise ValueError(f'Unknown mechanism: {_MECHANISM.value}')
 

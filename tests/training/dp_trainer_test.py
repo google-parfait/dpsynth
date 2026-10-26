@@ -19,7 +19,7 @@ from unittest import mock
 from absl.testing import absltest
 import dp_accounting
 import dpsynth
-from dpsynth.text import dp_trainer
+from dpsynth.training import _dp_trainer as dp_trainer
 from flax import nnx
 import grain.python as grain
 import jax

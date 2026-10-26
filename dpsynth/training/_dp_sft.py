@@ -45,9 +45,6 @@ import os
 
 import dp_accounting
 from dpsynth import api
-from dpsynth.text import callbacks
-from dpsynth.text import dp_trainer
-from dpsynth.text import model
 from flax import nnx
 import grain.python as grain
 import jax
@@ -56,6 +53,10 @@ from jax_privacy import execution_plan
 from jax_privacy import noise_addition
 import numpy as np
 import optax
+
+from . import _callbacks as callbacks
+from . import _dp_trainer as dp_trainer
+from . import _model as model
 
 
 def _tokenize_examples(examples, tok_fn):
