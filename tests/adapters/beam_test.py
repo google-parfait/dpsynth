@@ -85,7 +85,7 @@ class NumericalHistogramTest(absltest.TestCase):
 
   def test_basic_histogram(self):
     attr = domain.NumericalAttribute(min_value=0, max_value=100)
-    rows = [{'x': 10}, {'x': 10}, {'x': 50}, {'x': 90}]
+    rows = [(10,), (10,), (50,), (90,)]
     counts = self._run(rows, attr)
     self.assertEqual(counts.get(10, 0), 2)
     self.assertEqual(counts.get(50, 0), 1)
@@ -96,7 +96,7 @@ class NumericalHistogramTest(absltest.TestCase):
     attr = domain.NumericalAttribute(
         min_value=0, max_value=100, clip_to_range=True
     )
-    rows = [{'x': float('nan')}, {'x': None}, {'x': 50}]
+    rows = [(float('nan'),), (None,), (50,)]
     counts = self._run(rows, attr)
     self.assertEqual(counts.get(0, 0), 2)
     self.assertEqual(counts.get(50, 0), 1)
@@ -106,7 +106,7 @@ class NumericalHistogramTest(absltest.TestCase):
     attr = domain.NumericalAttribute(
         min_value=0, max_value=100, clip_to_range=False
     )
-    rows = [{'x': float('nan')}, {'x': 50}, {'x': 75}]
+    rows = [(float('nan'),), (50,), (75,)]
     counts = self._run(rows, attr)
     self.assertNotIn(0, counts)
     self.assertEqual(counts.get(50, 0), 1)
@@ -119,7 +119,7 @@ class NumericalHistogramTest(absltest.TestCase):
         min_value=0, max_value=100, clip_to_range=True
     )
     values = [float('nan'), None, 50]
-    beam_counts = self._run([{'x': v} for v in values], attr)
+    beam_counts = self._run([(v,) for v in values], attr)
     ref_counts = self._ref_counts(values, attr)
     self.assertEqual(beam_counts, ref_counts)
     self.assertEqual(ref_counts, {0: 2, 50: 1})
@@ -130,7 +130,7 @@ class NumericalHistogramTest(absltest.TestCase):
         min_value=0, max_value=100, clip_to_range=False
     )
     values = [float('nan'), -5, 150, 50, 75]
-    beam_counts = self._run([{'x': v} for v in values], attr)
+    beam_counts = self._run([(v,) for v in values], attr)
     ref_counts = self._ref_counts(values, attr)
     self.assertEqual(beam_counts, ref_counts)
     self.assertEqual(ref_counts, {50: 1, 75: 1})
@@ -142,7 +142,7 @@ class NumericalHistogramTest(absltest.TestCase):
     attr = domain.NumericalAttribute(min_value=0, max_value=100, dtype='int')
     values = [0, 50, 100, 100]
     beam_counts = self._run(
-        [{'x': v} for v in values], attr, max_grid_size=2, num_partitions=1
+        [(v,) for v in values], attr, max_grid_size=2, num_partitions=1
     )
     ref_counts = self._ref_counts(
         values, attr, max_grid_size=2, num_partitions=1
@@ -162,13 +162,13 @@ class CategoricalCountsTest(absltest.TestCase):
         attr, budget=np.inf
     )
     rows = [
-        {'col': 'a'},
-        {'col': 'a'},
-        {'col': 'b'},
-        {'col': 'c'},
-        {'col': 'c'},
-        {'col': 'c'},
-        {'col': 'z'},  # unknown → mapped to 'unk' (index 0)
+        ('a',),
+        ('a',),
+        ('b',),
+        ('c',),
+        ('c',),
+        ('c',),
+        ('z',),  # unknown -> mapped to 'unk' (index 0)
     ]
     del _test_results[:]
     with beam.Pipeline() as p:
@@ -194,12 +194,12 @@ class OpenSetCountsTest(absltest.TestCase):
         attr, budget=np.inf
     )
     rows = [
-        {'col': 'apple'},
-        {'col': 'apple'},
-        {'col': 'banana'},
-        {'col': 'cherry'},
-        {'col': 'cherry'},
-        {'col': 'cherry'},
+        ('apple',),
+        ('apple',),
+        ('banana',),
+        ('cherry',),
+        ('cherry',),
+        ('cherry',),
     ]
     del _test_results[:]
     with beam.Pipeline() as p:
@@ -242,9 +242,9 @@ class RunFromSummaryTest(absltest.TestCase):
     }
 
     rows = [
-        {'score': 25.0, 'grade': 'a', 'tag': 'p'},
-        {'score': 50.0, 'grade': 'b', 'tag': 'q'},
-        {'score': 75.0, 'grade': 'a', 'tag': 'p'},
+        (25.0, 'a', 'p'),
+        (50.0, 'b', 'q'),
+        (75.0, 'a', 'p'),
     ]
     rng = np.random.default_rng(42)
 
@@ -258,6 +258,29 @@ class RunFromSummaryTest(absltest.TestCase):
     self.assertLen(measurements, 3)
     for cm in measurements.values():
       self.assertIsInstance(cm, initialization.ColumnMeasurement)
+
+  def test_all_ood_numerical_column_with_no_clip(self):
+    attr = domain.NumericalAttribute(
+        min_value=0, max_value=100, clip_to_range=False
+    )
+    init = initialization.NumericalInitializerConfig(
+        num_partitions=2
+    ).configure(attr, budget=np.inf)
+    rows = [(float('nan'),), (-10.0,), (200.0,)]
+    del _test_results[:]
+    with beam.Pipeline() as p:
+      stats = (
+          p
+          | beam.Create(rows)
+          | beam_adapter.ComputeSufficientStats({'x': init})
+      )
+      _ = stats | beam.combiners.ToDict() | beam.Map(_store)
+    self.assertNotIn('x', _test_results[0])
+    cms = beam_adapter.run_from_summary(
+        _test_results[0], {'x': init}, np.random.default_rng(0), num_rows=3
+    )
+    self.assertEqual(cms['x'].noisy_counts[0], 3.0)
+    self.assertEqual(cms['x'].noisy_counts[1:].sum(), 0.0)
 
 
 class ComputeMarginalsTest(absltest.TestCase):
@@ -274,12 +297,12 @@ class ComputeMarginalsTest(absltest.TestCase):
     ).configure(num_attr, budget=np.inf)
     domains = {'color': cat_attr, 'size': num_attr}
     rows = [
-        {'color': 'a', 'size': 0},
-        {'color': 'a', 'size': 5},
-        {'color': 'b', 'size': 5},
-        {'color': 'b', 'size': 10},
-        {'color': 'c', 'size': 0},
-        {'color': 'c', 'size': 0},
+        ('a', 0),
+        ('a', 5),
+        ('b', 5),
+        ('b', 10),
+        ('c', 0),
+        ('c', 0),
     ]
 
     # Stage 1: get ColumnMeasurements.
@@ -297,10 +320,11 @@ class ComputeMarginalsTest(absltest.TestCase):
         _test_results[0],
         inits,
         rng,
+        num_rows=len(rows),
     )
 
     # Stage 2: compute marginals.
-    workload = [('color',), ('size',), ('color', 'size')]
+    workload = [('color', 'size'), ('size',), ('color',)]
     del _test_results[:]
     with beam.Pipeline() as p:
       result = (
@@ -312,25 +336,50 @@ class ComputeMarginalsTest(absltest.TestCase):
 
     cv = _test_results[0]
     self.assertIsInstance(cv, mbi.CliqueVector)
-    self.assertLen(cv.cliques, 3)
+    self.assertEqual(cv.cliques, tuple(workload))
 
     # 1-way: color [a=2, b=2, c=2].
     np.testing.assert_array_equal(
         cv.tables[('color',)].datavector(),
         [2, 2, 2],
     )
-    # 1-way: size total equals number of rows.
-    self.assertEqual(cv.tables[('size',)].datavector().sum(), 6)
-    # 2-way: shape matches product of column sizes, total equals rows.
-    joint = cv.tables[('color', 'size')]
-    expected_size = cms['color'].categorical_attribute.size
-    expected_size *= cms['size'].categorical_attribute.size
-    self.assertEqual(joint.domain.size(), expected_size)
-    self.assertEqual(joint.datavector().sum(), 6)
+    # 1-way and 2-way: exact bin counts match ColumnCodec encoding.
+    size_codec = data_generation_v3.ColumnCodec(cms['size'], num_attr)
+    size_bins = size_codec.encode(np.array([r[1] for r in rows]))
+    num_size_bins = cms['size'].categorical_attribute.size
+    expected_size = np.bincount(size_bins, minlength=num_size_bins)
+    np.testing.assert_array_equal(
+        cv.tables[('size',)].datavector(), expected_size
+    )
+    expected_joint = np.zeros((3, num_size_bins), dtype=float)
+    np.add.at(expected_joint, ([0, 0, 1, 1, 2, 2], size_bins), 1.0)
+    np.testing.assert_array_equal(
+        cv.tables[('color', 'size')].values, expected_joint
+    )
+
+  def test_mismatched_row_width_raises(self):
+    attr = domain.CategoricalAttribute(possible_values=['a', 'b'])
+    init = initialization.CategoricalInitializerConfig().configure(
+        attr, budget=np.inf
+    )
+    encode_cols = beam_adapter._EncodeColumns({'x': init})
+    with self.assertRaises(ValueError):
+      list(encode_cols.process([('a',), ('a', 'b')]))
+    with self.assertRaises(ValueError):
+      list(encode_cols.process([('a', 'b')]))
+
+    cm = init.from_summary(np.random.default_rng(0), np.array([1.0, 1.0]))
+    encode_proj = beam_adapter._EncodeAndProject(
+        {'x': cm}, {'x': attr}, [('x',)]
+    )
+    with self.assertRaises(ValueError):
+      list(encode_proj.process([('a',), ('a', 'b')]))
+    with self.assertRaises(ValueError):
+      list(encode_proj.process([('a', 'b')]))
 
 
-class BeamTabularConfigTest(parameterized.TestCase):
-  """End-to-end tests for the public BeamTabularConfig API."""
+class ExecuteTest(parameterized.TestCase):
+  """End-to-end tests for the public beam.execute API."""
 
   def _domains(self):
     return {
@@ -339,17 +388,18 @@ class BeamTabularConfigTest(parameterized.TestCase):
     }
 
   def test_end_to_end_generates_synthetic_data(self):
-    synth = data_generation_v3.TabularConfig()
-    beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
+    mech = data_generation_v3.TabularConfig().configure(
         self._domains(), budget=100.0
     )
     rows = [
-        {'color': 'r', 'size': 's'},
-        {'color': 'g', 'size': 'm'},
-        {'color': 'b', 'size': 'l'},
+        ('r', 's'),
+        ('g', 'm'),
+        ('b', 'l'),
     ] * 200  # 600 rows for statistical stability.
 
-    result = beam_synth(np.random.default_rng(42), _rows_fn(rows))
+    result = beam_adapter.execute(
+        mech, np.random.default_rng(42), _rows_fn(rows)
+    )
 
     self.assertIsInstance(result, data_generation_v3.DataGenerationResult)
     # MST uses a noisy total count, so the row count is approximate.
@@ -361,20 +411,19 @@ class BeamTabularConfigTest(parameterized.TestCase):
         'age': domain.NumericalAttribute(min_value=0, max_value=100),
         'grade': domain.CategoricalAttribute(possible_values=['a', 'b', 'c']),
     }
-    synth = data_generation_v3.TabularConfig()
-    beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
-        domains, budget=100.0
-    )
+    mech = data_generation_v3.TabularConfig().configure(domains, budget=100.0)
     rng_data = np.random.default_rng(0)
     rows = [
-        {
-            'age': float(rng_data.integers(0, 100)),
-            'grade': rng_data.choice(['a', 'b', 'c']),
-        }
+        (
+            float(rng_data.integers(0, 100)),
+            str(rng_data.choice(['a', 'b', 'c'])),
+        )
         for _ in range(500)
     ]
 
-    result = beam_synth(np.random.default_rng(42), _rows_fn(rows))
+    result = beam_adapter.execute(
+        mech, np.random.default_rng(42), _rows_fn(rows)
+    )
 
     self.assertIsInstance(result, data_generation_v3.DataGenerationResult)
     self.assertBetween(len(result.synthetic_data), 450, 550)
@@ -400,17 +449,18 @@ class BeamTabularConfigTest(parameterized.TestCase):
         'a': domain.CategoricalAttribute(possible_values=['x', 'y']),
         'b': domain.CategoricalAttribute(possible_values=['p', 'q', 'r']),
     }
-    synth = data_generation_v3.TabularConfig(discrete_mechanism=mechanism)
-    beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
-        domains, budget=100.0
-    )
+    mech = data_generation_v3.TabularConfig(
+        discrete_mechanism=mechanism
+    ).configure(domains, budget=100.0)
     rows = [
-        {'a': 'x', 'b': 'p'},
-        {'a': 'y', 'b': 'q'},
-        {'a': 'x', 'b': 'r'},
+        ('x', 'p'),
+        ('y', 'q'),
+        ('x', 'r'),
     ] * 100
 
-    result = beam_synth(np.random.default_rng(0), _rows_fn(rows))
+    result = beam_adapter.execute(
+        mech, np.random.default_rng(0), _rows_fn(rows)
+    )
 
     self.assertIsInstance(result, data_generation_v3.DataGenerationResult)
     self.assertCountEqual(result.synthetic_data.columns, ['a', 'b'])
@@ -419,15 +469,25 @@ class BeamTabularConfigTest(parameterized.TestCase):
   def test_total_count_matches_input_under_high_budget(self):
     """With negligible noise, synthetic row count matches the input (F2)."""
     domains = {'a': domain.CategoricalAttribute(possible_values=['x', 'y'])}
-    synth = data_generation_v3.TabularConfig()
-    beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
-        domains, budget=1e8
-    )
-    rows = [{'a': 'x'}, {'a': 'y'}] * 150  # 300 rows.
+    mech = data_generation_v3.TabularConfig().configure(domains, budget=1e8)
+    rows = [('x',), ('y',)] * 150  # 300 rows.
 
-    result = beam_synth(np.random.default_rng(0), _rows_fn(rows))
+    result = beam_adapter.execute(
+        mech, np.random.default_rng(0), _rows_fn(rows)
+    )
 
     self.assertBetween(len(result.synthetic_data), 298, 302)
+
+  def test_num_rows_overrides_generated_count(self):
+    domains = {'a': domain.CategoricalAttribute(possible_values=['x', 'y'])}
+    mech = data_generation_v3.TabularConfig().configure(domains, budget=100.0)
+    rows = [('x',), ('y',)] * 150  # 300 input rows.
+
+    result = beam_adapter.execute(
+        mech, np.random.default_rng(0), _rows_fn(rows), num_rows=25
+    )
+
+    self.assertLen(result.synthetic_data, 25)
 
   def test_respects_impossible_combinations(self):
     """Cross-attribute constraints reach the discrete mechanism (F4)."""
@@ -440,20 +500,19 @@ class BeamTabularConfigTest(parameterized.TestCase):
         impossible_combinations=[('a0', 'b1')],
     )
     schema = domain.Schema(domains, constraints=(constraint,))
-    synth = data_generation_v3.TabularConfig()
-    beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
-        schema, budget=100.0
-    )
+    mech = data_generation_v3.TabularConfig().configure(schema, budget=100.0)
     # The data never contains (a0, b1). Without enforcement, independent
     # (a, b) marginals would put ~25% of mass on that cell; forwarding the
     # constraint suppresses it to a few percent (mbi's constrained sampling
     # may still leak a rare row).
     rows = [
-        {'a': 'a0', 'b': 'b0'},
-        {'a': 'a1', 'b': 'b1'},
+        ('a0', 'b0'),
+        ('a1', 'b1'),
     ] * 150
 
-    result = beam_synth(np.random.default_rng(0), _rows_fn(rows))
+    result = beam_adapter.execute(
+        mech, np.random.default_rng(0), _rows_fn(rows)
+    )
 
     forbidden = (result.synthetic_data['a'] == 'a0') & (
         result.synthetic_data['b'] == 'b1'
@@ -467,72 +526,37 @@ class BeamTabularConfigTest(parameterized.TestCase):
         'm': domain.CategoricalAttribute(possible_values=['c', 'd']),
         'a': domain.CategoricalAttribute(possible_values=['e', 'f']),
     }
-    synth = data_generation_v3.TabularConfig()
-    beam_synth = beam_adapter.BeamTabularConfig(synth).configure(
-        domains, budget=100.0
-    )
+    mech = data_generation_v3.TabularConfig().configure(domains, budget=100.0)
     rows = [
-        {'z': 'a', 'm': 'c', 'a': 'e'},
-        {'z': 'b', 'm': 'd', 'a': 'f'},
+        ('a', 'c', 'e'),
+        ('b', 'd', 'f'),
     ] * 50
 
-    result = beam_synth(np.random.default_rng(0), _rows_fn(rows))
+    result = beam_adapter.execute(
+        mech, np.random.default_rng(0), _rows_fn(rows)
+    )
 
     self.assertEqual(list(result.synthetic_data.columns), ['z', 'm', 'a'])
 
-  def test_configure_returns_calibrated_wrapper(self):
-    beam_synth = beam_adapter.BeamTabularConfig(
-        data_generation_v3.TabularConfig()
-    )
-
-    configured = beam_synth.configure(self._domains(), budget=1.0)
-
-    self.assertIsInstance(configured, beam_adapter.BeamTabularMechanism)
-    # dp_event is delegated to the wrapped, now-calibrated synthesizer.
-    self.assertIsNotNone(configured.dp_event)
-    # The original wrapper is left uncalibrated (configure returns a copy).
-    with self.assertRaises(Exception):
-      _ = beam_synth.dp_event
-
-  def test_inherited_calibrate_produces_calibrated_wrapper(self):
-    # calibrate is inherited from DPMechanism; it binary-searches a zCDP budget
-    # by repeatedly calling our configure (which delegates to the synthesizer).
-    beam_synth = beam_adapter.BeamTabularConfig(
-        data_generation_v3.TabularConfig()
-    )
-
-    calibrated = beam_synth.calibrate(self._domains(), epsilon=1.0, delta=1e-6)
-
-    self.assertIsInstance(calibrated, beam_adapter.BeamTabularMechanism)
-    self.assertIsNotNone(calibrated.dp_event)
-
-  def test_uncalibrated_call_raises(self):
-    beam_synth = beam_adapter.BeamTabularConfig(
-        data_generation_v3.TabularConfig()
-    )
-    with self.assertRaises(Exception):
-      beam_synth(np.random.default_rng(0), lambda p: p)
-
   def test_honors_temp_location(self):
     domains = {'a': domain.CategoricalAttribute(possible_values=['x', 'y'])}
-    synth = data_generation_v3.TabularConfig()
     temp_dir = self.create_tempdir().full_path
-    beam_synth = beam_adapter.BeamTabularConfig(
-        synth, temp_location=temp_dir
-    ).configure(domains, budget=100.0)
-    rows = [{'a': 'x'}, {'a': 'y'}] * 50
+    mech = data_generation_v3.TabularConfig().configure(domains, budget=100.0)
+    rows = [('x',), ('y',)] * 50
 
-    result = beam_synth(np.random.default_rng(0), _rows_fn(rows))
+    result = beam_adapter.execute(
+        mech,
+        np.random.default_rng(0),
+        _rows_fn(rows),
+        temp_location=temp_dir,
+    )
 
     self.assertIsInstance(result, data_generation_v3.DataGenerationResult)
     self.assertTrue(os.path.exists(os.path.join(temp_dir, 'clique_vector.bin')))
 
-  def _single_col_synth(self):
+  def _single_col_mech(self):
     domains = {'a': domain.CategoricalAttribute(possible_values=['x', 'y'])}
-    synth = data_generation_v3.TabularConfig()
-    return beam_adapter.BeamTabularConfig(synth).configure(
-        domains, budget=100.0
-    )
+    return data_generation_v3.TabularConfig().configure(domains, budget=100.0)
 
   def _spy_mkdtemp(self):
     """Returns (created_paths_list, patched_mkdtemp) recording our temp dirs.
@@ -552,18 +576,18 @@ class BeamTabularConfigTest(parameterized.TestCase):
     return created, fake_mkdtemp
 
   def test_cleans_up_created_temp_dir_on_success(self):
-    beam_synth = self._single_col_synth()
-    rows = [{'a': 'x'}, {'a': 'y'}] * 50
+    mech = self._single_col_mech()
+    rows = [('x',), ('y',)] * 50
     created, fake_mkdtemp = self._spy_mkdtemp()
 
     with mock.patch.object(tempfile, 'mkdtemp', fake_mkdtemp):
-      beam_synth(np.random.default_rng(0), _rows_fn(rows))
+      beam_adapter.execute(mech, np.random.default_rng(0), _rows_fn(rows))
 
     self.assertLen(created, 1)
     self.assertFalse(os.path.exists(created[0]))
 
   def test_cleans_up_created_temp_dir_on_failure(self):
-    beam_synth = self._single_col_synth()
+    mech = self._single_col_mech()
     created, fake_mkdtemp = self._spy_mkdtemp()
 
     def failing_rows_fn(_):
@@ -571,19 +595,18 @@ class BeamTabularConfigTest(parameterized.TestCase):
 
     with mock.patch.object(tempfile, 'mkdtemp', fake_mkdtemp):
       with self.assertRaises(ValueError):
-        beam_synth(np.random.default_rng(0), failing_rows_fn)
+        beam_adapter.execute(mech, np.random.default_rng(0), failing_rows_fn)
 
     self.assertLen(created, 1)
     self.assertFalse(os.path.exists(created[0]))
 
   def test_forwards_pipeline_options_to_both_passes(self):
     domains = {'a': domain.CategoricalAttribute(possible_values=['x', 'y'])}
-    synth = data_generation_v3.TabularConfig()
-    options = pipeline_options.PipelineOptions(flags=['--runner=DirectRunner'])
-    beam_synth = beam_adapter.BeamTabularConfig(
-        synth, pipeline_options=options
-    ).configure(domains, budget=100.0)
-    rows = [{'a': 'x'}, {'a': 'y'}] * 50
+    options = pipeline_options.PipelineOptions(
+        flags=['--runner=DirectRunner', '--job_name=my-job']
+    )
+    mech = data_generation_v3.TabularConfig().configure(domains, budget=100.0)
+    rows = [('x',), ('y',)] * 50
     seen_options = []
     real_pipeline = beam.Pipeline
 
@@ -592,11 +615,76 @@ class BeamTabularConfigTest(parameterized.TestCase):
       return real_pipeline(*args, **kwargs)
 
     with mock.patch.object(beam, 'Pipeline', spy_pipeline):
-      beam_synth(np.random.default_rng(0), _rows_fn(rows))
+      beam_adapter.execute(
+          mech,
+          np.random.default_rng(0),
+          _rows_fn(rows),
+          pipeline_options=options,
+      )
 
-    # Both passes must receive the caller-provided options object.
+    # Each pass receives an independent copy with pass-suffixed job_name.
     self.assertLen(seen_options, 2)
-    self.assertTrue(all(o is options for o in seen_options))
+    self.assertTrue(all(o is not options for o in seen_options))
+    gcloud_cls = pipeline_options.GoogleCloudOptions
+    self.assertEqual(options.view_as(gcloud_cls).job_name, 'my-job')
+    self.assertEqual(
+        seen_options[0].view_as(gcloud_cls).job_name, 'my-job-pass1'
+    )
+    self.assertEqual(
+        seen_options[1].view_as(gcloud_cls).job_name, 'my-job-pass2'
+    )
+
+  def test_execute_validation_errors(self):
+    domains = {
+        'a': domain.CategoricalAttribute(possible_values=['x', 'y']),
+        'b': domain.CategoricalAttribute(possible_values=['p', 'q']),
+    }
+    rng = np.random.default_rng(0)
+
+    mech_compress = data_generation_v3.TabularConfig(
+        compress_columns=True
+    ).configure(domains, budget=10.0)
+    with self.assertRaisesRegex(ValueError, 'compress_columns'):
+      beam_adapter.execute(mech_compress, rng, _rows_fn([('x', 'p')]))
+
+  def test_write_atomic_rename_preserves_completed_file(self):
+    temp_dir = self.create_tempdir().full_path
+    path = os.path.join(temp_dir, 'clique_vector.bin')
+    cv = mbi.CliqueVector(
+        mbi.Domain(['a'], [2]),
+        [('a',)],
+        {('a',): mbi.Factor(mbi.Domain(['a'], [2]), np.array([3.0, 7.0]))},
+    )
+    beam_adapter._write(cv, path)
+
+    # Simulate a speculative backup task whose FileSystems.create opens a
+    # sibling temp file and then gets canceled before rename.
+    real_create = beam_adapter.FileSystems.create
+
+    class _CanceledWriter:
+
+      def __init__(self, f):
+        self._f = f
+
+      def __enter__(self):
+        return self
+
+      def __exit__(self, *args):
+        self._f.close()
+
+      def write(self, _):
+        raise RuntimeError('speculative backup task canceled')
+
+    with mock.patch.object(
+        beam_adapter.FileSystems,
+        'create',
+        side_effect=lambda p: _CanceledWriter(real_create(p)),
+    ):
+      with self.assertRaises(RuntimeError):
+        beam_adapter._write(cv, path)
+
+    loaded = beam_adapter._read(path)
+    np.testing.assert_allclose(loaded.project(('a',)).values, [3.0, 7.0])
 
 
 if __name__ == '__main__':
