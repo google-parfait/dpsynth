@@ -12,43 +12,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""End-to-end example of SyntheticTransformer with TabularSynthesizer.
+"""End-to-end example of TabularTransformer with TabularConfig.
 
 This example loads a tabular dataset and its domain specification,
-configures a TabularSynthesizer with a custom TransformerDiscreteMechanism
-(which wraps the SyntheticTransformer), and runs the synthesizer.
-TabularSynthesizer handles all discretization and encoding/decoding
-automatically.
+configures a TabularConfig with a TabularTransformerConfig discrete mechanism,
+and runs the synthesizer. TabularConfig handles all discretization and
+encoding/decoding automatically.
 """
 
-from absl import app
-from absl import flags
-from dpsynth import data_generation_v3
-from dpsynth import domain
+import dataclasses
+
+import dpsynth
 from dpsynth.experimental.synthetic_transformer import synth_transformer
 from etils import epath
 import numpy as np
 import pandas as pd
-
-_CSV_PATH = flags.DEFINE_string(
-    "csv_path",
-    None,
-    "Path to input dataset CSV file.",
-    required=True,
-)
-_DOMAIN_PATH = flags.DEFINE_string(
-    "domain_path",
-    None,
-    "Path to dataset domain YAML specification.",
-    required=True,
-)
+import simple_parsing
 
 
-def main(argv):
-  del argv
+@dataclasses.dataclass(frozen=True)
+class Config:
+  """Command-line configuration for TabularTransformer synthesis.
 
+  Attributes:
+    csv_path: Path to input dataset CSV file.
+    domain_path: Path to dataset domain YAML specification.
+    seed: Optional random seed for reproducibility.
+  """
+
+  csv_path: str = "datasets/adult.csv"
+  domain_path: str = "datasets/adult_domain.yaml"
+  seed: int | None = None
+
+
+def main(cfg: Config) -> None:
   # 1. LOAD DATA
-  csv_path = _CSV_PATH.value
+  csv_path = cfg.csv_path
   print(f"Loading dataset from {csv_path}...")
   with epath.Path(csv_path).open("r") as f:
     df = pd.read_csv(f)
@@ -56,9 +55,9 @@ def main(argv):
   print(f"Loaded dataset with shape: {df.shape}")
 
   # 2. LOAD DOMAIN
-  domain_path = _DOMAIN_PATH.value
+  domain_path = cfg.domain_path
   print(f"\nLoading domain from {domain_path}...")
-  attribute_domains = domain.from_yaml_file(str(domain_path))
+  attribute_domains = dpsynth.from_yaml(str(domain_path))
 
   # Use columns from the dataset that exist in the domain
   domain_spec = {
@@ -72,9 +71,6 @@ def main(argv):
       num_layers=2,
       n_head=2,
       emb_dim=16,
-  )
-  discrete_mechanism = synth_transformer.TabularTransformer(
-      config=transformer_config,
       num_epochs=100,
       num_iterations=1000,
       learning_rate=1e-3,
@@ -82,9 +78,8 @@ def main(argv):
 
   # 4. INITIALIZE AND CALIBRATE TABULAR SYNTHESIZER
   print("\nInitializing and calibrating TabularConfig...")
-  synth = data_generation_v3.TabularConfig(
-      # pyrefly: ignore[bad-argument-type]
-      discrete_mechanism=discrete_mechanism,
+  synth = dpsynth.TabularConfig(
+      discrete_mechanism=transformer_config,
       numerical_bins=8,
   )
   # Configure with budget = np.inf for non-DP mode.
@@ -94,7 +89,7 @@ def main(argv):
   print(
       "Running synthesizer (this will discretize, train, sample, and decode)..."
   )
-  rng = np.random.default_rng(42)
+  rng = np.random.default_rng(cfg.seed)
   result = calibrated_synth(rng, df)
   df_synth = result.synthetic_data
 
@@ -108,7 +103,7 @@ def main(argv):
   cat_cols = [
       col
       for col, spec in domain_spec.items()
-      if isinstance(spec, domain.CategoricalAttribute)
+      if isinstance(spec, dpsynth.CategoricalAttribute)
   ]
   if cat_cols:
     sample_cat = cat_cols[0]
@@ -123,7 +118,7 @@ def main(argv):
   num_cols = [
       col
       for col, spec in domain_spec.items()
-      if isinstance(spec, domain.NumericalAttribute)
+      if isinstance(spec, dpsynth.NumericalAttribute)
   ]
   if num_cols:
     print("\nMean values for numerical columns:")
@@ -137,4 +132,4 @@ def main(argv):
 
 
 if __name__ == "__main__":
-  app.run(main)
+  main(simple_parsing.parse(Config))

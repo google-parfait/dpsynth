@@ -46,9 +46,38 @@ class TabularTransformerConfig(api.MechanismConfig):
   n_head: int = 8
   emb_dim: int = 64
   dropout: float = 0.0
+  learning_rate: float = 1e-3
+  num_epochs: int = 10
+  num_iterations: int = 1000
+  clipping_norm: float = 1.0
 
-  def configure(self, _=None, *, budget, delta=0) -> "TabularTransformer":
-    return TabularTransformer(config=self, zcdp_rho=budget)
+  def configure(
+      self, _=None, *, budget: float, delta: float = 0.0, **kwargs: typing.Any
+  ) -> "TabularTransformer":
+    del delta, kwargs
+    if budget == float("inf"):
+      return TabularTransformer(config=self, zcdp_rho=budget)
+
+    mechanism_config = execution_plan.BandMFConfig.default(
+        num_bands=1,
+        iterations=self.num_iterations,
+        expected_participations=self.num_epochs,
+        l2_clip_norm=self.clipping_norm,
+    )
+
+    def dummy_loss_fn(params, data, prng):
+      del params, data, prng
+      return 0.0, {}
+
+    trainer = dp_trainer.DPTrainerConfig(
+        init_params={},
+        loss_fn=dummy_loss_fn,
+        mechanism_config=mechanism_config,
+        optimizer=optax.identity(),
+    ).configure(budget=budget)
+    return TabularTransformer(
+        config=self, zcdp_rho=budget, _configured_trainer=trainer
+    )
 
   def __post_init__(self):
     if self.num_elements_per_feature is not None:
@@ -294,51 +323,15 @@ def sample_flat_nnx(
 class TabularTransformer(api.CalibratedMechanism):
   """Differentially private tabular generator via generative Transformer.
 
-  This class implements the dpsynth DPMechanism interface, making it directly
-  compatible with TabularSynthesizer.
+  This class implements the dpsynth CalibratedMechanism interface, making it
+  directly compatible with TabularConfig.
   """
 
   config: TabularTransformerConfig  # pyrefly: ignore[bad-override]
-  learning_rate: float = 1e-3
-  num_epochs: int = 10
-  num_iterations: int = 1000
-  clipping_norm: float = 1.0
-
-  # DPMechanism required attributes
   zcdp_rho: float | None = None  # pyrefly: ignore[bad-override]
   _configured_trainer: dp_trainer.DPTrainer | None = dataclasses.field(
-      default=None, init=False, repr=False, compare=False
+      default=None, repr=False, compare=False
   )
-
-  def configure(
-      self, _=None, *, budget: float, delta: float = 0.0, **kwargs: typing.Any
-  ) -> "TabularTransformer":
-    del delta, kwargs
-    new_obj = dataclasses.replace(self, zcdp_rho=budget)
-    if budget == float("inf"):
-      object.__setattr__(new_obj, "_configured_trainer", None)  # pylint: disable=protected-access
-      return new_obj
-
-    mechanism_config = execution_plan.BandMFConfig.default(
-        num_bands=1,
-        iterations=self.num_iterations,
-        expected_participations=self.num_epochs,
-        l2_clip_norm=self.clipping_norm,
-    )
-
-    def dummy_loss_fn(params, data, prng):
-      del params, data, prng
-      return 0.0, {}
-
-    trainer = dp_trainer.DPTrainerConfig(
-        init_params={},
-        loss_fn=dummy_loss_fn,
-        mechanism_config=mechanism_config,
-        optimizer=optax.identity(),
-    ).configure(budget=budget)
-
-    object.__setattr__(new_obj, "_configured_trainer", trainer)  # pylint: disable=protected-access
-    return new_obj
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -381,11 +374,11 @@ class TabularTransformer(api.CalibratedMechanism):
 
     model.fit(
         dataset_array,
-        num_epochs=self.num_epochs,
-        num_iterations=self.num_iterations,
-        learning_rate=self.learning_rate,
+        num_epochs=self.config.num_epochs,
+        num_iterations=self.config.num_iterations,
+        learning_rate=self.config.learning_rate,
         zcdp_rho=self.zcdp_rho,
-        clipping_norm=self.clipping_norm,
+        clipping_norm=self.config.clipping_norm,
     )
 
     # 4. Autoregressively sample from the model

@@ -320,17 +320,13 @@ class TabularTransformerTest(absltest.TestCase):
         num_layers=1,
         n_head=1,
         emb_dim=8,
-    )
-
-    mechanism = synth_transformer.TabularTransformer(
-        config=config,
         num_epochs=5,
         num_iterations=5,
         learning_rate=1e-2,
     )
 
     # Calibrate it
-    mechanism = mechanism.configure(budget=1.0)
+    mechanism = config.configure(budget=1.0)
     self.assertEqual(mechanism.zcdp_rho, 1.0)
 
     # Run the mechanism
@@ -363,13 +359,11 @@ class TabularTransformerTest(absltest.TestCase):
         num_layers=1,
         n_head=1,
         emb_dim=8,
-    )
-    mechanism = synth_transformer.TabularTransformer(
-        config=config,
         num_epochs=5,
         num_iterations=5,
         learning_rate=1e-2,
     )
+    mechanism = synth_transformer.TabularTransformer(config=config)
     rng = np.random.default_rng(0)
     with self.assertRaisesRegex(
         ValueError, "Mechanism has not been configured"
@@ -423,21 +417,18 @@ class TabularTransformerTest(absltest.TestCase):
         num_layers=1,
         n_head=1,
         emb_dim=8,
-    )
-    mechanism = synth_transformer.TabularTransformer(
-        config=config,
         num_epochs=1,
         num_iterations=1,
     )
 
     # 1. Non-private configuration
-    non_private_mechanism = mechanism.configure(budget=float("inf"))
+    non_private_mechanism = config.configure(budget=float("inf"))
     self.assertIsInstance(
         non_private_mechanism.dp_event, dp_accounting.NonPrivateDpEvent
     )
 
     # 2. Private configuration
-    private_mechanism = mechanism.configure(budget=1.0)
+    private_mechanism = config.configure(budget=1.0)
     # The returned event should be the precise composed event from JAX Privacy,
     # which is not a simple ZCDpEvent.
     self.assertIsInstance(private_mechanism.dp_event, dp_accounting.DpEvent)
