@@ -25,7 +25,7 @@ for more information.
 from __future__ import annotations
 
 import collections
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 import copy
 import io
 import math
@@ -39,6 +39,7 @@ from absl import logging
 import apache_beam as beam
 from apache_beam.io.filesystems import FileSystems
 from dpsynth import data_generation_v3
+from dpsynth import domain
 from dpsynth.local_mode import initialization
 import mbi
 import numpy as np
@@ -344,6 +345,103 @@ class ComputeMarginals(beam.PTransform):
         | 'ToList' >> beam.combiners.ToList()
         | 'BuildCliqueVector' >> beam.Map(_to_clique_vector)
     )
+
+
+# Isolate single-worker MBI synthesis onto a dedicated high-RAM worker pool
+# when the runner registers these resource hints.
+_SYNTHESIZE_HINTS = {
+    'tags': ['dpsynth_synthesize'],
+    'worker_priority': 200,
+    'worker_ram': '16G',
+    'worker_cpu': 4,
+    'max_worker_machines': 1,
+    'threads_per_worker': 1,
+}
+
+
+def _synthesize_from_clique_vector(
+    cv: mbi.CliqueVector,
+    *,
+    mechanism: data_generation_v3.TabularMechanism,
+    seed: int,
+    num_rows: int | None = None,
+) -> Iterator[dict[str, Any]]:
+  """Runs 1-way initialization and discrete synthesis from a CliqueVector."""
+  rng = np.random.default_rng(seed)
+  # Project the precomputed CliqueVector down to 1-way histograms so each
+  # column initializer can add DP noise and build its CategoricalMeasurement.
+  inits = cast(
+      dict[str, initialization.CategoricalInitializer], mechanism.initializers
+  )
+  counts = {c: np.asarray(cv.project((c,)).values) for c in inits}
+  measurements = {c: fn.from_summary(rng, counts[c]) for c, fn in inits.items()}
+  result = mechanism.from_summary(rng, measurements, cv, num_rows=num_rows)
+  yield from result.synthetic_data.to_dict(orient='records')
+
+
+class Synthesize(beam.PTransform):
+  """Single-pass Beam PTransform from categorical tuple rows to synthetic dicts."""
+
+  def __init__(
+      self,
+      mechanism: data_generation_v3.TabularMechanism,
+      rng: np.random.Generator,
+      *,
+      num_rows: int | None = None,
+  ):
+    """Initializes the single-pass categorical synthesis PTransform.
+
+    Args:
+      mechanism: A calibrated TabularMechanism with CategoricalAttribute
+        domains.
+      rng: NumPy random generator used to derive the worker synthesis seed.
+      num_rows: Optional number of synthetic rows to generate.
+    """
+    super().__init__()
+    if not hasattr(mechanism.config.discrete_mechanism, 'supporting_cliques'):
+      raise ValueError('discrete_mechanism must implement supporting_cliques.')
+    if mechanism.config.compress_columns:
+      raise ValueError('compress_columns is not supported by the Beam adapter.')
+    attrs = mechanism.schema.values()
+    if not all(isinstance(a, domain.CategoricalAttribute) for a in attrs):
+      raise ValueError('Synthesize requires CategoricalAttribute domains.')
+    schema = cast(dict[str, domain.CategoricalAttribute], mechanism.schema)
+    # ComputeMarginals only inspects categorical_attribute metadata to build
+    # the discrete codec, so empty placeholder measurements avoid a pre-pass.
+    empty = np.array([])
+    meas_cls = initialization.CategoricalMeasurement
+    self._measurements: dict[str, initialization.ColumnMeasurement] = {
+        c: meas_cls(a, empty, np.nan) for c, a in schema.items()
+    }
+    shapes = tuple(a.size for a in schema.values())
+    mbi_domain = mbi.Domain(tuple(schema.keys()), shapes)
+    discrete_mech = mechanism.config.discrete_mechanism
+    cliques_fn = getattr(discrete_mech, 'supporting_cliques')
+    extra: list[mbi.Clique] = list(cliques_fn(mbi_domain))
+    # Ensure every column is covered so _synthesize_from_clique_vector can
+    # always project cv onto (col,) for 1-way initialization.
+    covered = set().union(*extra)
+    uncovered: list[mbi.Clique] = [(a,) for a in schema if a not in covered]
+    self._workload = [*extra, *uncovered]
+    self._mechanism = mechanism
+    self._seed = int(rng.integers(0, 2**31))
+    self._num_rows = num_rows
+
+  def expand(
+      self, rows: beam.PCollection[Row]
+  ) -> beam.PCollection[dict[str, Any]]:
+    """Computes exact marginals in Beam and synthesizes records on one worker."""
+    schema = dict(self._mechanism.schema)
+    marginals = ComputeMarginals(self._measurements, schema, self._workload)
+    is_reg = beam.transforms.resources.ResourceHint.is_registered
+    hints = {k: v for k, v in _SYNTHESIZE_HINTS.items() if is_reg(k)}
+    synthesize = beam.FlatMap(
+        _synthesize_from_clique_vector,
+        mechanism=self._mechanism,
+        seed=self._seed,
+        num_rows=self._num_rows,
+    ).with_resource_hints(**hints)
+    return rows | 'ComputeMarginals' >> marginals | 'Synthesize' >> synthesize
 
 
 # End-to-end synthesis: the two Beam passes above learn each column's domain

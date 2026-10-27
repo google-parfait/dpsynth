@@ -32,6 +32,7 @@ from dpsynth.adapters import beam as beam_adapter
 from dpsynth.local_mode import initialization
 import mbi
 import numpy as np
+import pandas as pd
 
 _manager = None
 _test_results = None
@@ -685,6 +686,58 @@ class ExecuteTest(parameterized.TestCase):
 
     loaded = beam_adapter._read(path)
     np.testing.assert_allclose(loaded.project(('a',)).values, [3.0, 7.0])
+
+
+class SynthesizeTest(parameterized.TestCase):
+
+  @parameterized.parameters(
+      (0, discrete_mechanisms.MSTConfig(pgm_iters=50), None),
+      (42, discrete_mechanisms.MSTConfig(pgm_iters=50), 30),
+      (7, discrete_mechanisms.IndependentConfig(pgm_iters=50), None),
+  )
+  def test_synthesize_matches_in_memory(self, seed, discrete_mech, num_rows):
+    domains = {
+        'a': domain.CategoricalAttribute(possible_values=['x', 'y', 'z']),
+        'b': domain.CategoricalAttribute(possible_values=['p', 'q']),
+    }
+    rows = [('x', 'p'), ('y', 'q'), ('z', 'p'), ('x', 'q')] * 25
+    df = pd.DataFrame(rows, columns=['a', 'b'])
+    config = data_generation_v3.TabularConfig(
+        discrete_mechanism=discrete_mech, use_jax_for_generation=True
+    )
+    mech = config.configure(domains, budget=10.0)
+
+    inner_seed = int(np.random.default_rng(seed).integers(0, 2**31))
+    expected = mech(np.random.default_rng(inner_seed), df, num_rows=num_rows)
+    expected_records = expected.synthetic_data.to_dict(orient='records')
+
+    del _test_results[:]
+    with beam.Pipeline() as p:
+      synthesize = beam_adapter.Synthesize(
+          mech, np.random.default_rng(seed), num_rows=num_rows
+      )
+      _ = p | beam.Create(rows) | synthesize | beam.Map(_store)
+    self.assertEqual(list(_test_results), expected_records)
+
+  def test_synthesize_rejects_non_categorical_and_compress_columns(self):
+    num_domains = {
+        'a': domain.NumericalAttribute(min_value=0, max_value=10),
+    }
+    num_mech = data_generation_v3.TabularConfig().configure(
+        num_domains, budget=10.0
+    )
+    with self.assertRaisesRegex(ValueError, 'CategoricalAttribute'):
+      beam_adapter.Synthesize(num_mech, np.random.default_rng(0))
+
+    cat_domains = {
+        'a': domain.CategoricalAttribute(possible_values=['x', 'y']),
+        'b': domain.CategoricalAttribute(possible_values=['p', 'q']),
+    }
+    compress_mech = data_generation_v3.TabularConfig(
+        compress_columns=True
+    ).configure(cat_domains, budget=10.0)
+    with self.assertRaisesRegex(ValueError, 'compress_columns'):
+      beam_adapter.Synthesize(compress_mech, np.random.default_rng(0))
 
 
 if __name__ == '__main__':
