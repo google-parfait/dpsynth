@@ -291,9 +291,7 @@ class TabularMechanism(api.CalibratedMechanism):
   ) -> DataGenerationResult:
     """Runs the discrete mechanism and decoding from initialized measurements."""
     if not cross_attribute_constraints:
-      cross_attribute_constraints = (
-          self.schema.constraints or self.config.cross_attribute_constraints
-      )
+      cross_attribute_constraints = self.schema.constraints
     mbi_constraints = tuple(c.to_mbi() for c in cross_attribute_constraints)
 
     # Feed one-way column measurements as initial measurements so the mechanism
@@ -396,7 +394,6 @@ class TabularConfig(api.MechanismConfig):
       continuous distributions.
     init_budget_fraction: Fraction of total zCDP budget allocated to per-column
       initialization (the rest goes to the discrete mechanism).
-    cross_attribute_constraints: Constraints to enforce on generated data.
     compress_columns: Whether to compress rare categories (< 3*sigma) for
       CategoricalAttribute columns not present in constraints.
     use_jax_for_bincount: Whether to use JAX-accelerated bincount (via
@@ -410,7 +407,6 @@ class TabularConfig(api.MechanismConfig):
   numerical_bins: int = 32
   numerical_epsilon_ratio: float = 1.0
   init_budget_fraction: float = 0.1
-  cross_attribute_constraints: Sequence[constraints.Constraint] = ()
   compress_columns: bool = False
   use_jax_for_bincount: bool = False
   use_jax_for_generation: bool = False
@@ -470,13 +466,9 @@ class TabularConfig(api.MechanismConfig):
     if schema is not None and isinstance(schema, domain.Schema):
       pass
     elif schema is not None:
-      schema = domain.Schema(
-          schema, constraints=self.cross_attribute_constraints
-      )
+      schema = domain.Schema(schema)
     elif self.domains is not None:
-      schema = domain.Schema(
-          self.domains, constraints=self.cross_attribute_constraints
-      )
+      schema = domain.Schema(self.domains)
     else:
       raise ValueError(
           'No schema provided. Pass schema to configure() or set domains at'
@@ -504,6 +496,7 @@ class TabularConfig(api.MechanismConfig):
     }
 
     calibrated_discrete = self.discrete_mechanism.configure(
+        schema,
         budget=discrete_rho,
     )
 

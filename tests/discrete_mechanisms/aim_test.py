@@ -83,6 +83,14 @@ class AIMTest(absltest.TestCase):
         [("a", "b"), ("a", "c"), ("b", "c")],
     )
 
+  def test_call_with_constraints_raises(self):
+    domain = mbi.Domain(["a", "b"], [2, 2])
+    constraint = mbi.Constraint(domain, np.array([[1, 0], [0, 1]]))
+    calibrated = aim.AIMConfig().configure(budget=1.0)
+    data = mbi.Dataset.synthetic(domain, N=10)
+    with self.assertRaisesRegex(ValueError, "AIM does not support constraints"):
+      calibrated(np.random.default_rng(0), data, constraints=[constraint])
+
 
 if __name__ == "__main__":
   absltest.main()

@@ -132,9 +132,8 @@ class SerializeTest(parameterized.TestCase):
     raw_dict = yaml.safe_load(yaml_str)
     self.assertEqual(raw_dict['type'], 'TabularConfig')
     self.assertEqual(raw_dict['numerical_bins'], 64)
-    # Default domains=None and cross_attribute_constraints=() are omitted:
+    # Default domains=None is omitted:
     self.assertNotIn('domains', raw_dict)
-    self.assertNotIn('cross_attribute_constraints', raw_dict)
     self.assertNotIn('compress_columns', raw_dict)
 
     loaded = serialize.from_yaml(yaml_str)

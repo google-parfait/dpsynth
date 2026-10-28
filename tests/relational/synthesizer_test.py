@@ -1598,8 +1598,7 @@ class SynthesizerTest(absltest.TestCase):
 
     cfg = synthesizer.MultiTableConfig(
         foreign_keys=fks,
-        discrete_mechanism=discrete_mechanisms.AIMConfig(
-            max_rounds=2,
+        discrete_mechanism=discrete_mechanisms.MSTConfig(
             pgm_iters=50,
         ),
         numerical_bins=4,
