@@ -253,14 +253,14 @@ def sft_loss_fn(
 
 
 def format_prompt(prompt: str) -> str:
-  """Formats a prompt string with the Gemma user and model turn tags."""
-  # Universal chat prompt format expected by Gemma instruction-tuned models.
-  return f'<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n'
+  """Formats a prompt string with the Gemma 4 user and model turn tags."""
+  # Gemma 4 IT chat template; also works when SFT-tuning PT models.
+  return f'<|turn>user\n{prompt}<turn|>\n<|turn>model\n'
 
 
 def format_response(response: str) -> str:
-  """Formats a model response string with the end-of-turn tag."""
-  return f'{response}<end_of_turn>'
+  """Formats a model response string with the Gemma 4 end-of-turn tag."""
+  return f'{response}<turn|>'
 
 
 @functools.cache
@@ -316,6 +316,7 @@ class GemmaSampler:
       *,
       max_seq_length: int = 512,
       temperature: float = 1.0,
+      top_p: float = 0.95,
   ):
     cfg: gemma4_model.ModelConfig = getattr(model, 'config')
     cache_config = tunix.CacheConfig(
@@ -326,6 +327,7 @@ class GemmaSampler:
     )
     self._max_seq_length = max_seq_length
     self._temperature = temperature
+    self._top_p = top_p
     self._sampler = tunix.Sampler(
         transformer=model,
         tokenizer=gemma4_params.create_tokenizer(),
@@ -333,7 +335,7 @@ class GemmaSampler:
     )
     self._eos_tokens = [
         self._sampler.tokenizer.eos_id(),
-        *self._sampler.tokenizer.encode('<end_of_turn>'),
+        *self._sampler.tokenizer.encode('<turn|>'),
     ]
 
   def __call__(
@@ -366,7 +368,7 @@ class GemmaSampler:
           input_strings=batch,
           max_generation_steps=self._max_seq_length // 2,
           temperature=self._temperature,
-          top_p=1.0 if self._temperature > 0 else None,
+          top_p=self._top_p if self._temperature > 0 else None,
           eos_tokens=self._eos_tokens,
           seed=rng + i,
       )

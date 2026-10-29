@@ -141,6 +141,13 @@ class GemmaModelTest(absltest.TestCase):
     for name in typing.get_args(model.ModelName):
       model.validate_model_name(name)
 
+  def test_format_prompt_and_response(self):
+    self.assertEqual(
+        model.format_prompt('Hello'),
+        '<|turn>user\nHello<turn|>\n<|turn>model\n',
+    )
+    self.assertEqual(model.format_response('World'), 'World<turn|>')
+
   def test_make_mesh(self):
     mesh = model.make_mesh(tp=1)
     self.assertEqual(mesh.axis_names, ('replica', 'fsdp', 'tp'))
