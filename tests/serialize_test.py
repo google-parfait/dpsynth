@@ -31,6 +31,7 @@ from dpsynth.discrete_mechanisms import mst
 from dpsynth.discrete_mechanisms import swift
 from dpsynth.local_mode import initialization
 import mbi
+import numpy as np
 import yaml
 
 
@@ -290,6 +291,14 @@ class SerializeTest(parameterized.TestCase):
     yaml_str = dpsynth.to_yaml(event)
     loaded = dpsynth.from_yaml(yaml_str)
     self.assertEqual(loaded, event)
+
+  def test_numpy_scalars_roundtrip(self):
+    payload = {'count': np.int64(500), 'rate': np.float64(0.25)}
+    yaml_str = serialize.to_yaml(payload)
+    self.assertNotIn('!!python', yaml_str)
+    self.assertEqual(
+        serialize.from_yaml(yaml_str), {'count': 500, 'rate': 0.25}
+    )
 
   def test_unknown_type_raises(self):
     with self.assertRaises(ValueError):
