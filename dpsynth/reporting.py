@@ -233,30 +233,27 @@ class AuditReport:
         seed=seed,
     )
 
-    # Narrow `np.ndarray | float` return types from CanaryScoreAuditor.
-    tprs = np.asarray(auditor.tpr_at_given_fpr(target_false_positive_rates))
+    tprs = auditor.tpr_at_given_fpr(target_false_positive_rates)
     min_fpr = min(target_false_positive_rates, default=1.0)
     if min(auditor.num_canaries) * min_fpr < 20:
       logging.warning('Too few canaries for reliable TPR at FPR=%g.', min_fpr)
 
-    points = list(zip(tprs, target_false_positive_rates))
+    points = list(zip(tprs.tolist(), target_false_positive_rates))
     lo_points, hi_points = [], []
     for fpr in target_false_positive_rates:
-      ci = auditor.tpr_at_given_fpr(fpr, bootstrap_params=bootstrap)
-      lo, hi = np.asarray(ci)
-      lo_points.append((lo, fpr))
-      hi_points.append((hi, fpr))
+      lo, hi = auditor.tpr_at_given_fpr(fpr, bootstrap_params=bootstrap)
+      lo_points.append((float(lo), fpr))
+      hi_points.append((float(hi), fpr))
 
-    auroc = float(auditor.attack_auroc())
-    auroc_ci = auditor.attack_auroc(bootstrap_params=bootstrap)
-    auroc_lo, auroc_hi = np.asarray(auroc_ci)
+    auroc = auditor.attack_auroc()
+    auroc_lo, auroc_hi = auditor.attack_auroc(bootstrap_params=bootstrap)
 
     return cls(
         num_canaries=auditor.num_canaries,
         confidence=confidence,
         trade_off_curve=TradeOffCurve(points=points, auroc=auroc),
-        lower_bound=TradeOffCurve(points=lo_points, auroc=auroc_lo),
-        upper_bound=TradeOffCurve(points=hi_points, auroc=auroc_hi),
+        lower_bound=TradeOffCurve(points=lo_points, auroc=float(auroc_lo)),
+        upper_bound=TradeOffCurve(points=hi_points, auroc=float(auroc_hi)),
         notes=notes,
     )
 

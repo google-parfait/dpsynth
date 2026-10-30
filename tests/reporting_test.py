@@ -176,9 +176,7 @@ class ReportingTest(parameterized.TestCase):
     assert report.trade_off_curve.auroc is not None
     assert report.lower_bound.auroc is not None
     assert report.upper_bound.auroc is not None
-    self.assertAlmostEqual(
-        report.trade_off_curve.auroc, float(auditor.attack_auroc())
-    )
+    self.assertAlmostEqual(report.trade_off_curve.auroc, auditor.attack_auroc())
     self.assertLessEqual(report.lower_bound.auroc, report.upper_bound.auroc)
     expected_fprs = list(reporting.DEFAULT_AUDIT_FPRS)
     self.assertEqual(
@@ -195,7 +193,7 @@ class ReportingTest(parameterized.TestCase):
         report.lower_bound.points,
         report.upper_bound.points,
     ):
-      self.assertAlmostEqual(tpr, float(auditor.tpr_at_given_fpr(fpr)))
+      self.assertAlmostEqual(tpr, auditor.tpr_at_given_fpr(fpr))
       self.assertLessEqual(lo, hi)
       self.assertGreaterEqual(lo, 0.0)
       self.assertLessEqual(hi, 1.0)
@@ -241,8 +239,8 @@ class ReportingTest(parameterized.TestCase):
             seed=7,
         )
     )
-    expected_auroc_ci = np.asarray(
-        auditor.attack_auroc(bootstrap_params=expected_bootstrap)
+    expected_auroc_ci = auditor.attack_auroc(
+        bootstrap_params=expected_bootstrap
     )
     self.assertEqual(report.num_canaries, (150, 200))
     self.assertEqual(report.confidence, 0.90)
@@ -253,15 +251,9 @@ class ReportingTest(parameterized.TestCase):
     assert report.trade_off_curve.auroc is not None
     assert report.lower_bound.auroc is not None
     assert report.upper_bound.auroc is not None
-    self.assertAlmostEqual(
-        report.trade_off_curve.auroc, float(auditor.attack_auroc())
-    )
-    self.assertAlmostEqual(
-        report.lower_bound.auroc, float(expected_auroc_ci[0])
-    )
-    self.assertAlmostEqual(
-        report.upper_bound.auroc, float(expected_auroc_ci[1])
-    )
+    self.assertAlmostEqual(report.trade_off_curve.auroc, auditor.attack_auroc())
+    self.assertAlmostEqual(report.lower_bound.auroc, expected_auroc_ci[0])
+    self.assertAlmostEqual(report.upper_bound.auroc, expected_auroc_ci[1])
     self.assertLessEqual(report.lower_bound.auroc, report.trade_off_curve.auroc)
     self.assertLessEqual(report.trade_off_curve.auroc, report.upper_bound.auroc)
     for (est, fpr), (lo, lo_fpr), (hi, hi_fpr) in zip(
@@ -269,14 +261,14 @@ class ReportingTest(parameterized.TestCase):
         report.lower_bound.points,
         report.upper_bound.points,
     ):
-      expected_ci = np.asarray(
-          auditor.tpr_at_given_fpr(fpr, bootstrap_params=expected_bootstrap)
+      expected_ci = auditor.tpr_at_given_fpr(
+          fpr, bootstrap_params=expected_bootstrap
       )
       self.assertEqual(lo_fpr, fpr)
       self.assertEqual(hi_fpr, fpr)
-      self.assertAlmostEqual(est, float(auditor.tpr_at_given_fpr(fpr)))
-      self.assertAlmostEqual(lo, float(expected_ci[0]))
-      self.assertAlmostEqual(hi, float(expected_ci[1]))
+      self.assertAlmostEqual(est, auditor.tpr_at_given_fpr(fpr))
+      self.assertAlmostEqual(lo, expected_ci[0])
+      self.assertAlmostEqual(hi, expected_ci[1])
       self.assertLessEqual(lo, est)
       self.assertLessEqual(est, hi)
 
