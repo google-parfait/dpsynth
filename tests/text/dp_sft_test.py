@@ -382,7 +382,7 @@ class DPFineTunerTest(parameterized.TestCase):
 
     self.assertIsNotNone(result.auditor)
     assert result.auditor is not None
-    self.assertAlmostEqual(float(result.auditor.attack_auroc()), 1.0, places=5)
+    self.assertAlmostEqual(result.auditor.attack_auroc(), 1.0, places=5)
 
 
 if __name__ == '__main__':
