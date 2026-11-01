@@ -28,6 +28,7 @@ from dpsynth import reporting
 from dpsynth.relational import domain as relational_domain
 from etils import epath
 import mbi
+import numpy as np
 import yaml
 
 PathType = epath.PathLike
@@ -143,6 +144,9 @@ yaml.SafeDumper.add_representer(
     lambda dumper, data: dumper.represent_sequence(
         'tag:yaml.org,2002:seq', data, flow_style=True
     ),
+)
+yaml.SafeDumper.add_multi_representer(
+    np.number, lambda dumper, data: dumper.represent_data(data.item())
 )
 
 

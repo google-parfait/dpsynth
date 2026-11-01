@@ -46,6 +46,8 @@ _FLOAT_TYPES = {
     descriptor.FieldDescriptor.TYPE_DOUBLE,
 }
 
+_ENUM_TYPE = descriptor.FieldDescriptor.TYPE_ENUM
+
 
 def _is_repeated(field) -> bool:
   return (
@@ -131,7 +133,7 @@ def infer_domain(
       attributes.update({f"{prefix}{k}": v for k, v in sub_domain.items()})
       continue
 
-    if field.type == descriptor.FieldDescriptor.TYPE_ENUM:
+    if field.type == _ENUM_TYPE:
       values = [
           v.name if enum_format == "name" else v.number
           for v in field.enum_type.values
@@ -222,10 +224,7 @@ def _compile_getters(desc, paths, enum_format):
     field = sub_desc.fields_by_name[leaf]
     # operator.attrgetter resolves dotted paths ("a.b.c") natively in C.
     getter = operator.attrgetter(path)
-    if (
-        field.type == descriptor.FieldDescriptor.TYPE_ENUM
-        and enum_format == "name"
-    ):
+    if field.type == _ENUM_TYPE and enum_format == "name":
       # Proto enum attributes return integer wire numbers; map to enum names.
       names = {v.number: v.name for v in field.enum_type.values}
       getter = lambda m, g=getter, n=names: n[g(m)]
@@ -259,6 +258,9 @@ def from_tuple(
   msg = message_factory.GetMessageClass(desc)()
   for path, val in zip(fields, values):
     sub_msg, leaf = _resolve_leaf(msg, path)
+    field = sub_msg.DESCRIPTOR.fields_by_name[leaf]
+    if field.type == _ENUM_TYPE and isinstance(val, str):
+      val = field.enum_type.values_by_name[val].number
     setattr(sub_msg, leaf, val)
   return msg
 

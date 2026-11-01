@@ -51,6 +51,7 @@ from dpsynth.text import model
 from flax import nnx
 import grain.python as grain
 import jax
+import jax.numpy as jnp
 import jax_privacy
 from jax_privacy import execution_plan
 from jax_privacy import noise_addition
@@ -114,11 +115,11 @@ class DPFineTunerConfig(api.MechanismConfig):
   lora_rank: int = 16
   max_seq_length: int = 512
   optimizer: optax.GradientTransformation = dataclasses.field(
-      default_factory=lambda: optax.adamw(1e-4)
+      default_factory=lambda: optax.adamw(1e-3)
   )
   microbatch_size: int | None = None
   log_every: int | None = None
-  checkpoint_every: int = 100
+  checkpoint_every: int = 500
 
   def __post_init__(self):
     model.validate_model_name(self.model)
@@ -219,7 +220,8 @@ class DPFineTuner(api.CalibratedMechanism):
 
     def loss_fn(params, data, prng):
       del prng  # Deterministic forward pass (no dropout during DP training).
-      merged = nnx.merge(graphdef, params, frozen_params)
+      bf16_params = optax.tree.cast(params, jnp.bfloat16)
+      merged = nnx.merge(graphdef, bf16_params, frozen_params)
       return model.sft_loss_fn(merged, data)
 
     mesh = jax.sharding.get_mesh()
@@ -235,9 +237,10 @@ class DPFineTuner(api.CalibratedMechanism):
           microbatch_size=self.config.microbatch_size,
       )
 
+    # Keep master LoRA weights in float32 so small updates do not underflow.
     trainer_config = dp_trainer.DPTrainerConfig(
         mechanism_config=self.config.mechanism_config,
-        init_params=trainable_params,
+        init_params=optax.tree.cast(trainable_params, jnp.float32),
         loss_fn=loss_fn,
         optimizer=self.config.optimizer,
         performance_flags=perf,
@@ -248,5 +251,6 @@ class DPFineTuner(api.CalibratedMechanism):
     trainer = dp_trainer.DPTrainer(trainer_config)
     state = trainer(rng, dataset, metrics_fn=metrics_fn, canaries=canary_data)
 
-    merged = nnx.merge(graphdef, state.params, frozen_params)
+    bf16_params = optax.tree.cast(state.params, jnp.bfloat16)
+    merged = nnx.merge(graphdef, bf16_params, frozen_params)
     return FineTuneResult(model=merged, auditor=state.auditor)

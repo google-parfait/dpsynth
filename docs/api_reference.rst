@@ -59,7 +59,7 @@ Cross-Attribute Constraints (``dpsynth.constraints``)
 The ``constraints`` module lets you express known relationships between columns
 so that the synthetic data honours them.  Pass a list of
 :class:`~dpsynth.constraints.Constraint` objects as
-``cross_attribute_constraints`` to :class:`~dpsynth.TabularConfig`.
+``constraints`` to :class:`~dpsynth.Schema`.
 
 .. autosummary::
    :toctree: _autosummary
@@ -109,6 +109,8 @@ privacy profile across evaluation points.
    :template: autosummary/class.rst
 
    PrivacyReport
+   AuditReport
+   TradeOffCurve
 
 ----
 

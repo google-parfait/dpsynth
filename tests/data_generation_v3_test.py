@@ -392,11 +392,16 @@ class DataGenerationV3Test(parameterized.TestCase):
     config = TabularConfig(
         discrete_mechanism=discrete_mechanisms.IndependentConfig(),
     )
-    mechanism = config.calibrate(
+    accountant_fn = functools.partial(
+        dp_accounting.pld.PLDAccountant, value_discretization_interval=1e-2
+    )
+    mechanism = dpsynth.calibrate(
+        config,
         domains,
         epsilon=1.0,
         delta=1e-3,
         poisson_sampling_prob=0.1,
+        accountant_fn=accountant_fn,
     )
     self.assertIsNotNone(mechanism)
 
@@ -406,12 +411,20 @@ class DataGenerationV3Test(parameterized.TestCase):
         'B': domain.NumericalAttribute(min_value=0, max_value=10),
         'C': domain.OpenSetCategoricalAttribute(),
     }
-    config = TabularConfig()
-    mechanism = config.calibrate(
+    config = TabularConfig(
+        discrete_mechanism=discrete_mechanisms.DirectConfig(),
+        numerical_bins=4,
+    )
+    accountant_fn = functools.partial(
+        dp_accounting.pld.PLDAccountant, value_discretization_interval=1e-2
+    )
+    mechanism = dpsynth.calibrate(
+        config,
         domains,
         epsilon=1.0,
         delta=1e-6,
         poisson_sampling_prob=0.1,
+        accountant_fn=accountant_fn,
     )
     self.assertIsNotNone(mechanism)
 
