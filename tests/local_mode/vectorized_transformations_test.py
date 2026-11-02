@@ -74,6 +74,28 @@ class DiscreteDecodeTest(absltest.TestCase):
 
 class DiscretizeTest(parameterized.TestCase):
 
+  @parameterized.parameters(
+    (True, [25, 50, 75], [0, 1, 0, 0, 0, 3]),
+    (False, [25, 50, 75], [1, 2, 0, 0, 0, 4]),
+    (True, [], [0, 0, 0, 0, 0, 0]),
+    (False, [], [1, 1, 0, 0, 0, 1]),
+  )
+  def test_non_numeric_cells(self, clip, edges, expected):
+    attr = domain.NumericalAttribute(
+      min_value=0,
+      max_value=100,
+      clip_to_range=clip,
+    )
+    data = np.array(
+      [10, '40', '?', None, np.nan, 80], dtype=object
+    )
+
+    result = vectorized_transformations.discretize(
+      data, np.asarray(edges), attr
+    )
+
+    np.testing.assert_array_equal(result, expected)
+
   def test_clip_to_range_basic(self):
     attr = domain.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=True

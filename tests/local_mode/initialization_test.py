@@ -23,6 +23,33 @@ import numpy as np
 
 class InitializationTest(absltest.TestCase):
 
+  def test_non_numeric_cells_are_counted(self):
+    data = np.array(
+      [10, '40', '?', None, np.nan, 80], dtype=object
+    )
+    cases = [
+      (True, [4, 1, 0, 1]),
+      (False, [3, 1, 1, 0, 1])
+    ]
+    for clip, expected in cases:
+      with self.subTest(clip_to_range=clip):
+        attr = domain.NumericalAttribute(
+          min_value=0,
+          max_value=100,
+          clip_to_range=clip,
+          bin_edges=[25, 50, 75],
+        )
+        initializer = initialization.NumericalInitializerConfig(
+          num_partitions=4,
+          max_grid_size=101,
+        ).configure(attr, budget=np.inf)
+
+        measurement = initializer(np.random.default_rng(0), data)
+
+        np.testing.assert_array_equal(
+          measurement.noisy_counts, expected
+        )
+
   def test_numerical_initializer_dp_event(self):
     attr = domain.NumericalAttribute(min_value=0, max_value=10)
     initializer = initialization.NumericalInitializerConfig(num_partitions=4)

@@ -35,7 +35,7 @@ from dpsynth import domain
 import numpy as np
 
 def as_float_array(values):
-  """Converts values to floats, mapping unperseable cells to NaN."""
+  """Converts values to floats, mapping unparseable cells to NaN."""
   try:
     # Keep the existing fast path for numeric/convertible arrays.
     return np.asarray(values, dtype=float)
