@@ -308,7 +308,8 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertIsInstance(result, dp_sft.FineTuneResult)
     self.assertIsInstance(result.model, type(tiny_model))
 
-  def test_sequence_tokenization(self):
+  @parameterized.parameters((None,), (['q1', 'q2'],))
+  def test_sequence_tokenization(self, target_prompts):
     tiny_model = _make_tiny_lora_model()
     fake_example = {
         'input_tokens': jnp.array([1, 2, 3, 4], dtype=jnp.int32),
@@ -326,6 +327,7 @@ class DPFineTunerTest(parameterized.TestCase):
     ).configure(budget=1.0)
     examples = [('p1', 'r1'), ('p2', 'r2')]
     logged_steps = []
+    fake_sample = lambda prompts: [f'gen_{p}' for p in prompts]
     with (
         mock.patch.object(
             model, 'load_gemma', return_value=tiny_model
@@ -333,9 +335,17 @@ class DPFineTunerTest(parameterized.TestCase):
         mock.patch.object(
             model, 'tokenize_example', return_value=fake_example
         ) as mock_tok,
+        mock.patch.object(
+            model, 'GemmaSampler', return_value=fake_sample
+        ) as mock_sampler,
     ):
       log_fn = lambda step, m: logged_steps.append((step, m))
-      result = mechanism(np.random.default_rng(0), examples, metrics_fn=log_fn)
+      result = mechanism(
+          np.random.default_rng(0),
+          examples,
+          metrics_fn=log_fn,
+          target_prompts=target_prompts,
+      )
 
     mock_load.assert_called_once()
     self.assertEqual(mock_tok.call_count, 2)
@@ -344,6 +354,13 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertIsInstance(result, dp_sft.FineTuneResult)
     self.assertIsInstance(result.model, type(tiny_model))
     self.assertIsNone(result.auditor)
+
+    if target_prompts is None:
+      mock_sampler.assert_not_called()
+      self.assertIsNone(result.samples)
+    else:
+      mock_sampler.assert_called_once_with(result.model, max_seq_length=512)
+      self.assertEqual(result.samples, [('q1', 'gen_q1'), ('q2', 'gen_q2')])
 
   @parameterized.parameters(False, True)
   def test_canaries_auditing(self, use_map_dataset):

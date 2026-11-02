@@ -75,10 +75,12 @@ class FineTuneResult:
   Attributes:
     model: The LoRA-wrapped model with trained parameters merged in.
     auditor: Optional ``CanaryScoreAuditor`` when ``canaries`` are provided.
+    samples: Optional ``(prompt, response)`` pairs from ``target_prompts``.
   """
 
   model: nnx.Module
   auditor: jax_privacy.auditing.CanaryScoreAuditor | None = None
+  samples: list[tuple[str, str]] | None = None
 
   def save(self, path: str | os.PathLike[str]) -> None:
     """Saves trainable LoRA parameters from ``self.model`` to ``path``."""
@@ -178,12 +180,19 @@ class DPFineTuner(api.CalibratedMechanism):
       *,
       metrics_fn: callbacks.MetricsFn | None = None,
       canaries: Sequence[tuple[str, str]] | None = None,
+      target_prompts: Sequence[str] | None = None,
   ) -> FineTuneResult:
     """Tokenizes text, loads the model, and runs DP-SGD fine-tuning.
 
     When ``canaries`` are provided, they are treated as public data and split
     50/50 at random into held-in examples (appended to ``data``) and held-out
     examples for empirical privacy auditing.
+
+    When ``target_prompts`` are provided, ``GemmaSampler`` generates synthetic
+    responses at the end of training using default sampling settings. This is
+    primarily intended to spot-check synthetic data quality; for custom sampling
+    configuration or large-scale generation, run offline sampling on the
+    fine-tuned model instead.
 
     Args:
       rng: A numpy random number generator.
@@ -192,10 +201,12 @@ class DPFineTuner(api.CalibratedMechanism):
       metrics_fn: Optional ``(step, metrics) -> None`` callback invoked every
         ``log_every`` steps with scalar summary metrics.
       canaries: Optional public ``(prompt, response)`` pairs for DP auditing.
+      target_prompts: Optional prompts to sample from for output spot-checking.
 
     Returns:
       A ``FineTuneResult`` with the trained model and optional canary score
-      auditor. Private training state (noise, optimizer) is not exposed.
+      auditor and sampled ``(prompt, response)`` pairs. Private training state
+      (noise, optimizer) is not exposed.
     """
     # 1-to-1 per-record mapping preserves record-level differential privacy.
     tok_fn = functools.partial(
@@ -253,4 +264,11 @@ class DPFineTuner(api.CalibratedMechanism):
 
     bf16_params = optax.tree.cast(state.params, jnp.bfloat16)
     merged = nnx.merge(graphdef, bf16_params, frozen_params)
-    return FineTuneResult(model=merged, auditor=state.auditor)
+
+    samples = None
+    if target_prompts is not None:
+      max_len = self.config.max_seq_length
+      sampler = model.GemmaSampler(merged, max_seq_length=max_len)
+      samples = list(zip(target_prompts, sampler(target_prompts), strict=True))
+
+    return FineTuneResult(model=merged, auditor=state.auditor, samples=samples)
