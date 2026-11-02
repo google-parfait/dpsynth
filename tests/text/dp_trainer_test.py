@@ -343,12 +343,12 @@ class DPTrainerTest(absltest.TestCase):
     )
     self.assertIsInstance(result, dp_trainer.TrainingResult)
     assert result.auditor is not None
-    self.assertAlmostEqual(float(result.auditor.attack_auroc()), 1.0, places=5)
+    self.assertAlmostEqual(result.auditor.attack_auroc(), 1.0, places=5)
 
     data = grain.MapDataset.source([{'x': np.zeros(8, dtype=np.float32)}] * 8)
     result = trainer(rng=np.random.default_rng(0), data=data, canaries=canaries)
     assert result.auditor is not None
-    self.assertAlmostEqual(float(result.auditor.attack_auroc()), 1.0, places=5)
+    self.assertAlmostEqual(result.auditor.attack_auroc(), 1.0, places=5)
 
     with self.assertRaises(ValueError):
       trainer(
