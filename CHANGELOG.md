@@ -80,12 +80,12 @@ and this project adheres to
     install small:
     -   `[pipeline]` — scalable Apache Beam / `pipeline_dp` execution path and
         its TensorFlow-based TFRecord I/O.
-    -   `[text]` — free-form text features (`dpsynth.text`): GenAI batch feature
-        extraction and DP fine-tuning of Gemma. `google-genai` moved here from
-        the base install.
+    -   `[training]` — model training and fine-tuning features
+        (`dpsynth.training`): GenAI batch feature extraction and DP fine-tuning
+        of Gemma. `google-genai` moved here from the base install.
     -   `[examples]` — dependencies used only by the example notebooks
         (`kagglehub`, `scikit-learn`, `sdmetrics`).
-    -   `[all]` — the `pipeline` and `text` feature extras.
+    -   `[all]` — the `pipeline` and `training` feature extras.
 
     DPSynth is installed from GitHub rather than PyPI, so request extras with
     the direct-reference syntax, e.g.:

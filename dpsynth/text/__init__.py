@@ -12,19 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Public API for differentially private text fine-tuning and generation."""
+"""Deprecated alias for dpsynth.training."""
 
 # pylint: disable=g-importing-member
 
-from dpsynth.text.dp_sft import DPFineTuner
-from dpsynth.text.dp_sft import DPFineTunerConfig
-from dpsynth.text.dp_sft import FineTuneResult
-from dpsynth.text.dp_trainer import DPTrainer
-from dpsynth.text.dp_trainer import DPTrainerConfig
-from dpsynth.text.dp_trainer import TrainingResult
-from dpsynth.text.model import GemmaSampler
-from dpsynth.text.model import make_mesh
-from dpsynth.text.model import ModelName
+import warnings
+
+from dpsynth.training._gemma import GemmaSampler
+from dpsynth.training._gemma import make_mesh
+from dpsynth.training._gemma import ModelName
+from dpsynth.training._sft import DPFineTuner
+from dpsynth.training._sft import DPFineTunerConfig
+from dpsynth.training._sft import FineTuneResult
+from dpsynth.training._trainer import DPTrainer
+from dpsynth.training._trainer import DPTrainerConfig
+from dpsynth.training._trainer import TrainingResult
+
+warnings.warn(
+    'dpsynth.text is deprecated; use dpsynth.training instead.',
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = [
     'DPFineTuner',

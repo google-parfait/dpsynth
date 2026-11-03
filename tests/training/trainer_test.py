@@ -19,7 +19,8 @@ from unittest import mock
 from absl.testing import absltest
 import dp_accounting
 import dpsynth
-from dpsynth.text import dp_trainer
+from dpsynth import training as dp_trainer
+from dpsynth.training import _trainer
 from flax import nnx
 import grain.python as grain
 import jax
@@ -231,7 +232,9 @@ class DPTrainerTest(absltest.TestCase):
       return broadcast_seed
 
     with mock.patch.object(
-        dp_trainer.multihost_utils, 'broadcast_one_to_all', fake_broadcast
+        _trainer.multihost_utils,
+        'broadcast_one_to_all',
+        fake_broadcast,
     ):
       host0 = trainer(rng=np.random.default_rng(42), data=data)
       with mock.patch.object(jax, 'process_index', return_value=1):

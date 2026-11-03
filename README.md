@@ -60,7 +60,7 @@ DP mechanisms that naturally compose and build on top of each other:
     *   **Sequence**: Event sequences, trajectories, and user session logs.
     *   **Text**: Unstructured text and prompt/response pairs via DP language
         model fine-tuning and conditional generation
-        ([`dpsynth.text`](dpsynth/text/dp_sft.py)).
+        ([`dpsynth.training`](dpsynth/training/)).
 *   **Maturity and API Stability**: While the library supports these different
     modalities, they are currently at different levels of maturity. Basic
     tabular and discrete synthesis are the most mature and well-tested, whereas

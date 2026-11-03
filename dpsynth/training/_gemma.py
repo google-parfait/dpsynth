@@ -96,20 +96,10 @@ def make_mesh(tp: int = 1) -> jax.sharding.Mesh:
   return jax.sharding.Mesh(devices, axis_names=('replica', 'fsdp', 'tp'))
 
 
-@dataclasses.dataclass(frozen=True)
-class LoraConfig:
-  """Configuration for LoRA adaptation."""
-
-  rank: int = 16
-  alpha: float | None = None
-  targets: str = _DEFAULT_LORA_TARGETS
-  weight_qtype: str | None = None
-
-
 def load_gemma(
     model: ModelName,
-    lora_config: LoraConfig = LoraConfig(),
     *,
+    lora_rank: int = 16,
     checkpoint_path: epath.PathLike | None = None,
     mesh: jax.sharding.Mesh | None = None,
 ) -> nnx.Module:
@@ -117,7 +107,7 @@ def load_gemma(
 
   Args:
     model: Which Gemma variant to load.
-    lora_config: LoRA adapter configuration.
+    lora_rank: Rank of the LoRA adapter matrices.
     checkpoint_path: Checkpoint to restore from. If None, loads pretrained base
       weights for ``model`` and initializes fresh LoRA adapters. If a checkpoint
       is provided, restores LoRA params.
@@ -146,16 +136,10 @@ def load_gemma(
       cfg,
       mesh=mesh,
   )
-  alpha = (
-      lora_config.alpha
-      if lora_config.alpha is not None
-      else float(lora_config.rank)
-  )
   lora_provider = qwix.LoraProvider(
-      module_path=lora_config.targets,
-      rank=lora_config.rank,
-      alpha=alpha,
-      weight_qtype=lora_config.weight_qtype,
+      module_path=_DEFAULT_LORA_TARGETS,
+      rank=lora_rank,
+      alpha=float(lora_rank),
   )
   warm_tokens = jnp.ones((1, 1), dtype=jnp.int32)
   warm_mask = jnp.ones((1, 1, 1), dtype=jnp.bool_)
@@ -193,7 +177,7 @@ def load_gemma(
   num_base = total - num_lora
   logging.info(
       'Loaded Gemma model w/ LoRA (rank=%d): %d lora (%.4f%%), %d base',
-      lora_config.rank,
+      lora_rank,
       num_lora,
       100.0 * num_lora / (num_lora + num_base),
       num_base,

@@ -24,9 +24,9 @@ import typing
 
 import dp_accounting
 from dpsynth import api
+from dpsynth import training as dp_trainer
 from dpsynth.discrete_mechanisms import common as dm_common
 from dpsynth.experimental.synthetic_transformer import transformer_model
-from dpsynth.text import dp_trainer
 from flax import nnx
 import jax
 import jax.numpy as jnp

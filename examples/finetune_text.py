@@ -43,7 +43,7 @@ from absl import app
 from absl import flags
 from absl import logging
 import dpsynth
-import dpsynth.text
+import dpsynth.training
 from etils import epath
 import jax
 from jax_privacy import execution_plan
@@ -72,7 +72,7 @@ class Config:
   instruction: str
   checkpoint_dir: str | None = None
   dp_plan: str | None = None
-  model: dpsynth.text.ModelName = 'gemma4_e2b_it'
+  model: dpsynth.training.ModelName = 'gemma4_e2b_it'
   microbatch_size: int = 8
   num_samples: int = 64
   seed: int = 0
@@ -95,7 +95,7 @@ def main(argv: Sequence[str]) -> None:
         expected_participations=8.0,
     )
 
-  fine_tuner = dpsynth.text.DPFineTunerConfig(
+  fine_tuner = dpsynth.training.DPFineTunerConfig(
       model=cfg.model,
       mechanism_config=plan,
       microbatch_size=cfg.microbatch_size,
@@ -104,7 +104,7 @@ def main(argv: Sequence[str]) -> None:
   target_prompts = [cfg.instruction] * cfg.num_samples
   out_dir = epath.Path(cfg.output_dir)
   logging.info('DP fine-tuning on %d documents...', len(train_data))
-  with jax.set_mesh(dpsynth.text.make_mesh()):
+  with jax.set_mesh(dpsynth.training.make_mesh()):
     with dpsynth.checkpoint(cfg.checkpoint_dir):
       result = fine_tuner(
           rng=np.random.default_rng(cfg.seed),

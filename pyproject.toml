@@ -47,7 +47,7 @@ pipeline = [
     "tensorflow",
 ]
 all = [
-    "dpsynth[pipeline,text]",
+    "dpsynth[pipeline,training]",
 ]
 dev = [
     "chex",
@@ -55,7 +55,7 @@ dev = [
     "pytest-xdist",
     "pyrefly",
 ]
-text = [
+training = [
     "flax",
     "google-tunix",
     "qwix",
@@ -69,7 +69,7 @@ docs = [
     "myst-parser",
 ]
 examples = [
-    "dpsynth[text]",
+    "dpsynth[training]",
     "datasets",
     "kagglehub",
     "scikit-learn",
