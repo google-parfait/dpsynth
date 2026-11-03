@@ -12,129 +12,85 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""End-to-end example of SyntheticTransformer with TabularSynthesizer.
+"""End-to-end example of TabularTransformer with TabularConfig."""
 
-This example loads a tabular dataset and its domain specification,
-configures a TabularSynthesizer with a custom TransformerDiscreteMechanism
-(which wraps the SyntheticTransformer), and runs the synthesizer.
-TabularSynthesizer handles all discretization and encoding/decoding
-automatically.
-"""
+from __future__ import annotations
 
-from absl import app
-from absl import flags
-from dpsynth import data_generation_v3
-from dpsynth import domain
-from dpsynth.experimental.synthetic_transformer import synth_transformer
+import dataclasses
+
+from absl import logging
+import dpsynth
+import dpsynth.training
 from etils import epath
 import numpy as np
 import pandas as pd
-
-_CSV_PATH = flags.DEFINE_string(
-    "csv_path",
-    None,
-    "Path to input dataset CSV file.",
-    required=True,
-)
-_DOMAIN_PATH = flags.DEFINE_string(
-    "domain_path",
-    None,
-    "Path to dataset domain YAML specification.",
-    required=True,
-)
+import simple_parsing
 
 
-def main(argv):
-  del argv
+@dataclasses.dataclass(frozen=True)
+class Config:
+  """Command-line configuration for TabularTransformer synthesis.
 
-  # 1. LOAD DATA
-  csv_path = _CSV_PATH.value
-  print(f"Loading dataset from {csv_path}...")
-  with epath.Path(csv_path).open("r") as f:
-    df = pd.read_csv(f)
+  Attributes:
+    input_path: Path to the input CSV dataset.
+    domain_path: Path to the domain Schema YAML file.
+    output_dir: Directory where synthetic data and privacy report are written.
+    epsilon: Target differential privacy epsilon.
+    delta: Target differential privacy delta.
+    seed: Optional random seed for reproducibility.
+  """
 
-  print(f"Loaded dataset with shape: {df.shape}")
+  input_path: str = 'datasets/adult.csv'
+  domain_path: str = 'datasets/adult_domain.yaml'
+  output_dir: str = 'dpsynth_output'
+  epsilon: float = 1.0
+  delta: float = 1e-6
+  seed: int | None = None
 
-  # 2. LOAD DOMAIN
-  domain_path = _DOMAIN_PATH.value
-  print(f"\nLoading domain from {domain_path}...")
-  attribute_domains = domain.from_yaml_file(str(domain_path))
 
-  # Use columns from the dataset that exist in the domain
-  domain_spec = {
-      col: attribute_domains[col]
-      for col in df.columns
-      if col in attribute_domains
-  }
-  df = df[list(domain_spec.keys())]
+def run(cfg: Config) -> pd.DataFrame:
+  """Runs calibrated TabularTransformer synthesis and writes outputs to disk."""
+  rng = np.random.default_rng(cfg.seed)
+  df = pd.read_csv(cfg.input_path)
+  schema = dpsynth.from_yaml(cfg.domain_path)
 
-  transformer_config = synth_transformer.TabularTransformerConfig(
+  transformer_config = dpsynth.training.TabularTransformerConfig(
       num_layers=2,
       n_head=2,
       emb_dim=16,
-  )
-  discrete_mechanism = synth_transformer.TabularTransformer(
-      config=transformer_config,
       num_epochs=100,
       num_iterations=1000,
       learning_rate=1e-3,
   )
-
-  # 4. INITIALIZE AND CALIBRATE TABULAR SYNTHESIZER
-  print("\nInitializing and calibrating TabularConfig...")
-  synth = data_generation_v3.TabularConfig(
-      # pyrefly: ignore[bad-argument-type]
-      discrete_mechanism=discrete_mechanism,
+  tabular_cfg = dpsynth.TabularConfig(
+      discrete_mechanism=transformer_config,
       numerical_bins=8,
   )
-  # Configure with budget = np.inf for non-DP mode.
-  calibrated_synth = synth.configure(domain_spec, budget=np.inf)
 
-  # 5. RUN SYNTHESIZER
-  print(
-      "Running synthesizer (this will discretize, train, sample, and decode)..."
+  mechanism = dpsynth.calibrate(
+      tabular_cfg, schema, epsilon=cfg.epsilon, delta=cfg.delta
   )
-  rng = np.random.default_rng(42)
-  result = calibrated_synth(rng, df)
-  df_synth = result.synthetic_data
+  result = mechanism(rng, df)
 
-  print("\nSample synthetic data:")
-  print(df_synth.head(5))
+  out_dir = epath.Path(cfg.output_dir)
+  out_dir.mkdir(parents=True, exist_ok=True)
+  out_csv = out_dir / 'synthetic_data.csv'
+  result.synthetic_data.to_csv(out_csv, index=False)
 
-  # 6. COMPARE STATS (Quality Check)
-  print("\n--- Comparing Statistics (Quality Check) ---")
-
-  # Categorical check
-  cat_cols = [
-      col
-      for col, spec in domain_spec.items()
-      if isinstance(spec, domain.CategoricalAttribute)
-  ]
-  if cat_cols:
-    sample_cat = cat_cols[0]
-    print(f"\nMarginal distribution for '{sample_cat}' (categorical):")
-    orig_dist = df[sample_cat].value_counts(normalize=True)
-    synth_dist = df_synth[sample_cat].value_counts(normalize=True)
-    print(
-        pd.DataFrame({"Original": orig_dist, "Synthetic": synth_dist}).fillna(0)
-    )
-
-  # Numerical check
-  num_cols = [
-      col
-      for col, spec in domain_spec.items()
-      if isinstance(spec, domain.NumericalAttribute)
-  ]
-  if num_cols:
-    print("\nMean values for numerical columns:")
-    orig_means = df[num_cols].mean()
-    synth_means = df_synth[num_cols].mean()
-    print(
-        pd.DataFrame(
-            {"Original Mean": orig_means, "Synthetic Mean": synth_means}
-        )
-    )
+  report = dpsynth.PrivacyReport.from_dp_event(
+      mechanism.dp_event, target_deltas=[cfg.delta]
+  )
+  dpsynth.to_yaml(report, out_dir / 'privacy_report.yaml')
+  logging.info(
+      'Wrote %d synthetic rows to %s', len(result.synthetic_data), out_csv
+  )
+  return result.synthetic_data
 
 
-if __name__ == "__main__":
-  app.run(main)
+def main() -> None:
+  logging.set_verbosity(logging.INFO)
+  run(simple_parsing.parse(Config))
+
+
+if __name__ == '__main__':
+  main()
