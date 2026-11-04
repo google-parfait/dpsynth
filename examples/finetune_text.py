@@ -27,10 +27,10 @@ highly tuned, and is missing some of the bells and whistles of a production job.
 
 Example usage::
 
-  python examples/finetune_text.py \
-      --data_path=/path/to/pubmed.json \
-      --canary_path=examples/datasets/pubmed_canaries.json \
-      --output_dir=/path/to/output \
+  python finetune_text.py \
+      --data_path=datasets/pubmed.json \
+      --canary_path=datasets/pubmed_canaries.json \
+      --output_dir=dpsynth_output \
       --instruction="Write the abstract of a research paper."
 """
 
