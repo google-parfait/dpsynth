@@ -34,6 +34,26 @@ from __future__ import annotations
 from dpsynth import domain
 import numpy as np
 
+def as_float_array(values):
+  """Converts values to floats, mapping unparseable cells to NaN."""
+  try:
+    # Keep the existing fast path for numeric/convertible arrays.
+    return np.asarray(values, dtype=float)
+  except (ValueError, TypeError):
+    values = np.asarray(values, dtype=object)
+
+    def convert(value):
+      try:
+        return float(value)
+      except (ValueError, TypeError):
+        return np.nan
+
+    return np.fromiter(
+      (convert(value) for value in values.flat),
+      dtype=float,
+      count=values.size,
+    ).reshape(values.shape)
+
 
 def discrete_encode(
     data: np.ndarray,
@@ -132,9 +152,7 @@ def discretize(
     out-of-domain (``'<OOD>'``) bin and in-domain bins start at 1.
   """
   min_, max_ = attribute_domain.min_value, attribute_domain.max_value
-  # Coerce to float64 so object-typed arrays (e.g. containing '<OOD>') work
-  # with np.clip / np.isnan without TypeError.
-  data = np.asarray(data, dtype=float)
+  data = as_float_array(data)
   _validate_bin_edges(bin_edges, attribute_domain)
 
   if attribute_domain.clip_to_range:

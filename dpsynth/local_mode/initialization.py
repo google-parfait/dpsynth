@@ -46,7 +46,7 @@ def encode_to_grid(values, lower, upper, delta, attribute=None, **_):
     The nearest grid index (or array of indices) as ``np.int64``.
   """
   if attribute is not None:
-    values = np.asarray(values, dtype=float)
+    values = vtx.as_float_array(values)
     if attribute.clip_to_range:
       values = np.where(np.isnan(values), attribute.min_value, values)
     elif values.ndim > 0:
