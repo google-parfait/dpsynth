@@ -29,6 +29,7 @@ Example usage::
 
   python examples/finetune_text.py \
       --data_path=/path/to/pubmed.json \
+      --canary_path=examples/datasets/pubmed_canaries.json \
       --output_dir=/path/to/output \
       --instruction="Write the abstract of a research paper."
 """
@@ -60,6 +61,7 @@ class Config:
     output_dir: Directory to save the DP-safe fine-tuned model and samples.
     instruction: Fixed instruction prompt paired with each training document.
     checkpoint_dir: Optional directory for mid-training checkpoints.
+    canary_path: Optional path to a JSON file containing canary text strings.
     dp_plan: Optional YAML path for a BandMFConfig execution plan.
     model: Gemma model variant to fine-tune.
     microbatch_size: Microbatch size for per-example gradient clipping.
@@ -71,6 +73,7 @@ class Config:
   output_dir: str
   instruction: str
   checkpoint_dir: str | None = None
+  canary_path: str | None = None
   dp_plan: str | None = None
   model: dpsynth.training.ModelName = 'gemma4_e2b_it'
   microbatch_size: int = 8
@@ -78,13 +81,22 @@ class Config:
   seed: int = 0
 
 
+def _load_examples(path: str, instruction: str) -> list[tuple[str, str]]:
+  """Loads a JSON list of texts and pairs each with the instruction prompt."""
+  # epath.Path.open raises FileNotFoundError with the path if missing.
+  with epath.Path(path).open() as f:
+    texts = [t.strip() for t in json.load(f) if t and t.strip()]
+  # Frame each document as a (fixed instruction prompt -> text) SFT pair.
+  return [(instruction, text) for text in texts]
+
+
 def main(argv: Sequence[str]) -> None:
   cfg = simple_parsing.parse(Config, args=argv[1:])
 
-  with epath.Path(cfg.data_path).open() as f:
-    texts = [t.strip() for t in json.load(f) if t and t.strip()]
-  # Frame each document as a (fixed instruction prompt -> text) SFT pair.
-  train_data = [(cfg.instruction, text) for text in texts]
+  train_data = _load_examples(cfg.data_path, cfg.instruction)
+  canaries = None
+  if cfg.canary_path is not None:
+    canaries = _load_examples(cfg.canary_path, cfg.instruction)
 
   if cfg.dp_plan is not None:
     plan = dpsynth.from_yaml(cfg.dp_plan, execution_plan.BandMFConfig)
@@ -109,9 +121,14 @@ def main(argv: Sequence[str]) -> None:
       result = fine_tuner(
           rng=np.random.default_rng(cfg.seed),
           data=train_data,
+          canaries=canaries,
           target_prompts=target_prompts,
       )
     result.save(out_dir / 'params')
+
+  if result.auditor is not None:
+    audit_report = dpsynth.AuditReport.from_auditor(result.auditor)
+    dpsynth.to_yaml(audit_report, out_dir / 'audit_report.yaml')
 
   assert result.samples is not None
   out_path = out_dir / 'synthetic_samples.jsonl'
