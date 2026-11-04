@@ -44,21 +44,17 @@ def discrete_encode(
   Out-of-domain values are mapped to ``attribute_domain.out_of_domain_index``.
 
   Args:
-    data: 1-D array of categorical values.  Must be a homogeneous dtype.
+    data: 1-D array of categorical values.
     attribute_domain: The categorical attribute defining the encoding.
 
   Returns:
     A 1-D integer array of indices into ``attribute_domain.possible_values``.
   """
-  lookup = attribute_domain.lookup
   default = attribute_domain.out_of_domain_index
-  # Loop over unique values only (typically ≪ len(data) for categoricals),
-  # then remap via pure numpy fancy indexing.  Normalizing to str avoids
-  # mixed-type comparison errors in np.unique on numpy 2.x (e.g. NaN + str).
-  data = np.asarray(data, dtype=str)
-  uniq, inv = np.unique(data, return_inverse=True)
-  uniq_encoded = np.array([lookup.get(v, default) for v in uniq], dtype=int)
-  return uniq_encoded[inv]
+  lookup = {v: i for i, v in enumerate(attribute_domain.possible_values)}
+  # O(1) dict hash lookup is faster than np.searchsorted on object/str arrays.
+  indices = (lookup.get(x, default) for x in data)
+  return np.fromiter(indices, dtype=int, count=len(data))
 
 
 def discrete_decode(
@@ -141,10 +137,6 @@ def discretize(
   data = np.asarray(data, dtype=float)
   _validate_bin_edges(bin_edges, attribute_domain)
 
-  if bin_edges.size == 0:
-    # Single bin covers the entire domain.
-    return np.zeros(len(data), dtype=int)
-
   if attribute_domain.clip_to_range:
     # Out-of-domain values are clipped to the public range (including nan).
     standardized = np.clip(data, min_, max_)
@@ -182,13 +174,6 @@ def undiscretize(
   min_, max_ = attribute_domain.min_value, attribute_domain.max_value
   _validate_bin_edges(bin_edges, attribute_domain)
 
-  if bin_edges.size == 0:
-    # Single bin: return domain midpoint for all indices.
-    mid = (min_ + max_) / 2.0
-    result = np.full(len(bin_indices), mid)
-    if attribute_domain.dtype == 'int' and attribute_domain.clip_to_range:
-      result = np.ceil(result).astype(int)
-    return result
   full_edges = np.r_[min_, bin_edges, max_]
   lefts, rights = full_edges[:-1], full_edges[1:]
   handling = attribute_domain.interval_handling

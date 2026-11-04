@@ -19,7 +19,7 @@ from dpsynth.local_mode import vectorized_transformations
 import numpy as np
 
 
-class DiscreteEncodeTest(absltest.TestCase):
+class DiscreteEncodeTest(parameterized.TestCase):
 
   def test_basic_encoding(self):
     attr = domain.CategoricalAttribute(['None', 'a', 'b', 'c'])
@@ -46,6 +46,29 @@ class DiscreteEncodeTest(absltest.TestCase):
     data = np.array([], dtype=object)
     result = vectorized_transformations.discrete_encode(data, attr)
     self.assertEqual(result.shape, (0,))
+
+  @parameterized.parameters(
+      (['<OOD>', 'a', 'b'], ['b', None, 'a', np.nan, 999], [2, 0, 1, 0, 0]),
+      ([-1, 10, 20], [20, None, 10, np.nan, 'bad'], [2, 0, 1, 0, 0]),
+      ([False, True], [True, None, np.nan, 'other'], [1, 0, 0, 0]),
+  )
+  def test_heterogeneous_object_array_with_none_and_nan(
+      self, possible_values, raw_data, expected
+  ):
+    attr = domain.CategoricalAttribute(possible_values, out_of_domain_index=0)
+    data = np.array(raw_data, dtype=object)
+    result = vectorized_transformations.discrete_encode(data, attr)
+    np.testing.assert_array_equal(result, expected)
+
+  def test_random_unsorted_domain_matches_lookup(self):
+    rng = np.random.default_rng(42)
+    vocab = [f'cat_{i}' for i in rng.permutation(50)]
+    attr = domain.CategoricalAttribute(vocab, out_of_domain_index=7)
+    pool = np.array(vocab + ['ood_1', 'ood_2', ''], dtype=object)
+    data = rng.choice(pool, size=1000)
+    result = vectorized_transformations.discrete_encode(data, attr)
+    expected = [attr.lookup.get(str(v), attr.out_of_domain_index) for v in data]
+    np.testing.assert_array_equal(result, expected)
 
 
 class DiscreteDecodeTest(absltest.TestCase):
@@ -134,6 +157,13 @@ class DiscretizeTest(parameterized.TestCase):
       vectorized_transformations.discretize(
           np.array([1.0]), np.array([5.0, 3.0]), attr
       )
+
+  @parameterized.parameters((True, [0, 0, 0]), (False, [1, 0, 0]))
+  def test_empty_bin_edges(self, clip_to_range, expected):
+    attr = domain.NumericalAttribute(0, 10, clip_to_range=clip_to_range)
+    data = np.array([5.0, -1.0, np.nan])
+    result = vectorized_transformations.discretize(data, np.array([]), attr)
+    np.testing.assert_array_equal(result, expected)
 
 
 class UndiscretizeTest(parameterized.TestCase):
@@ -318,6 +348,26 @@ class UndiscretizeTest(parameterized.TestCase):
     else:
       self.assertTrue(np.issubdtype(result.dtype, np.integer))
       self.assertEqual(result[0], sentinel)
+
+  @parameterized.parameters('midpoint', 'sample', 'interval')
+  def test_empty_bin_edges_no_clip(self, interval_handling):
+    rng = np.random.default_rng(0)
+    sentinel = 'MISSING' if interval_handling == 'interval' else -1
+    attr = domain.NumericalAttribute(
+        0,
+        10,
+        clip_to_range=False,
+        sentinel=sentinel,
+        interval_handling=interval_handling,
+    )
+    result = vectorized_transformations.undiscretize(
+        np.array([0, 1]), np.array([]), attr, rng=rng
+    )
+    if interval_handling == 'interval':
+      np.testing.assert_array_equal(result, ['MISSING', '[0.0, 10.0]'])
+    else:
+      self.assertEqual(result[0], -1)
+      self.assertBetween(result[1], 0.0, 10.0)
 
 
 class MergeRareValuesTest(absltest.TestCase):
