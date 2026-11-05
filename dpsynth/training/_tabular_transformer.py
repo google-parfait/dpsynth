@@ -111,7 +111,7 @@ def sample_flat_nnx(
 
   def sample_single(single_key):
     keys = jax.random.split(single_key, num_features)
-    c = model.header(jnp.ones((1, 1)))[0]
+    c = model.header(jnp.ones((1, 1), dtype=jnp.float32))[0]
 
     sampled_cols = []
     for i in range(num_features):
@@ -194,7 +194,8 @@ class TabularTransformer(api.CalibratedMechanism):
     # 1-to-1 per-record mapping preserves record-level differential privacy.
     columns = list(data.domain.attributes)
     discrete_dict = data.to_dict()
-    rows = jnp.stack([discrete_dict[col] for col in columns], axis=1)
+    cols = [discrete_dict[col] for col in columns]
+    rows = jnp.stack(cols, axis=1, dtype=jnp.int32)
 
     graphdef, trainable_params, frozen_params, loss_fn = _init_model_and_loss(
         rng, self.config, data.domain
