@@ -40,57 +40,55 @@ class Config:
     seed: Optional random seed for reproducibility.
   """
 
-  input_path: str = 'datasets/adult.csv'
-  domain_path: str = 'datasets/adult_domain.yaml'
+  input_path: str = 'datasets/msnbc.csv'
+  domain_path: str = 'datasets/msnbc_domain.yaml'
   output_dir: str = 'dpsynth_output'
   epsilon: float = 1.0
   delta: float = 1e-6
   seed: int | None = None
 
 
-def run(cfg: Config) -> pd.DataFrame:
+def main(cfg: Config) -> None:
   """Runs calibrated TabularTransformer synthesis and writes outputs to disk."""
-  rng = np.random.default_rng(cfg.seed)
-  df = pd.read_csv(cfg.input_path)
-  schema = dpsynth.from_yaml(cfg.domain_path)
+  logging.set_verbosity(logging.INFO)
 
+  # Configure and calibrate the DP TabularTransformer mechanism.
+  schema = dpsynth.from_yaml(cfg.domain_path)
   transformer_config = dpsynth.training.TabularTransformerConfig(
       num_layers=2,
-      n_head=2,
-      emb_dim=16,
-      num_epochs=100,
-      num_iterations=1000,
-      learning_rate=1e-3,
+      n_head=4,
+      emb_dim=32,
+      num_epochs=5,
+      num_iterations=500,
+      learning_rate=3e-3,
   )
   tabular_cfg = dpsynth.TabularConfig(
       discrete_mechanism=transformer_config,
-      numerical_bins=8,
+      # TabularTransformer does not use 1-way initial measurements, and MSNBC
+      # has only closed-domain categorical columns, so reserve almost all of
+      # the privacy budget for training the Transformer.
+      init_budget_fraction=1e-8,
   )
-
   mechanism = dpsynth.calibrate(
       tabular_cfg, schema, epsilon=cfg.epsilon, delta=cfg.delta
   )
+
+  # Load the private dataset and run the calibrated mechanism.
+  rng = np.random.default_rng(cfg.seed)
+  df = pd.read_csv(cfg.input_path)
   result = mechanism(rng, df)
 
+  # Save the synthetic dataset and privacy report to disk.
   out_dir = epath.Path(cfg.output_dir)
   out_dir.mkdir(parents=True, exist_ok=True)
   out_csv = out_dir / 'synthetic_data.csv'
-  result.synthetic_data.to_csv(out_csv, index=False)
+  synth_df = result.synthetic_data
+  synth_df.to_csv(out_csv, index=False)
 
-  report = dpsynth.PrivacyReport.from_dp_event(
-      mechanism.dp_event, target_deltas=[cfg.delta]
-  )
+  report = dpsynth.PrivacyReport.from_dp_event(mechanism.dp_event)
   dpsynth.to_yaml(report, out_dir / 'privacy_report.yaml')
-  logging.info(
-      'Wrote %d synthetic rows to %s', len(result.synthetic_data), out_csv
-  )
-  return result.synthetic_data
-
-
-def main() -> None:
-  logging.set_verbosity(logging.INFO)
-  run(simple_parsing.parse(Config))
+  logging.info('Wrote %d synthetic rows to %s', len(synth_df), out_csv)
 
 
 if __name__ == '__main__':
-  main()
+  main(simple_parsing.parse(Config))
