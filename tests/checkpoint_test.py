@@ -54,8 +54,8 @@ class CheckpointTest(parameterized.TestCase):
       call_count += 1
       return 42
 
-    result1 = _checkpoint.get_or_compute("test_stage", compute)
-    result2 = _checkpoint.get_or_compute("test_stage", compute)
+    result1 = _checkpoint.get_or_compute("test_stage", compute, rng=None)
+    result2 = _checkpoint.get_or_compute("test_stage", compute, rng=None)
 
     self.assertEqual(result1, 42)
     self.assertEqual(result2, 42)
@@ -72,14 +72,31 @@ class CheckpointTest(parameterized.TestCase):
         return np.array([1.0, 2.0, 3.0])
 
       # First call: computes and saves.
-      result1 = _checkpoint.get_or_compute("array_stage", compute)
+      result1 = _checkpoint.get_or_compute("array_stage", compute, rng=None)
       self.assertEqual(call_count, 1)
       np.testing.assert_array_equal(result1, [1.0, 2.0, 3.0])
 
       # Second call: loads from checkpoint, skips compute.
-      result2 = _checkpoint.get_or_compute("array_stage", compute)
+      result2 = _checkpoint.get_or_compute("array_stage", compute, rng=None)
       self.assertEqual(call_count, 1)
       np.testing.assert_array_equal(result2, [1.0, 2.0, 3.0])
+
+  def test_get_or_compute_spawns_rng(self):
+    temp_dir = self.create_tempdir().full_path
+    with _checkpoint.checkpoint(temp_dir):
+      rng1 = np.random.default_rng(42)
+      _checkpoint.get_or_compute(
+          "rng_stage", lambda r: r.normal(size=5), rng=rng1
+      )
+      draw_after_compute = rng1.normal()
+
+      rng2 = np.random.default_rng(42)
+      _checkpoint.get_or_compute(
+          "rng_stage", lambda r: r.normal(size=5), rng=rng2
+      )
+      draw_after_load = rng2.normal()
+
+      self.assertEqual(draw_after_compute, draw_after_load)
 
   def test_column_measurements_serialization(self):
     temp_dir = self.create_tempdir().full_path

@@ -256,19 +256,21 @@ class TabularMechanism(api.CalibratedMechanism):
         )
 
     # Phase 1: Per-column initialization.
-    def _run_initializers():
+    def _run_initializers(init_rng):
       return {
-          col: init(rng, data[col].values)
+          col: init(init_rng, data[col].values)
           for col, init in self.initializers.items()
       }
 
     results = _checkpoint.get_or_compute(
-        'column_measurements', _run_initializers
+        'column_measurements', _run_initializers, rng=rng
     )
 
     # Phase 2: Encode data to the discrete domain.
     codec = TabularCodec.from_measurements(results, self.schema)
-    discrete = _checkpoint.get_or_compute('discrete_data', codec.encode, data)
+    discrete = _checkpoint.get_or_compute(
+        'discrete_data', codec.encode, data, rng=None
+    )
     logging.info('[DPSynth]: Finished encoding data.')
 
     # Phase 3: Run the discrete mechanism and decode back to the input domain.
@@ -330,6 +332,7 @@ class TabularMechanism(api.CalibratedMechanism):
             data,
             cliques,  # pyrefly: ignore[bad-argument-type]
             use_jax=self.config.use_jax_for_bincount,
+            rng=None,
         )
 
     mechanism_result = self.base_mechanism(

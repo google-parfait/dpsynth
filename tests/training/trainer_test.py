@@ -335,7 +335,7 @@ class DPTrainerTest(absltest.TestCase):
             init_params={'w': jnp.zeros(8)},
             loss_fn=loss_fn,
             mechanism_config=config,
-            optimizer=optax.sgd(0.5),
+            optimizer=optax.sgd(0.1),
         )
     )
     canaries = {'x': jnp.eye(8)}

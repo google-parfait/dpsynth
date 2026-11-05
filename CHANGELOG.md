@@ -55,6 +55,19 @@ and this project adheres to
 -   **`compress_columns` in `TabularConfig`**: Automatically compresses rare
     categories (< 3σ) for categorical columns not present in constraints.
 
+### Fixed
+
+-   **Checkpoint RNG isolation**: `_checkpoint.get_or_compute` now requires an
+    explicit `rng` argument and spawns an independent child
+    `np.random.Generator` upfront for each randomized stage, ensuring caller RNG
+    progression is identical whether stages are computed from scratch or loaded
+    from a checkpoint ([#287](https://github.com/google-parfait/dpsynth/issues/287)).
+-   **Non-numeric cells in numerical columns**: Vectorized numerical
+    initialization and discretization in `local_mode` and `dpsynth.relational`
+    now standardize object-dtype arrays containing non-numeric strings or `None`
+    instead of raising a data-dependent `ValueError` or `TypeError`
+    ([#288](https://github.com/google-parfait/dpsynth/issues/288)).
+
 ### Internal / Cleanups
 
 -   **Decoupled initializers from MBI**: Removed MBI and JAX dependencies from

@@ -357,11 +357,10 @@ class DataGenerationV3Test(parameterized.TestCase):
         'B': domain.NumericalAttribute(min_value=0.0, max_value=10.0),
     }
     df = pd.DataFrame({'A': ['a', 'b', 'c'], 'B': [1.0, 5.0, 10.0]})
-    rng = np.random.default_rng(0)
     calibrated = TabularConfig().configure(domains, budget=100.0)
 
     with dpsynth.checkpoint(temp_dir):
-      result1 = calibrated(rng, df)
+      result1 = calibrated(np.random.default_rng(0), df)
     self.assertIsInstance(result1.synthetic_data, pd.DataFrame)
 
     col_meas_path = os.path.join(temp_dir, 'column_measurements.npz')
@@ -372,10 +371,15 @@ class DataGenerationV3Test(parameterized.TestCase):
     self.assertTrue(os.path.exists(precomp_path))
 
     with dpsynth.checkpoint(temp_dir):
-      result2 = calibrated(rng, df)
-
+      result2 = calibrated(np.random.default_rng(0), df)
     self.assertIsInstance(result2.synthetic_data, pd.DataFrame)
     self.assertListEqual(result2.synthetic_data.columns.tolist(), ['A', 'B'])
+    meas1 = result1.discrete_mechanism_result.measurements
+    meas2 = result2.discrete_mechanism_result.measurements
+    for m1, m2 in zip(meas1, meas2, strict=True):
+      np.testing.assert_allclose(
+          m1.noisy_measurement, m2.noisy_measurement, rtol=1e-6
+      )
 
   def test_numerical_epsilon_ratio_plumbing(self):
     domains = {'A': domain.NumericalAttribute(min_value=0, max_value=10)}

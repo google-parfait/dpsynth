@@ -26,6 +26,7 @@ from dpsynth.local_mode import initialization
 from etils import epath
 import jax
 import mbi
+import numpy as np
 
 T = TypeVar("T")
 PathType = epath.PathLike
@@ -99,6 +100,7 @@ def get_or_compute(
     name: str,
     compute_fn: Callable[..., T],
     *args: Any,
+    rng: np.random.Generator | None,
     **kwargs: Any,
 ) -> T:
   """Returns the checkpointed value if available, or computes and saves it.
@@ -107,11 +109,19 @@ def get_or_compute(
     name: The stage name (e.g. 'column_measurements', 'discrete_data').
     compute_fn: Callable that produces the intermediate value.
     *args: Positional arguments for ``compute_fn``.
+    rng: Random number generator for randomized stages, or None for
+      deterministic stages.
     **kwargs: Keyword arguments for ``compute_fn``.
 
   Returns:
     The loaded or computed value.
   """
+  if rng is not None:
+    # Generator.spawn derives a statistically independent child BitGenerator
+    # stream via SeedSequence hashing while advancing the parent's spawn counter
+    # by 1, isolating the caller's RNG from how many draws the stage consumes
+    # and ensuring identical RNG progression on cache hits and misses.
+    args = (rng.spawn(1)[0], *args)
   dir_path = get_active_checkpoint_dir()
   if dir_path is None:
     return compute_fn(*args, **kwargs)

@@ -216,7 +216,9 @@ class DPTrainer(api.CalibratedMechanism):
     logging.info('DPTrainer config:\n%s', json.dumps(d, indent=2))
 
     if jax.process_index() == 0:
-      seed = _checkpoint.get_or_compute('rng_seed', rng.integers, 2**31)
+      seed = _checkpoint.get_or_compute(
+          'rng_seed', lambda r: r.integers(2**31), rng=rng
+      )
     else:
       seed = 0  # Dummy placeholder; overwritten by broadcast_one_to_all below.
     seed = multihost_utils.broadcast_one_to_all(np.asarray(seed, np.int32))

@@ -250,10 +250,10 @@ class SWIFT(api.CalibratedMechanism):
     pgm_future = None
     synth_future = None
 
-    def _measure() -> list[mbi.LinearMeasurement]:
+    def _measure(measure_rng) -> list[mbi.LinearMeasurement]:
       nonlocal jtree, pgm_future, synth_future
       meas, jtree, pgm_future, synth_future = self.select_and_measure_queries(
-          rng,
+          measure_rng,
           data,
           initial_measurements=initial_measurements,
           constraints=constraints,
@@ -262,7 +262,7 @@ class SWIFT(api.CalibratedMechanism):
       )
       return meas
 
-    measurements = _checkpoint.get_or_compute('measurements', _measure)
+    measurements = _checkpoint.get_or_compute('measurements', _measure, rng=rng)
 
     def _estimate() -> mbi.Model:
       return self.estimate_model(
@@ -274,7 +274,7 @@ class SWIFT(api.CalibratedMechanism):
           phase_times=phase_times,
       )
 
-    final_model = _checkpoint.get_or_compute('model', _estimate)
+    final_model = _checkpoint.get_or_compute('model', _estimate, rng=None)
 
     if synth_future is not None:
       t0 = time.time()
