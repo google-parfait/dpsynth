@@ -14,6 +14,10 @@
 
 name: Unittests
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main]
@@ -27,7 +31,7 @@ permissions:
 jobs:
   check-lockfile:
     name: "Check: pylock.toml Sync"
-    runs-on: ubuntu-latest
+    runs-on: large-4cpu-16gbRAM-150gbSSD-ubuntu24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -71,14 +75,8 @@ jobs:
 
   pytest-job:
     name: pytest-job
-    needs: check-lockfile
-    runs-on: ubuntu-latest
+    runs-on: large-4cpu-16gbRAM-150gbSSD-ubuntu24.04
     timeout-minutes: 30
-
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}
-      cancel-in-progress: true
-
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
