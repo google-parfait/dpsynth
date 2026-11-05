@@ -24,6 +24,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import apache_beam as beam
 from apache_beam.options import pipeline_options
+import dpsynth
 from dpsynth import constraints
 from dpsynth import data_generation_v3
 from dpsynth import discrete_mechanisms
@@ -553,6 +554,51 @@ class ExecuteTest(parameterized.TestCase):
 
     self.assertIsInstance(result, data_generation_v3.DataGenerationResult)
     self.assertTrue(os.path.exists(os.path.join(temp_dir, 'clique_vector.bin')))
+
+  def test_checkpointing(self):
+    domains = {'a': domain.CategoricalAttribute(possible_values=['x', 'y'])}
+    ckpt_dir = self.create_tempdir().full_path
+    mech = data_generation_v3.TabularConfig(
+        use_jax_for_generation=True
+    ).configure(domains, budget=100.0)
+    rows = [('x',), ('y',)] * 50
+    calls = 0
+
+    def counting_rows_fn(p):
+      nonlocal calls
+      calls += 1
+      return p | beam.Create(rows)
+
+    with dpsynth.checkpoint(ckpt_dir):
+      expected = beam_adapter.execute(
+          mech, np.random.default_rng(0), counting_rows_fn
+      )
+    self.assertEqual(calls, 2)
+    self.assertTrue(
+        os.path.exists(os.path.join(ckpt_dir, 'column_measurements.npz'))
+    )
+    self.assertTrue(
+        os.path.exists(os.path.join(ckpt_dir, 'precomputed_marginals.npz'))
+    )
+
+    # Both Pass 1 and Pass 2 checkpoints exist: neither pipeline pass runs.
+    calls = 0
+    with dpsynth.checkpoint(ckpt_dir):
+      cached_all = beam_adapter.execute(
+          mech, np.random.default_rng(0), counting_rows_fn
+      )
+    self.assertEqual(calls, 0)
+    self.assertTrue(cached_all.synthetic_data.equals(expected.synthetic_data))
+
+    # Only Pass 1 checkpoint exists: Pass 1 is skipped and Pass 2 runs.
+    os.remove(os.path.join(ckpt_dir, 'precomputed_marginals.npz'))
+    calls = 0
+    with dpsynth.checkpoint(ckpt_dir):
+      cached_pass1 = beam_adapter.execute(
+          mech, np.random.default_rng(0), counting_rows_fn
+      )
+    self.assertEqual(calls, 1)
+    self.assertTrue(cached_pass1.synthetic_data.equals(expected.synthetic_data))
 
   def _single_col_mech(self):
     domains = {'a': domain.CategoricalAttribute(possible_values=['x', 'y'])}
