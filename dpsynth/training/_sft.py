@@ -103,7 +103,9 @@ class DPFineTunerConfig(api.MechanismConfig):
     mechanism_config: ``BandMFConfig`` specifying the DP-SGD mechanism.
     lora_rank: Rank of the LoRA adapter matrices.
     max_seq_length: Maximum token sequence length (including special tokens).
-    optimizer: Optax gradient transformation for parameter updates.
+    learning_rate: Learning rate for the default optimizer. To use a custom
+      optimizer, call ``dataclasses.replace(mechanism, optimizer=...)`` on the
+      calibrated mechanism returned by ``configure`` or ``dpsynth.calibrate``.
     microbatch_size: Physical microbatch size for per-example gradient clipping.
     log_every: Optional step interval for logging un-noised training metrics.
     checkpoint_every: Step interval for saving mid-training Orbax checkpoints.
@@ -113,9 +115,7 @@ class DPFineTunerConfig(api.MechanismConfig):
   mechanism_config: execution_plan.BandMFConfig
   lora_rank: int = 16
   max_seq_length: int = 512
-  optimizer: optax.GradientTransformation = dataclasses.field(
-      default_factory=lambda: optax.adamw(1e-3)
-  )
+  learning_rate: float = 1e-3
   microbatch_size: int | None = None
   log_every: int | None = None
   checkpoint_every: int = 500
@@ -156,7 +156,7 @@ class DPFineTunerConfig(api.MechanismConfig):
         noise_multiplier=noise_multiplier,
     )
     cfg = dataclasses.replace(self, mechanism_config=calibrated_config)
-    return DPFineTuner(cfg)
+    return DPFineTuner(cfg, optax.adamw(self.learning_rate))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -164,6 +164,7 @@ class DPFineTuner(api.CalibratedMechanism):
   """Calibrated differentially private fine-tuner for Gemma models via DP-SGD."""
 
   config: DPFineTunerConfig
+  optimizer: optax.GradientTransformation
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -251,13 +252,13 @@ class DPFineTuner(api.CalibratedMechanism):
         mechanism_config=self.config.mechanism_config,
         init_params=optax.tree.cast(trainable_params, jnp.float32),
         loss_fn=loss_fn,
-        optimizer=self.config.optimizer,
+        learning_rate=self.config.learning_rate,
         performance_flags=perf,
         log_every=self.config.log_every,
         checkpoint_every=self.config.checkpoint_every,
     )
     del trainable_params
-    trainer = dp_trainer.DPTrainer(trainer_config)
+    trainer = dp_trainer.DPTrainer(trainer_config, optimizer=self.optimizer)
     state = trainer(rng, dataset, metrics_fn=metrics_fn, canaries=canary_data)
 
     bf16_params = optax.tree.cast(state.params, jnp.bfloat16)

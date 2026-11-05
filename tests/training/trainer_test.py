@@ -58,9 +58,9 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=self.dpsgd_config,
-        optimizer=optax.adamw(1e-4),
     )
     self.assertEqual(config.mechanism_config.iterations, 100)
+    self.assertEqual(config.learning_rate, 1e-3)
     self.assertIsNone(config.mechanism_config.noise_multiplier)
     with self.assertRaises(ValueError):
       dataclasses.replace(config, log_every=3, checkpoint_every=10)
@@ -71,7 +71,6 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=self.dpsgd_config,
-        optimizer=optax.adamw(1e-4),
     ).configure(budget=0.5)
     # Single band: sigma = sqrt(T / (2 * rho)) = 10.
     sigma = trainer.config.mechanism_config.noise_multiplier
@@ -101,7 +100,7 @@ class DPTrainerTest(absltest.TestCase):
         init_params=trainable,
         loss_fn=loss_fn,
         mechanism_config=full_batch_config,
-        optimizer=optax.adamw(1e-4),
+        learning_rate=1e-4,
     ).configure(budget=1.0)
 
     train_state = trainer(
@@ -119,7 +118,6 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=non_private_config,
-        optimizer=optax.adamw(1e-4),
     ).configure(budget=float('inf'))
 
     self.assertIsInstance(trainer.dp_event, dp_accounting.NonPrivateDpEvent)
@@ -138,7 +136,6 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=non_private_config,
-        optimizer=optax.adamw(1e-4),
     ).configure(budget=float('inf'))
 
     data = grain.MapDataset.source([{'x': np.ones((4, 4))} for _ in range(6)])
@@ -163,7 +160,7 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=mech_config,
-        optimizer=optax.adamw(1e-2),
+        learning_rate=1e-2,
         log_every=1,
         checkpoint_every=2,
     )
@@ -221,7 +218,7 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=mech_config,
-        optimizer=optax.adamw(1e-2),
+        learning_rate=1e-2,
     ).configure(budget=1.0)
     broadcast_seed = None
 
@@ -260,7 +257,7 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=mech_config,
-        optimizer=optax.adamw(1e-2),
+        learning_rate=1e-2,
         log_every=2,
     ).configure(budget=1.0)
 
@@ -274,7 +271,7 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=mech_config,
-        optimizer=optax.adamw(1e-2),
+        learning_rate=1e-2,
         log_every=1,
     ).configure(budget=1.0)
     log_step = lambda s, m: per_step.append(m)
@@ -310,7 +307,7 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=mech_config,
-        optimizer=optax.adamw(1e-2),
+        learning_rate=1e-2,
         checkpoint_every=2,
     ).configure(budget=1.0)
     with dpsynth.checkpoint(ckpt_dir):
@@ -331,12 +328,12 @@ class DPTrainerTest(absltest.TestCase):
         noise_multiplier=0.0,
     )
     trainer = dp_trainer.DPTrainer(
-        dp_trainer.DPTrainerConfig(
+        config=dp_trainer.DPTrainerConfig(
             init_params={'w': jnp.zeros(8)},
             loss_fn=loss_fn,
             mechanism_config=config,
-            optimizer=optax.sgd(0.1),
-        )
+        ),
+        optimizer=optax.sgd(0.1),
     )
     canaries = {'x': jnp.eye(8)}
     result = trainer(

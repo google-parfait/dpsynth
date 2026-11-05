@@ -26,6 +26,7 @@ from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from dpsynth import serialize
 from dpsynth import training as dp_sft
 from dpsynth.training import _gemma as model
 from flax import nnx
@@ -379,8 +380,9 @@ class DPFineTunerTest(parameterized.TestCase):
         dp_sft.DPFineTunerConfig(
             model='gemma4_e2b_it',
             mechanism_config=config,
-            optimizer=optax.adamw(0.1),
-        )
+            learning_rate=0.1,
+        ),
+        optax.adamw(0.1),
     )
     num_examples = 8
     examples = [('p', '1')] * num_examples
@@ -396,6 +398,21 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertIsNotNone(result.auditor)
     assert result.auditor is not None
     self.assertAlmostEqual(result.auditor.attack_auroc(), 1.0, places=5)
+
+  def test_yaml_round_trip(self):
+    config = dp_sft.DPFineTunerConfig(
+        model='gemma4_e2b_it',
+        mechanism_config=_default_config(),
+        learning_rate=2e-3,
+        lora_rank=8,
+    )
+    restored = serialize.from_yaml(
+        serialize.to_yaml(config), dp_sft.DPFineTunerConfig
+    )
+    self.assertEqual(restored.model, config.model)
+    self.assertEqual(restored.learning_rate, 2e-3)
+    self.assertEqual(restored.lora_rank, 8)
+    self.assertEqual(restored.mechanism_config.iterations, 100)
 
 
 if __name__ == '__main__':

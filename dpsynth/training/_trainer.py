@@ -27,7 +27,6 @@ Example usage::
       init_params=my_params,
       loss_fn=my_loss_fn,
       mechanism_config=config,
-      optimizer=optax.adam(1e-3),
   ).configure(budget=0.5)
 
   result = trainer(rng=np.random.default_rng(42), data=dataset)
@@ -123,7 +122,9 @@ class DPTrainerConfig(api.MechanismConfig):
     init_params: Initial trainable parameter pytree.
     loss_fn: ``(params, batch, prng) -> (scalar_loss, aux_dict)`` loss function.
     mechanism_config: ``ExecutionPlanConfig`` specifying the DP-SGD mechanism.
-    optimizer: Optax gradient transformation.
+    learning_rate: Learning rate for the default optimizer. To use a custom
+      optimizer, call ``dataclasses.replace(mechanism, optimizer=...)`` on the
+      calibrated mechanism returned by ``configure`` or ``dpsynth.calibrate``.
     performance_flags: Optional ``PerformanceFlags`` for microbatching and SPMD.
     log_every: Optional step interval for logging un-noised training metrics.
     checkpoint_every: Step interval for saving mid-training Orbax checkpoints.
@@ -132,7 +133,7 @@ class DPTrainerConfig(api.MechanismConfig):
   init_params: training.Params
   loss_fn: training.LossFn
   mechanism_config: execution_plan.ExecutionPlanConfig
-  optimizer: optax.GradientTransformation
+  learning_rate: float = 1e-3
   performance_flags: execution_plan.PerformanceFlags | None = None
   log_every: int | None = None
   checkpoint_every: int = 100
@@ -155,8 +156,9 @@ class DPTrainerConfig(api.MechanismConfig):
     Returns:
       A new ``DPTrainer`` with calibrated ``config.noise_multiplier``.
     """
+    optimizer = optax.adamw(self.learning_rate)
     if isinstance(self.mechanism_config, execution_plan.NonPrivateConfig):
-      return DPTrainer(self)
+      return DPTrainer(self, optimizer)
     cfg = typing.cast(execution_plan.BandMFConfig, self.mechanism_config)
     num_bands = len(cfg.strategy)  # pyrefly: ignore[bad-argument-type]
     rounds = math.ceil(cfg.iterations / num_bands)
@@ -166,7 +168,7 @@ class DPTrainerConfig(api.MechanismConfig):
         noise_multiplier=noise_multiplier,
     )
     cfg = dataclasses.replace(self, mechanism_config=calibrated_config)
-    return DPTrainer(cfg)
+    return DPTrainer(cfg, optimizer)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -174,6 +176,7 @@ class DPTrainer(api.CalibratedMechanism):
   """Calibrated differentially private trainer via DP-SGD."""
 
   config: DPTrainerConfig
+  optimizer: optax.GradientTransformation
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -238,7 +241,7 @@ class DPTrainer(api.CalibratedMechanism):
         config=self.config.mechanism_config,
         performance_flags=perf,
         loss_fn=self.config.loss_fn,
-        optimizer=self.config.optimizer,
+        optimizer=self.optimizer,
     )
     callback = callbacks.DefaultCallbackFn(self.config.log_every, metrics_fn)
     # Copy init_params since DPTrainer.fit donates state buffers.
