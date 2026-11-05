@@ -188,7 +188,7 @@ def _run_single_col_initializer(
   """
   if isinstance(init, initialization.NumericalInitializer):
     attr = init.attribute
-    values = np.asarray(data, dtype=float)
+    values = vtx.to_float_array(data, attr)
     if attr.clip_to_range:
       values = np.where(np.isnan(values), attr.min_value, values)
       ood_count = 0.0

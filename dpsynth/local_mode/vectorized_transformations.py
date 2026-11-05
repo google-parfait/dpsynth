@@ -110,6 +110,17 @@ def categorical_attribute_from_edges(
   return domain.CategoricalAttribute(intervals)  # pyrefly: ignore[bad-argument-count]
 
 
+def to_float_array(
+    data: np.ndarray, attribute: domain.NumericalAttribute
+) -> np.ndarray:
+  """Coerces data to a 1-D float array, standardizing non-numeric arrays."""
+  if isinstance(data, np.ndarray) and np.issubdtype(data.dtype, np.number):
+    return np.asarray(data, dtype=float)
+  # Object-dtype arrays (mixed numbers, strings, or None) or Python sequences.
+  vals = map(attribute.standardize, data)
+  return np.fromiter(vals, dtype=float, count=len(data))
+
+
 def discretize(
     data: np.ndarray,
     bin_edges: np.ndarray,
@@ -134,7 +145,7 @@ def discretize(
   min_, max_ = attribute_domain.min_value, attribute_domain.max_value
   # Coerce to float64 so object-typed arrays (e.g. containing '<OOD>') work
   # with np.clip / np.isnan without TypeError.
-  data = np.asarray(data, dtype=float)
+  data = to_float_array(data, attribute_domain)
   _validate_bin_edges(bin_edges, attribute_domain)
 
   if attribute_domain.clip_to_range:

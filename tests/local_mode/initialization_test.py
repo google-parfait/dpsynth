@@ -469,7 +469,7 @@ class NumericalInitializerFromSummaryTest(absltest.TestCase):
 
   def test_numerical_heterogeneous_input_with_none(self):
     attr = domain.NumericalAttribute(min_value=0, max_value=100)
-    data = np.array([10.5, None, 50.0, np.nan, '75.0'], dtype=object)
+    data = np.array([10.5, None, 50.0, np.nan, '75.0', '?'], dtype=object)
     init = initialization.NumericalInitializerConfig(
         num_partitions=4
     ).configure(attr, budget=1.0)

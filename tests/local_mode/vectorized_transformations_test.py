@@ -158,10 +158,10 @@ class DiscretizeTest(parameterized.TestCase):
           np.array([1.0]), np.array([5.0, 3.0]), attr
       )
 
-  @parameterized.parameters((True, [0, 0, 0]), (False, [1, 0, 0]))
+  @parameterized.parameters((True, [0, 0, 0, 0]), (False, [1, 0, 0, 0]))
   def test_empty_bin_edges(self, clip_to_range, expected):
     attr = domain.NumericalAttribute(0, 10, clip_to_range=clip_to_range)
-    data = np.array([5.0, -1.0, np.nan])
+    data = np.array([5.0, -1.0, np.nan, '?'], dtype=object)
     result = vectorized_transformations.discretize(data, np.array([]), attr)
     np.testing.assert_array_equal(result, expected)
 
