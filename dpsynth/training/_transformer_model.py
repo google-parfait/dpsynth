@@ -119,7 +119,7 @@ class FlatAttentionBlock(nnx.Module):
       self, x: jax.Array, *, train: bool = True, rngs: nnx.Rngs | None = None
   ) -> jax.Array:
     seq_len = x.shape[-2]
-    mask = nnx.make_causal_mask(jnp.ones(seq_len))
+    mask = nnx.make_causal_mask(jnp.ones(seq_len, dtype=jnp.int32))
     for layer in self.layers:
       x = layer(x, mask=mask, train=train, rngs=rngs)
     return x
@@ -198,7 +198,7 @@ class TransformerModel(nnx.Module):
       train: bool = True,
       key: jax.Array | None = None,
   ) -> jax.Array:
-    c_row = self.header(jnp.ones((1, 1)))[0]
+    c_row = self.header(jnp.ones((1, 1), dtype=jnp.float32))[0]
 
     if key is not None:
       k_enc, k_dec = jax.random.split(key, 2)
@@ -208,7 +208,7 @@ class TransformerModel(nnx.Module):
     h_e = self.encode(x_row, train=train, key=k_enc)
     h_d = self.decode(c_row, h_e, train=train, key=k_dec)
 
-    loss = jnp.array(0.0)
+    loss = jnp.array(0.0, dtype=jnp.float32)
     for i in range(len(self.num_elements_per_feature)):
       w = self.embeddings[i].embedding.value
       logits = jnp.dot(w, h_d[i])

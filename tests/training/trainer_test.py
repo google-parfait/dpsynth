@@ -32,7 +32,7 @@ import optax
 
 def _dummy_params_and_loss():
   """Creates a trivial pytree and loss function for testing."""
-  params = {'w': jnp.ones((4, 4))}
+  params = {'w': jnp.ones((4, 4), dtype=jnp.float32)}
 
   def loss_fn(params, batch, prng):
     del prng
@@ -105,7 +105,8 @@ class DPTrainerTest(absltest.TestCase):
     ).configure(budget=1.0)
 
     train_state = trainer(
-        rng=np.random.default_rng(42), data={'x': jnp.ones((10, 4, 4))}
+        rng=np.random.default_rng(42),
+        data={'x': jnp.ones((10, 4, 4), dtype=jnp.float32)},
     )
     self.assertIsNotNone(train_state)
 
@@ -124,7 +125,8 @@ class DPTrainerTest(absltest.TestCase):
 
     self.assertIsInstance(trainer.dp_event, dp_accounting.NonPrivateDpEvent)
     train_state = trainer(
-        rng=np.random.default_rng(42), data={'x': jnp.ones((10, 4, 4))}
+        rng=np.random.default_rng(42),
+        data={'x': jnp.ones((10, 4, 4), dtype=jnp.float32)},
     )
     self.assertIsNotNone(train_state)
 
@@ -141,7 +143,8 @@ class DPTrainerTest(absltest.TestCase):
         optimizer=optax.adamw(1e-4),
     ).configure(budget=float('inf'))
 
-    data = grain.MapDataset.source([{'x': np.ones((4, 4))} for _ in range(6)])
+    row = {'x': np.ones((4, 4), dtype=np.float32)}
+    data = grain.MapDataset.source([row for _ in range(6)])
     train_state = trainer(rng=np.random.default_rng(42), data=data)
     self.assertIsNotNone(train_state)
 
@@ -243,7 +246,7 @@ class DPTrainerTest(absltest.TestCase):
     np.testing.assert_allclose(host1.params['w'], host0.params['w'], rtol=1e-5)
 
   def test_metrics_fn_reports_step_metrics(self):
-    params = {'w': jnp.ones((4, 4))}
+    params = {'w': jnp.ones((4, 4), dtype=jnp.float32)}
 
     def loss_fn(params, batch, prng):
       del prng
@@ -265,7 +268,7 @@ class DPTrainerTest(absltest.TestCase):
     ).configure(budget=1.0)
 
     recorded = []
-    data = {'x': jnp.ones((8, 4, 4))}
+    data = {'x': jnp.ones((8, 4, 4), dtype=jnp.float32)}
     log_rec = lambda s, m: recorded.append((s, m))
     trainer(np.random.default_rng(0), data, metrics_fn=log_rec)
 
@@ -299,7 +302,7 @@ class DPTrainerTest(absltest.TestCase):
   def test_checkpoint_single_band_zero_size_noise_state(self):
     ckpt_dir = self.create_tempdir().full_path
     params, loss_fn = _dummy_params_and_loss()
-    data = {'x': jnp.ones((4, 4, 4))}
+    data = {'x': jnp.ones((4, 4, 4), dtype=jnp.float32)}
     mech_config = jax_privacy.execution_plan.BandMFConfig.default(
         num_bands=1,
         iterations=3,
@@ -332,16 +335,16 @@ class DPTrainerTest(absltest.TestCase):
     )
     trainer = dp_trainer.DPTrainer(
         dp_trainer.DPTrainerConfig(
-            init_params={'w': jnp.zeros(8)},
+            init_params={'w': jnp.zeros(8, dtype=jnp.float32)},
             loss_fn=loss_fn,
             mechanism_config=config,
             optimizer=optax.sgd(0.5),
         )
     )
-    canaries = {'x': jnp.eye(8)}
+    canaries = {'x': jnp.eye(8, dtype=jnp.float32)}
     result = trainer(
         rng=np.random.default_rng(0),
-        data={'x': jnp.zeros((8, 8))},
+        data={'x': jnp.zeros((8, 8), dtype=jnp.float32)},
         canaries=canaries,
     )
     self.assertIsInstance(result, dp_trainer.TrainingResult)
@@ -356,8 +359,8 @@ class DPTrainerTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       trainer(
           rng=np.random.default_rng(0),
-          data={'x': jnp.zeros((8, 8))},
-          canaries={'x': jnp.ones((1, 8))},
+          data={'x': jnp.zeros((8, 8), dtype=jnp.float32)},
+          canaries={'x': jnp.ones((1, 8), dtype=jnp.float32)},
       )
 
 
