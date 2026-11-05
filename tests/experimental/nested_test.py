@@ -17,6 +17,7 @@ from __future__ import annotations
 import doctest
 
 from absl.testing import absltest
+from absl.testing import parameterized
 import dp_accounting
 from dpsynth import domain
 from dpsynth.experimental import nested
@@ -24,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 
-class NestedTabularConfigTest(absltest.TestCase):
+class NestedTabularConfigTest(parameterized.TestCase):
 
   def _make_schema(self):
     """Creates a simple two-type schema for testing."""
@@ -70,9 +71,10 @@ class NestedTabularConfigTest(absltest.TestCase):
     self.assertLen(event.events, 2)
     self.assertIsInstance(event.events[1], dp_accounting.ZCDpEvent)
 
-  def test_end_to_end(self):
+  @parameterized.parameters((False, None), (True, 6))
+  def test_end_to_end(self, compress_columns, num_rows):
     schema = self._make_schema()
-    synth = nested.NestedTabularConfig()
+    synth = nested.NestedTabularConfig(compress_columns=compress_columns)
     calibrated = synth.configure(schema, budget=100.0)
     rng = np.random.default_rng(42)
     data = {
@@ -85,18 +87,23 @@ class NestedTabularConfigTest(absltest.TestCase):
             'amount': ['low', 'medium', 'high'] * 10,
         }),
     }
-    result = calibrated(rng, data)
+    result = calibrated(rng, data, num_rows=num_rows)
     self.assertIsInstance(result, nested.NestedSynthesisResult)
     self.assertIsNotNone(result.shared_result)
     self.assertIn('click', result.detail_results)
     self.assertIn('purchase', result.detail_results)
     self.assertTrue(result.synthetic_data)
+    if num_rows is not None:
+      total_rows = sum(len(df) for df in result.synthetic_data.values())
+      self.assertEqual(total_rows, num_rows)
     for type_name, df in result.synthetic_data.items():
       self.assertIn(type_name, ['click', 'purchase'])
       self.assertIsInstance(df, pd.DataFrame)
       self.assertIn('platform', df.columns)
-    self.assertIn('element', result.synthetic_data['click'].columns)
-    self.assertIn('amount', result.synthetic_data['purchase'].columns)
+    if 'click' in result.synthetic_data:
+      self.assertIn('element', result.synthetic_data['click'].columns)
+    if 'purchase' in result.synthetic_data:
+      self.assertIn('amount', result.synthetic_data['purchase'].columns)
 
   def test_empty_detail_schema(self):
     shared_schema = domain.Schema({
