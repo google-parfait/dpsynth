@@ -31,7 +31,7 @@ class Config:
   """Command-line configuration for in-memory tabular synthesis.
 
   Attributes:
-    input_path: Path to the input CSV dataset.
+    input_path: Path to the input CSV or Parquet dataset.
     domain_path: Path to the domain Schema YAML file.
     config_path: Optional YAML path to a serialized TabularConfig.
     output_dir: Directory where synthetic data and privacy report are written.
@@ -70,7 +70,10 @@ def main(cfg: Config) -> None:
 
   # Load the private dataset and run the calibrated mechanism.
   rng = np.random.default_rng(cfg.seed)
-  df = pd.read_csv(cfg.input_path)
+  if cfg.input_path.endswith('.parquet'):
+    df = pd.read_parquet(cfg.input_path)
+  else:
+    df = pd.read_csv(cfg.input_path)
   with dpsynth.checkpoint(cfg.checkpoint_dir):
     result = mechanism(rng, df)
 
