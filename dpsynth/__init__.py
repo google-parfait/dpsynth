@@ -18,32 +18,34 @@
 __version__ = '0.5.0'
 
 # Subpackages and legacy module aliases.
+from dpsynth import core
 from dpsynth import discrete_mechanisms
-from dpsynth import domain
 from dpsynth import relational
 
+domain = core.domain
+
 # Domain and schema specification.
-from dpsynth.constraints import Constraint
-from dpsynth.domain import AttributeType
-from dpsynth.domain import CategoricalAttribute
-from dpsynth.domain import FreeFormTextAttribute
-from dpsynth.domain import NumericalAttribute
-from dpsynth.domain import OpenSetCategoricalAttribute
-from dpsynth.domain import Schema
+AttributeType = core.AttributeType
+CategoricalAttribute = core.CategoricalAttribute
+Constraint = core.Constraint
+FreeFormTextAttribute = core.FreeFormTextAttribute
+NumericalAttribute = core.NumericalAttribute
+OpenSetCategoricalAttribute = core.OpenSetCategoricalAttribute
+Schema = core.Schema
 
 # Core mechanism lifecycle and utilities.
-from dpsynth._calibration import calibrate
-from dpsynth._calibration import with_group_size
-from dpsynth._checkpoint import checkpoint
-from dpsynth.api import CalibratedMechanism
-from dpsynth.api import MechanismConfig
-from dpsynth.serialize import from_yaml
-from dpsynth.serialize import to_yaml
+CalibratedMechanism = core.CalibratedMechanism
+MechanismConfig = core.MechanismConfig
+calibrate = core.calibrate
+checkpoint = core.checkpoint
+from_yaml = core.from_yaml
+to_yaml = core.to_yaml
+with_group_size = core.with_group_size
 
 # Privacy and auditing reports.
-from dpsynth.reporting import AuditReport
-from dpsynth.reporting import PrivacyReport
-from dpsynth.reporting import TradeOffCurve
+AuditReport = core.AuditReport
+PrivacyReport = core.PrivacyReport
+TradeOffCurve = core.TradeOffCurve
 
 # Base discrete mechanisms.
 from dpsynth.discrete_mechanisms.aim import AIMConfig
@@ -58,6 +60,7 @@ from dpsynth.discrete_mechanisms.swift import SWIFTConfig
 from dpsynth.data_generation_v3 import DataGenerationResult
 from dpsynth.data_generation_v3 import TabularConfig
 from dpsynth.data_generation_v3 import TabularMechanism
+from dpsynth.statistical.postprocessing import generate_synthetic_data_from_marginals
 
 # Multi-table relational synthesis.
 ForeignKeyRelation = relational.ForeignKeyRelation
@@ -111,6 +114,7 @@ __all__ = [
     'calibrate',
     'checkpoint',
     'from_yaml',
+    'generate_synthetic_data_from_marginals',
     'relational',
     'to_yaml',
     'with_group_size',

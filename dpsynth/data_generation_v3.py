@@ -22,11 +22,11 @@ import warnings
 
 from absl import logging
 import dp_accounting
-from dpsynth import _checkpoint
-from dpsynth import api
-from dpsynth import constraints
 from dpsynth import discrete_mechanisms
-from dpsynth import domain
+from dpsynth.core import _checkpoint
+from dpsynth.core import _mechanism as api
+from dpsynth.core import constraints
+from dpsynth.core import domain
 from dpsynth.discrete_mechanisms import common as dm_common
 from dpsynth.statistical import initialization
 from dpsynth.statistical import vectorized_transformations as vtx

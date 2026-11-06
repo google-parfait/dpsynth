@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 from absl.testing import absltest
-from dpsynth import domain
+from dpsynth.core import domain
 from dpsynth.relational import domain as rel_domain
 from etils import epath
 

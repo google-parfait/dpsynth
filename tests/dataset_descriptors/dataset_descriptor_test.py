@@ -16,8 +16,8 @@ from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from dpsynth import domain
 from dpsynth import transformations
+from dpsynth.core import domain
 from dpsynth.dataset_descriptors import dataset_descriptor
 import mbi
 import numpy as np

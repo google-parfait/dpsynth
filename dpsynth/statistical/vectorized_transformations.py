@@ -31,7 +31,7 @@ Covers:
 
 from __future__ import annotations
 
-from dpsynth import domain
+from dpsynth.core import domain
 import numpy as np
 
 

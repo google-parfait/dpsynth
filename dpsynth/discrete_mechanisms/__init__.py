@@ -22,8 +22,8 @@ compression.
 
 # pylint: disable=g-importing-member
 
-from dpsynth.api import CalibratedMechanism
-from dpsynth.api import MechanismConfig
+from dpsynth.core._mechanism import CalibratedMechanism
+from dpsynth.core._mechanism import MechanismConfig
 from dpsynth.discrete_mechanisms.aim import AIM
 from dpsynth.discrete_mechanisms.aim import AIMConfig
 from dpsynth.discrete_mechanisms.common import DiscreteMechanismResult

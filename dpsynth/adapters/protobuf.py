@@ -21,7 +21,7 @@ import operator
 from typing import Any, Literal
 
 from absl import logging
-from dpsynth import domain
+from dpsynth.core import domain
 from google.protobuf import descriptor
 from google.protobuf import message
 from google.protobuf import message_factory

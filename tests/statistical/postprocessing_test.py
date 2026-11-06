@@ -14,7 +14,7 @@
 
 from absl.testing import absltest
 import dpsynth
-from dpsynth import postprocessing
+from dpsynth.statistical import postprocessing
 import mbi
 import numpy as np
 import pandas as pd
@@ -61,7 +61,7 @@ class PostprocessingTest(absltest.TestCase):
       postprocessing.encode_marginals(marginals, {})
 
     with self.assertRaisesRegex(ValueError, 'found B instead'):
-      postprocessing.generate_synthetic_data_from_marginals(marginals)
+      dpsynth.generate_synthetic_data_from_marginals(marginals)
 
   def test_encode_marginals(self):
 
@@ -83,7 +83,7 @@ class PostprocessingTest(absltest.TestCase):
 
   def test_estimate_model_from_marginals(self):
 
-    synthetic_data = postprocessing.generate_synthetic_data_from_marginals(
+    synthetic_data = dpsynth.generate_synthetic_data_from_marginals(
         self.marginals, iters=100
     )
 
@@ -106,7 +106,7 @@ class PostprocessingTest(absltest.TestCase):
         }),
     ]
 
-    synthetic_data = postprocessing.generate_synthetic_data_from_marginals(
+    synthetic_data = dpsynth.generate_synthetic_data_from_marginals(
         self.marginals,
         iters=100,
         exact_marginals=exact_marginals,
@@ -126,7 +126,7 @@ class PostprocessingTest(absltest.TestCase):
         pd.DataFrame({'B': ['x', 'y'], 'count': [40, 40]}),
     ]
 
-    synthetic_data = postprocessing.generate_synthetic_data_from_marginals(
+    synthetic_data = dpsynth.generate_synthetic_data_from_marginals(
         marginals,
         iters=100,
         extra_domain_elements={'A': ['d']},

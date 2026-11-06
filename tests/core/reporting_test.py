@@ -23,7 +23,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import dp_accounting
 import dpsynth
-from dpsynth import reporting
+from dpsynth.core import reporting
 import jax_privacy
 import numpy as np
 

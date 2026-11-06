@@ -19,7 +19,7 @@ import os
 from absl.testing import absltest
 from absl.testing import parameterized
 import dpsynth
-from dpsynth import _checkpoint
+from dpsynth.core import _checkpoint
 from dpsynth.statistical import initialization
 from etils import epath
 import mbi

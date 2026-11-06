@@ -38,8 +38,8 @@ import uuid
 from absl import logging
 import apache_beam as beam
 from apache_beam.io.filesystems import FileSystems
-from dpsynth import _checkpoint
 from dpsynth import data_generation_v3
+from dpsynth.core import _checkpoint
 from dpsynth.statistical import initialization
 import mbi
 import numpy as np

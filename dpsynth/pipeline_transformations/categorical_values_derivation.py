@@ -17,7 +17,7 @@
 import copy
 from typing import Any, TypeAlias, TypeVar
 
-from dpsynth import domain
+from dpsynth.core import domain
 from dpsynth.dataset_descriptors import dataset_descriptor
 from dpsynth.pipeline_transformations import types
 import pipeline_dp

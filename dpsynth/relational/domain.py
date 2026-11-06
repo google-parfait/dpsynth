@@ -21,7 +21,7 @@ import dataclasses
 from typing import Any
 
 from absl import logging
-from dpsynth import domain
+from dpsynth.core import domain
 from etils import epath
 import networkx as nx
 import yaml
