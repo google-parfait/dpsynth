@@ -83,6 +83,8 @@ def checkpoint(
   """
   path = epath.Path(checkpoint_dir) if checkpoint_dir is not None else None
   if path is not None:
+    if not path.is_absolute():
+      path = path.resolve()
     path.mkdir(parents=True, exist_ok=True)
   token = _ACTIVE_CHECKPOINT_DIR.set(path)
   try:

@@ -31,7 +31,7 @@ _OUTPUT_PATH = pathlib.Path(__file__).parent / 'pubmed.json'
 
 def main() -> None:
   logging.set_verbosity(logging.INFO)
-  data = datasets.load_dataset(_DATASET, split='train', trust_remote_code=True)
+  data = datasets.load_dataset(_DATASET, split='train')
   abstracts = [t.strip() for t in data['abstract'] if t and t.strip()]
 
   with _OUTPUT_PATH.open('w') as f:

@@ -20,6 +20,7 @@ from collections.abc import Callable, Sequence
 import dataclasses
 import functools
 import itertools
+import os
 import time
 from typing import Any, Literal
 
@@ -36,6 +37,9 @@ import qwix
 import tunix
 from tunix.models.gemma4 import model as gemma4_model
 from tunix.models.gemma4 import params as gemma4_params
+
+# Avoid lazy-loading tf.io.gfile for gs:// paths, which segfaults on CUDA.
+os.environ.setdefault('EPATH_USE_TF', 'false')
 
 # Supported Gemma 4 model names.
 ModelName = Literal[
@@ -185,12 +189,18 @@ def load_gemma(
   return lora_model
 
 
+def _resolve_path(path: epath.PathLike) -> epath.Path:
+  """Resolves relative local paths to absolute paths for Orbax."""
+  p = epath.Path(path)
+  return p if p.is_absolute() else p.resolve()
+
+
 def save_lora_params(lora_model: nnx.Module, path: epath.PathLike) -> None:
   """Saves trainable LoRA parameters from ``lora_model`` to ``path``."""
   lora_state = jax.block_until_ready(nnx.state(lora_model, nnx.LoRAParam))
   with ocp.Checkpointer(ocp.StandardCheckpointHandler()) as checkpointer:
     checkpointer.save(
-        epath.Path(path),
+        _resolve_path(path),
         args=ocp.args.StandardSave(lora_state),
         force=True,
     )
@@ -201,7 +211,7 @@ def load_lora_params(lora_model: nnx.Module, path: epath.PathLike) -> None:
   abstract_lora = nnx.state(lora_model, nnx.LoRAParam)
   with ocp.Checkpointer(ocp.StandardCheckpointHandler()) as checkpointer:
     restored = checkpointer.restore(
-        epath.Path(path),
+        _resolve_path(path),
         args=ocp.args.StandardRestore(abstract_lora),
     )
   nnx.update(lora_model, restored)

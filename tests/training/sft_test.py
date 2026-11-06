@@ -20,6 +20,7 @@ without loading any real model checkpoints.
 
 import dataclasses
 import math
+import os
 import sys
 import typing
 from unittest import mock
@@ -188,6 +189,14 @@ class GemmaModelTest(absltest.TestCase):
       model.validate_model_name(typing.cast(model.ModelName, 'nonexistent'))
     with self.assertRaises(ValueError):
       model.load_gemma(typing.cast(model.ModelName, 'nonexistent'))
+
+  def test_epath_and_resolve_path(self):
+    self.assertEqual(os.environ.get('EPATH_USE_TF'), 'false')
+    self.assertTrue(model._resolve_path('rel/lora_ckpt').is_absolute())
+    self.assertEqual(
+        model._resolve_path('gs://bucket/lora_ckpt'),
+        model.epath.Path('gs://bucket/lora_ckpt'),
+    )
 
   def test_deprecated_text_subpackage_reexports(self):
     sys.modules.pop('dpsynth.text', None)

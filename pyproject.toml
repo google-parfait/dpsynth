@@ -57,7 +57,7 @@ dev = [
 ]
 training = [
     "flax",
-    "google-tunix",
+    "google-tunix @ git+https://github.com/google/tunix.git",
     "qwix",
     "google-genai>=2.0",
     "jax-privacy @ git+https://github.com/google-parfait/jax_privacy.git",

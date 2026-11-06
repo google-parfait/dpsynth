@@ -14,6 +14,8 @@
 
 """Unit tests for dpsynth.checkpoint."""
 
+import os
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import dpsynth
@@ -40,6 +42,8 @@ class CheckpointTest(parameterized.TestCase):
       )
 
     self.assertIsNone(_checkpoint.get_active_checkpoint_dir())
+    with _checkpoint.checkpoint(os.path.relpath(temp_dir)) as rel_dir:
+      self.assertEqual(rel_dir, epath.Path(temp_dir))
 
   def test_context_manager_none_disabled(self):
     with _checkpoint.checkpoint(None) as active_dir:
