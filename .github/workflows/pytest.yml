@@ -31,7 +31,7 @@ permissions:
 jobs:
   check-lockfile:
     name: "Check: pylock.toml Sync"
-    runs-on: large-4cpu-16gbRAM-150gbSSD-ubuntu24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -75,7 +75,7 @@ jobs:
 
   pytest-job:
     name: pytest-job
-    runs-on: large-4cpu-16gbRAM-150gbSSD-ubuntu24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
