@@ -24,7 +24,6 @@ from absl.testing import parameterized
 import dp_accounting
 import dpsynth
 from dpsynth import reporting
-from dpsynth import serialize
 import jax_privacy
 import numpy as np
 
@@ -106,7 +105,7 @@ class ReportingTest(parameterized.TestCase):
     )
     self.assertIsNone(report_none.trade_off_curve)
     self.assertEqual(
-        serialize.from_yaml(serialize.to_yaml(report_none)), report_none
+        dpsynth.from_yaml(dpsynth.to_yaml(report_none)), report_none
     )
 
   def test_from_dp_event_notes(self):
@@ -121,8 +120,8 @@ class ReportingTest(parameterized.TestCase):
         'Column bounds were computed from raw data without DP.',
     )
 
-    yaml_str = serialize.to_yaml(report)
-    loaded = serialize.from_yaml(yaml_str)
+    yaml_str = dpsynth.to_yaml(report)
+    loaded = dpsynth.from_yaml(yaml_str)
     self.assertEqual(loaded, report)
 
   def test_from_dp_event_custom_accountant_args(self):
@@ -152,8 +151,8 @@ class ReportingTest(parameterized.TestCase):
     self.assertIsNone(report.trade_off_curve)
 
   def test_serialize_yaml_roundtrip(self):
-    yaml_str = serialize.to_yaml(self.report)
-    loaded = serialize.from_yaml(yaml_str)
+    yaml_str = dpsynth.to_yaml(self.report)
+    loaded = dpsynth.from_yaml(yaml_str)
     self.assertEqual(loaded, self.report)
 
   def test_public_reexport(self):
@@ -207,11 +206,11 @@ class ReportingTest(parameterized.TestCase):
     )
     self.assertEqual(report, report_same_seed)
 
-    yaml_str = serialize.to_yaml(report)
+    yaml_str = dpsynth.to_yaml(report)
     self.assertNotIn('!!python/tuple', yaml_str)
     self.assertIn('confidence: 0.95', yaml_str)
     self.assertIn('num_canaries: [80, 120]', yaml_str)
-    loaded = serialize.from_yaml(yaml_str)
+    loaded = dpsynth.from_yaml(yaml_str)
     self.assertEqual(loaded, report)
     self.assertIsInstance(loaded.num_canaries, tuple)
     self.assertIsInstance(loaded.trade_off_curve, reporting.TradeOffCurve)

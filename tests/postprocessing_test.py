@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from absl.testing import absltest
-from dpsynth import domain
+import dpsynth
 from dpsynth import postprocessing
 import mbi
 import numpy as np
@@ -24,9 +24,9 @@ class PostprocessingTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    attr1 = domain.CategoricalAttribute(possible_values=['a', 'b', 'c'])
-    attr2 = domain.CategoricalAttribute(possible_values=['x', 'y'])
-    attr3 = domain.CategoricalAttribute(possible_values=['1', '2', '3'])
+    attr1 = dpsynth.CategoricalAttribute(possible_values=['a', 'b', 'c'])
+    attr2 = dpsynth.CategoricalAttribute(possible_values=['x', 'y'])
+    attr3 = dpsynth.CategoricalAttribute(possible_values=['1', '2', '3'])
 
     self.marginals = [
         pd.DataFrame({

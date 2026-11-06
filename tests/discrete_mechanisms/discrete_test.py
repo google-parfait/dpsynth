@@ -16,16 +16,16 @@
 
 from unittest import mock
 from absl.testing import absltest
+import dpsynth
 from dpsynth.discrete_mechanisms import accounting
 from dpsynth.discrete_mechanisms import common
-from dpsynth.discrete_mechanisms import discrete
 from dpsynth.discrete_mechanisms import mst
 import mbi
 import numpy as np
 
-DiscreteConfig = discrete.DiscreteConfig
-DiscreteMechanism = discrete.DiscreteMechanism
-MSTConfig = mst.MSTConfig
+DiscreteConfig = dpsynth.DiscreteConfig
+DiscreteMechanism = dpsynth.DiscreteMechanism
+MSTConfig = dpsynth.MSTConfig
 
 
 class DiscreteConfigTest(absltest.TestCase):

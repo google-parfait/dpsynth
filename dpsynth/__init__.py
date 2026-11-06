@@ -28,11 +28,19 @@ from dpsynth import serialize
 from dpsynth._calibration import calibrate
 from dpsynth._calibration import with_group_size
 from dpsynth._checkpoint import checkpoint
+from dpsynth.api import CalibratedMechanism
+from dpsynth.api import MechanismConfig
+from dpsynth.constraints import Constraint
 from dpsynth.data_generation_v3 import TabularConfig
 from dpsynth.data_generation_v3 import TabularMechanism
 from dpsynth.data_generation_v3 import TabularSynthesizer
+from dpsynth.discrete_mechanisms.aim import AIMConfig
+from dpsynth.discrete_mechanisms.direct import DirectConfig
 from dpsynth.discrete_mechanisms.discrete import DiscreteConfig
 from dpsynth.discrete_mechanisms.discrete import DiscreteMechanism
+from dpsynth.discrete_mechanisms.independent import IndependentConfig
+from dpsynth.discrete_mechanisms.mst import MSTConfig
+from dpsynth.discrete_mechanisms.swift import SWIFTConfig
 from dpsynth.domain import CategoricalAttribute
 from dpsynth.domain import FreeFormTextAttribute
 from dpsynth.domain import NumericalAttribute
@@ -60,15 +68,26 @@ MultiTableConfig = relational.MultiTableConfig
 MultiTableMechanism = relational.MultiTableMechanism
 
 __all__ = [
+    'AIMConfig',
     'AuditReport',
+    'CalibratedMechanism',
     'CategoricalAttribute',
+    'Constraint',
+    'DirectConfig',
+    'DiscreteConfig',
+    'DiscreteMechanism',
     'ForeignKeyRelation',
+    'FreeFormTextAttribute',
+    'IndependentConfig',
+    'MSTConfig',
+    'MechanismConfig',
     'MultiDataGenerationResult',
     'MultiTableConfig',
     'MultiTableMechanism',
     'NumericalAttribute',
     'OpenSetCategoricalAttribute',
     'PrivacyReport',
+    'SWIFTConfig',
     'Schema',
     'TabularConfig',
     'TabularMechanism',

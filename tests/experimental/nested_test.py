@@ -19,7 +19,7 @@ import doctest
 from absl.testing import absltest
 from absl.testing import parameterized
 import dp_accounting
-from dpsynth import domain
+import dpsynth
 from dpsynth.experimental import nested
 import numpy as np
 import pandas as pd
@@ -29,19 +29,19 @@ class NestedTabularConfigTest(parameterized.TestCase):
 
   def _make_schema(self):
     """Creates a simple two-type schema for testing."""
-    shared_schema = domain.Schema({
-        'platform': domain.CategoricalAttribute(
+    shared_schema = dpsynth.Schema({
+        'platform': dpsynth.CategoricalAttribute(
             possible_values=['web', 'mobile']
         ),
     })
     per_type_schemas = {
-        'click': domain.Schema({
-            'element': domain.CategoricalAttribute(
+        'click': dpsynth.Schema({
+            'element': dpsynth.CategoricalAttribute(
                 possible_values=['button', 'link', 'image']
             ),
         }),
-        'purchase': domain.Schema({
-            'amount': domain.CategoricalAttribute(
+        'purchase': dpsynth.Schema({
+            'amount': dpsynth.CategoricalAttribute(
                 possible_values=['low', 'medium', 'high']
             ),
         }),
@@ -106,18 +106,18 @@ class NestedTabularConfigTest(parameterized.TestCase):
       self.assertIn('amount', result.synthetic_data['purchase'].columns)
 
   def test_empty_detail_schema(self):
-    shared_schema = domain.Schema({
-        'platform': domain.CategoricalAttribute(
+    shared_schema = dpsynth.Schema({
+        'platform': dpsynth.CategoricalAttribute(
             possible_values=['web', 'mobile']
         ),
     })
     per_type_schemas = {
-        'click': domain.Schema({
-            'element': domain.CategoricalAttribute(
+        'click': dpsynth.Schema({
+            'element': dpsynth.CategoricalAttribute(
                 possible_values=['button', 'link']
             ),
         }),
-        'marker': domain.Schema({}),
+        'marker': dpsynth.Schema({}),
     }
     schema = nested.NestedSchema(
         shared_schema=shared_schema,

@@ -18,7 +18,6 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import dpsynth
 from dpsynth import _checkpoint
-from dpsynth import domain
 from dpsynth.local_mode import initialization
 from etils import epath
 import mbi
@@ -100,7 +99,7 @@ class CheckpointTest(parameterized.TestCase):
 
   def test_column_measurements_serialization(self):
     temp_dir = self.create_tempdir().full_path
-    cat_attr = domain.CategoricalAttribute(possible_values=("a", "b", "c"))
+    cat_attr = dpsynth.CategoricalAttribute(possible_values=("a", "b", "c"))
 
     num_meas = initialization.NumericalMeasurement(
         categorical_attribute=cat_attr,
