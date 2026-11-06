@@ -256,7 +256,7 @@ class DPTrainer(api.CalibratedMechanism):
           data,
           initial_state,
           callback=step_callback,
-          rng_or_seed=rng,
+          rng=rng,
       )
 
     auditor = None
@@ -268,6 +268,6 @@ class DPTrainer(api.CalibratedMechanism):
           out_canaries,
           self.config.init_params,
           microbatch_size=perf.microbatch_size,
-          prng_key=int(rng.integers(2**31)),
+          rng=rng,
       )
     return TrainingResult(params=state.params, auditor=auditor)
