@@ -48,7 +48,6 @@ from dpsynth.training import _trainer as dp_trainer
 from flax import nnx
 import grain.python as grain
 import jax
-import jax.numpy as jnp
 import jax_privacy
 from jax_privacy import execution_plan
 from jax_privacy import noise_addition
@@ -230,8 +229,7 @@ class DPFineTuner(api.CalibratedMechanism):
 
     def loss_fn(params, data, prng):
       del prng  # Deterministic forward pass (no dropout during DP training).
-      bf16_params = optax.tree.cast(params, jnp.bfloat16)
-      merged = nnx.merge(graphdef, bf16_params, frozen_params)
+      merged = nnx.merge(graphdef, params, frozen_params)
       return model.sft_loss_fn(merged, data)
 
     mesh = jax.sharding.get_mesh()
@@ -247,10 +245,9 @@ class DPFineTuner(api.CalibratedMechanism):
           microbatch_size=self.config.microbatch_size,
       )
 
-    # Keep master LoRA weights in float32 so small updates do not underflow.
     trainer_config = dp_trainer.DPTrainerConfig(
         mechanism_config=self.config.mechanism_config,
-        init_params=optax.tree.cast(trainable_params, jnp.float32),
+        init_params=trainable_params,
         loss_fn=loss_fn,
         learning_rate=self.config.learning_rate,
         performance_flags=perf,
@@ -261,8 +258,7 @@ class DPFineTuner(api.CalibratedMechanism):
     trainer = dp_trainer.DPTrainer(trainer_config, optimizer=self.optimizer)
     state = trainer(rng, dataset, metrics_fn=metrics_fn, canaries=canary_data)
 
-    bf16_params = optax.tree.cast(state.params, jnp.bfloat16)
-    merged = nnx.merge(graphdef, bf16_params, frozen_params)
+    merged = nnx.merge(graphdef, state.params, frozen_params)
 
     samples = None
     if target_prompts is not None:
