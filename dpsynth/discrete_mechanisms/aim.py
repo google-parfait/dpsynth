@@ -64,7 +64,7 @@ def _worst_approximated(
     candidates: Mapping[mbi.Clique, float],
     data: mbi.Dataset | mbi.CliqueVector,
     estimates: mbi.CliqueVector,
-    eps: float,
+    nu: float,
     sigma: float,
     domain: mbi.Domain,
 ) -> mbi.Clique:
@@ -81,9 +81,28 @@ def _worst_approximated(
   )  # if all weights are 0, could be a problem
   keys, values = list(errors.keys()), np.array(list(errors.values()))
   idx = primitives.exponential_mechanism(
-      rng, values, epsilon=eps, sensitivity=max_sensitivity, monotonic=False
+      rng, values, epsilon=nu, sensitivity=max_sensitivity, monotonic=False
   )
   return keys[idx]
+
+
+def _round_parameters(
+    round_budget: float,
+    budget_type: str,
+    select_budget_fraction: float,
+) -> tuple[float, float]:
+  """Returns (nu, sigma) for a round given its budget allocation."""
+  select_budget = select_budget_fraction * round_budget
+  measure_budget = (1.0 - select_budget_fraction) * round_budget
+  if budget_type == 'gdp':
+    nu = accounting.gdp_exponential_nu(select_budget)
+    sigma = accounting.gdp_gaussian_sigma(measure_budget)
+  elif budget_type == 'zcdp':
+    nu = accounting.zcdp_exponential_nu(select_budget)
+    sigma = accounting.zcdp_gaussian_sigma(measure_budget)
+  else:
+    raise ValueError(f'Unsupported budget_type: {budget_type}')
+  return nu, sigma
 
 
 @dataclasses.dataclass(frozen=True)
@@ -124,6 +143,9 @@ class AIMConfig(api.MechanismConfig):
     anneal_factor: The factor by which to anneal the privacy.
     select_budget_fraction: The fraction of the total budget to use for
       selecting two-way marginal queries.
+    pgm_iters: Number of iterations for Private-PGM.
+    marginal_oracle: Marginal oracle for marginal estimation.
+    budget_type: The privacy accounting framework: 'zcdp' or 'gdp'.
   """
 
   workload: Mapping[mbi.Clique, float] | Iterable[mbi.Clique] | None = None
@@ -135,6 +157,7 @@ class AIMConfig(api.MechanismConfig):
   select_budget_fraction: float = 0.1
   pgm_iters: int = 1000
   marginal_oracle: mbi.MarginalOracle | None = None
+  budget_type: str = 'zcdp'
 
   def supporting_cliques(self, domain: mbi.Domain) -> list[mbi.Clique]:
     """Returns the workload cliques filtered by max_marginal_size."""
@@ -143,9 +166,13 @@ class AIMConfig(api.MechanismConfig):
     )
 
   def configure(self, _=None, *, budget, delta=0):
+    privacy_budget = (
+        accounting.zcdp_to_gdp(budget) if self.budget_type == 'gdp' else budget
+    )
     return AIM(
         config=self,
-        zcdp_rho=budget,
+        privacy_budget=privacy_budget,
+        budget_type=self.budget_type,
     )
 
 
@@ -154,12 +181,19 @@ class AIM(api.CalibratedMechanism):
   """Calibrated AIM instance."""
 
   config: AIMConfig
-  zcdp_rho: float
+  privacy_budget: float
+  budget_type: str = 'zcdp'
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
     """Returns the DP event for the AIM mechanism."""
-    return dp_accounting.ZCDpEvent(self.zcdp_rho)
+    if self.budget_type == 'gdp':
+      return dp_accounting.GaussianDpEvent(
+          accounting.gdp_gaussian_sigma(self.privacy_budget)
+      )
+    elif self.budget_type == 'zcdp':
+      return dp_accounting.ZCDpEvent(self.privacy_budget)
+    raise ValueError(f'Unsupported budget_type: {self.budget_type}')
 
   def __call__(
       self,
@@ -175,11 +209,11 @@ class AIM(api.CalibratedMechanism):
     measurements = list(initial_measurements) if initial_measurements else []
     phase_times = {}
     logging.info('[AIM]: Starting Mechanism.')
-    zcdp_rho = self.zcdp_rho
+    total_budget = self.privacy_budget
     terminate = False
-    rho_remaining = self.zcdp_rho
+    budget_remaining = self.privacy_budget
     max_rounds = self.config.max_rounds or 16 * len(data.domain)
-    rho_per_round = self.zcdp_rho / max_rounds
+    budget_per_round = self.privacy_budget / max_rounds
 
     #########################################################################
     # Compile workload into candidate measurements.                         #
@@ -202,21 +236,25 @@ class AIM(api.CalibratedMechanism):
     t = 0
     while not terminate:
       t += 1
-      if rho_remaining < 2 * rho_per_round:
+      if budget_remaining < 2 * budget_per_round:
         logging.info('[AIM] Final round, Using all remaining privacy budget.')
-        rho_per_round = rho_remaining
+        budget_per_round = budget_remaining
         terminate = True
 
       ########################################################################
       # Select a marginal query worst approximated by the current model.     #
       ########################################################################
       with common.timed(phase_times, 'selection'):
-        rho_remaining -= rho_per_round
-        fraction = self.config.select_budget_fraction
-        sigma = accounting.zcdp_gaussian_sigma((1 - fraction) * rho_per_round)
-        epsilon = accounting.zcdp_exponential_eps(fraction * rho_per_round)
+        budget_remaining -= budget_per_round
+        nu, sigma = _round_parameters(
+            budget_per_round,
+            self.budget_type,
+            self.config.select_budget_fraction,
+        )
         size_limit = (
-            self.config.max_model_size * (zcdp_rho - rho_remaining) / zcdp_rho
+            self.config.max_model_size
+            * (total_budget - budget_remaining)
+            / total_budget
         )
         small_candidates = _filter_candidates(candidates, model, size_limit)
 
@@ -228,7 +266,7 @@ class AIM(api.CalibratedMechanism):
             small_candidates,
             data,
             estimates,
-            epsilon,
+            nu,
             sigma,
             data.domain,
         )
@@ -240,7 +278,7 @@ class AIM(api.CalibratedMechanism):
           '[AIM] Round %d, Budget used: %.4f, Measuring: %s, Candidates: %d,'
           ' cliques: %d, treewidth: %d, memory: %d bytes',
           t,
-          (zcdp_rho - rho_remaining) / zcdp_rho,
+          (total_budget - budget_remaining) / total_budget,
           marginal_query,
           len(small_candidates),
           summary.num_cliques,
@@ -277,15 +315,18 @@ class AIM(api.CalibratedMechanism):
 
       new_estimate = model.project(marginal_query).datavector()
 
-      ##########################################
-      # Anneal epsilon and sigma if necessary. #
-      ##########################################
+      #####################################
+      # Anneal nu and sigma if necessary. #
+      #####################################
       threshold = sigma * np.sqrt(2 / np.pi) * data.domain.size(marginal_query)
       if np.linalg.norm(new_estimate - old_estimate, ord=1) <= threshold:
         # No useful information at this noise level, increase budget per round.
-        rho_per_round *= self.config.anneal_factor
-        fraction = self.config.select_budget_fraction
-        sigma = accounting.zcdp_gaussian_sigma((1 - fraction) * rho_per_round)
+        budget_per_round *= self.config.anneal_factor
+        _, sigma = _round_parameters(
+            budget_per_round,
+            self.budget_type,
+            self.config.select_budget_fraction,
+        )
         logging.info('[AIM] Reducing sigma: %.1f', sigma)
 
     return common.DiscreteMechanismResult(

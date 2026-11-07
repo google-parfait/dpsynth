@@ -12,16 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CDP <> ADP conversion from "The Discrete Gaussian for Differential Privacy".
+"""Privacy accounting helpers for zCDP, GDP, and (epsilon, delta)-DP.
 
-See Section 2.3 of https://arxiv.org/abs/2004.00010. This code was adapted
-from https://github.com/IBM/discrete-gaussian-differential-privacy/.
+The zCDP <> ADP conversion follows Section 2.3 of "The Discrete Gaussian for
+Differential Privacy" (https://arxiv.org/abs/2004.00010) and was adapted from
+https://github.com/IBM/discrete-gaussian-differential-privacy/.
+
+The GDP helpers follow "Gaussian Differential Privacy"
+(https://arxiv.org/abs/1905.02383).
 
 Note: this file is subject to be deprecated in the near future, in favor of
 using the dp_accounting library.
 """
 
 import math
+
+import scipy.special
+import scipy.stats
 
 
 def zcdp_delta(rho: float, eps: float) -> float:
@@ -87,15 +94,86 @@ def zcdp_gaussian_sigma(rho: float) -> float:
   return math.sqrt(0.5 / rho)
 
 
-def zcdp_exponential_eps(rho: float) -> float:
-  """Maximum epsilon such that the exponential mechanism satisfies rho-zCDP."""
-  # rho = 1/8 * epsilon^2
+def zcdp_exponential_nu(rho: float) -> float:
+  """Maximum nu such that the exponential mechanism satisfies rho-zCDP."""
+  # rho = 1/8 * nu^2
   return math.sqrt(8 * rho)
 
 
+def zcdp_bounded_range_optimal_rho(nu: float) -> float:
+  """Return the tight zCDP parameter rho of a bounded range mechanism.
+
+  A mechanism with bounded range parameter nu (e.g. the exponential mechanism
+  with parameter nu) satisfies rho-zCDP for
+  rho = nu / (exp(nu) - 1) + log((exp(nu) - 1) / nu) - 1.
+  This improves on the generic bound rho = nu^2 / 8 used by
+  `zcdp_exponential_nu`. See https://arxiv.org/abs/2510.25746.
+
+  Args:
+    nu: The bounded range parameter of the mechanism.
+  """
+  assert nu >= 0
+  if nu == 0:
+    return 0.0
+  expm1_nu = math.expm1(nu)
+  return nu / expm1_nu + math.log(expm1_nu / nu) - 1.0
+
+
 def gdp_gaussian_sigma(budget: float) -> float:
-  """Return the Gaussian mechanism sigma that satisfies `budget`-GDP."""
+  """Return the Gaussian mechanism sigma that satisfies sqrt(budget)-GDP."""
   return math.sqrt(1.0 / budget)
+
+
+def gdp_budget_bounded_range(nu: float) -> float:
+  """Return the squared GDP parameter mu^2 of a bounded range mechanism.
+
+  A mechanism with bounded range parameter nu satisfies mu-GDP for
+  mu = -2 * Phi^{-1}(1 / (exp(nu / 2) + 1)).
+
+  Args:
+    nu: The bounded range parameter of the mechanism.
+  """
+  assert nu >= 0
+  mu = -2.0 * scipy.stats.norm.ppf(1.0 / (math.exp(nu / 2.0) + 1.0))
+  return mu**2
+
+
+def gdp_bounded_range_nu(budget: float) -> float:
+  """Return the largest bounded range parameter nu that satisfies sqrt(budget)-GDP.
+
+  This is the inverse of `gdp_budget_bounded_range`, given by nu = 2 * L(mu)
+  with L(t) = log(Phi(t / 2) / Phi(-t / 2)).
+
+  Args:
+    musq: The GDP budget mu^2 of the mechanism.
+  """
+  assert budget >= 0
+  mu = math.sqrt(budget)
+  return 2.0 * (scipy.special.log_ndtr(mu / 2.0) - scipy.special.log_ndtr(-mu / 2.0))
+
+
+def gdp_exponential_nu(budget: float) -> float:
+  """Return the exponential mechanism nu that satisfies sqrt(budget)-GDP."""
+  return gdp_bounded_range_nu(budget)
+
+
+def gdp_delta(mu: float, eps: float) -> float:
+  """Return the minimum delta such that mu-GDP implies (epsilon, delta)-DP.
+
+  See Dong, Roth, and Su, "Gaussian Differential Privacy"
+  (https://arxiv.org/abs/1905.02383).
+
+  Args:
+    mu: The GDP parameter.
+    eps: The epsilon of the target (epsilon, delta)-DP guarantee.
+  """
+  assert mu >= 0
+  assert eps >= 0
+  if mu == 0:
+    return 0.0
+  return scipy.stats.norm.cdf(-eps / mu + mu / 2) - math.exp(eps) * (
+      scipy.stats.norm.cdf(-eps / mu - mu / 2)
+  )
 
 
 def zcdp_to_gdp(rho: float) -> float:

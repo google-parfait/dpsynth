@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from absl.testing import absltest
+import dp_accounting
 from dpsynth.discrete_mechanisms import aim
 from dpsynth.discrete_mechanisms import common
 import mbi
@@ -74,6 +75,49 @@ class AIMTest(absltest.TestCase):
   def test_default_configuration_values(self):
     config = aim.AIMConfig()
     self.assertEqual(config.pgm_iters, 1000)
+    self.assertEqual(config.budget_type, "zcdp")
+
+  def test_fits_one_way_marginals_with_aim_native_gdp(self):
+    data = mbi.Dataset.synthetic(mbi.Domain(["a", "b", "c"], [3, 4, 5]), N=1000)
+    workload = [("a",), ("b",), ("c",)]
+    config = aim.AIMConfig(
+        workload=workload, max_rounds=4, pgm_iters=500, budget_type="gdp"
+    )
+
+    calibrated = config.configure(budget=10000)
+    self.assertEqual(calibrated.budget_type, "gdp")
+    self.assertEqual(calibrated.privacy_budget, 20000)
+    self.assertIsInstance(calibrated.dp_event, dp_accounting.GaussianDpEvent)
+
+    result = calibrated(np.random.default_rng(0), data)
+    self.assertIsInstance(result, common.DiscreteMechanismResult)
+    self.assertNotEmpty(result.measurements)
+    for col in data.domain:
+      expected = data.project([col]).datavector()
+      actual = result.model.project([col]).datavector()
+      np.testing.assert_allclose(actual, expected, atol=1)
+
+  def test_dp_event_types(self):
+    config_zcdp = aim.AIMConfig(budget_type="zcdp")
+    calibrated_zcdp = config_zcdp.configure(budget=1.0)
+    self.assertIsInstance(calibrated_zcdp.dp_event, dp_accounting.ZCDpEvent)
+
+    config_gdp = aim.AIMConfig(budget_type="gdp")
+    calibrated_gdp = config_gdp.configure(budget=1.0)
+    self.assertIsInstance(
+        calibrated_gdp.dp_event, dp_accounting.GaussianDpEvent
+    )
+
+  def test_calibrate_with_gdp_budget_type(self):
+    domain = mbi.Domain(["a", "b", "c"], [3, 4, 5])
+    workload = [("a",), ("b",), ("c",)]
+    config = aim.AIMConfig(
+        workload=workload, max_rounds=4, pgm_iters=500, budget_type="gdp"
+    )
+    calibrated = config.calibrate(domain, epsilon=1.0, delta=1e-5)
+    self.assertEqual(calibrated.budget_type, "gdp")
+    self.assertGreater(calibrated.privacy_budget, 0)
+    self.assertIsInstance(calibrated.dp_event, dp_accounting.GaussianDpEvent)
 
   def test_workload_degree(self):
     domain = mbi.Domain(["a", "b", "c"], [3, 3, 3])
