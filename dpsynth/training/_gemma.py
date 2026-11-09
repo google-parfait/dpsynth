@@ -25,6 +25,7 @@ import time
 from typing import Any, Literal
 
 from absl import logging
+from dpsynth.training import _sequence_model
 from etils import epath
 from flax import nnx
 import jax
@@ -234,7 +235,7 @@ def sft_loss_fn(
   loss_mask = data['loss_mask']
 
   seq_len = input_tokens.shape[-1]
-  causal_mask = jnp.tril(jnp.ones((1, seq_len, seq_len), dtype=jnp.bool_))
+  causal_mask = jnp.tri(seq_len, dtype=jnp.bool_)[jnp.newaxis]
 
   logits, _ = module(input_tokens, attention_mask=causal_mask)
   logits = logits[:, :-1, :]
@@ -376,3 +377,42 @@ class GemmaSampler:
       )
       results.extend([str(r) for r in out.text[:cur_size]])
     return results
+
+
+def load_gemma_sequence_model(
+    model: ModelName,
+    *,
+    lora_rank: int = 16,
+    checkpoint_path: epath.PathLike | None = None,
+    mesh: jax.sharding.Mesh | None = None,
+) -> _sequence_model.SequenceModel:
+  """Loads a LoRA-wrapped Gemma 4 model as a ``SequenceModel``."""
+  loaded = load_gemma(
+      model, lora_rank=lora_rank, checkpoint_path=checkpoint_path, mesh=mesh
+  )
+  graphdef, trainable_params, frozen_params = nnx.split(
+      loaded, nnx.LoRAParam, ...
+  )
+  del loaded
+
+  def forward_fn(params: Any, tokens: jax.Array) -> jax.Array:
+    merged = nnx.merge(graphdef, params, frozen_params)
+    seq_len = tokens.shape[-1]
+    mask = jnp.tri(seq_len, dtype=jnp.bool_)[jnp.newaxis]
+    logits, _ = merged(tokens, attention_mask=mask)
+    return logits
+
+  def sample_fn(
+      params: Any, prompts: Sequence[str], max_seq_length: int
+  ) -> list[str]:
+    merged = nnx.merge(graphdef, params, frozen_params)
+    return GemmaSampler(merged, max_seq_length=max_seq_length)(prompts)
+
+  return _sequence_model.SequenceModel(
+      params=trainable_params,
+      forward_fn=forward_fn,
+      tokenize_fn=tokenize_example,
+      sample_fn=sample_fn,
+  )
+
+

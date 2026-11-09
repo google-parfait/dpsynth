@@ -205,6 +205,33 @@ class GemmaModelTest(absltest.TestCase):
     self.assertIs(dpsynth.text.DPFineTuner, dp_sft.DPFineTuner)
     self.assertIs(dpsynth.text.DPTrainer, dp_sft.DPTrainer)
 
+  def test_load_gemma_sequence_model_and_loss_fn(self):
+    tiny_model = _make_tiny_lora_model()
+    fake_example = {
+        'input_tokens': np.array([1, 2, 3, 4], dtype=np.int32),
+        'loss_mask': np.array([0, 1, 1, 1], dtype=np.int32),
+    }
+    fake_sample = lambda prompts: [f'gen_{p}' for p in prompts]
+    with (
+        mock.patch.object(model, 'load_gemma', return_value=tiny_model),
+        mock.patch.object(model, 'tokenize_example', return_value=fake_example),
+        mock.patch.object(model, 'GemmaSampler', return_value=fake_sample),
+    ):
+      seq_model = dp_sft.load_gemma_sequence_model('gemma4_e2b_it')
+      assert seq_model.sample_fn is not None
+      samples = seq_model.sample_fn(seq_model.params, ['q1'], 512)
+
+    self.assertIsInstance(seq_model, dp_sft.SequenceModel)
+    self.assertEqual(seq_model.tokenize_fn(('p', 'r'), 512), fake_example)
+    self.assertEqual(samples, ['gen_q1'])
+    batch = {
+        'input_tokens': jnp.array([[1, 2, 3, 4]], dtype=jnp.int32),
+        'loss_mask': jnp.array([[0, 1, 1, 1]], dtype=jnp.int32),
+    }
+    loss, aux = seq_model.loss_fn(seq_model.params, batch, jax.random.key(0))
+    self.assertTrue(jnp.isfinite(loss))
+    self.assertIn('loss', aux)
+
 
 class LoraCheckpointTest(absltest.TestCase):
 

@@ -17,8 +17,10 @@
 # pylint: disable=g-importing-member
 
 from dpsynth.training._gemma import GemmaSampler
+from dpsynth.training._gemma import load_gemma_sequence_model
 from dpsynth.training._gemma import make_mesh
 from dpsynth.training._gemma import ModelName
+from dpsynth.training._sequence_model import SequenceModel
 from dpsynth.training._sft import DPFineTuner
 from dpsynth.training._sft import DPFineTunerConfig
 from dpsynth.training._sft import FineTuneResult
@@ -36,8 +38,10 @@ __all__ = [
     'FineTuneResult',
     'GemmaSampler',
     'ModelName',
+    'SequenceModel',
     'TabularTransformer',
     'TabularTransformerConfig',
     'TrainingResult',
+    'load_gemma_sequence_model',
     'make_mesh',
 ]
