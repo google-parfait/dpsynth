@@ -61,6 +61,7 @@ class Config:
     output_dir: Directory to save the DP-safe fine-tuned model and samples.
     instruction: Fixed instruction prompt paired with each training document.
     checkpoint_dir: Optional directory for mid-training checkpoints.
+    run_id: Run identifier required when checkpoint_dir is set.
     canary_path: Optional path to a JSON file containing canary text strings.
     dp_plan: Optional YAML path for a BandMFConfig execution plan.
     model: Gemma model variant to fine-tune.
@@ -73,6 +74,7 @@ class Config:
   output_dir: str
   instruction: str
   checkpoint_dir: str | None = None
+  run_id: str | None = None
   canary_path: str | None = None
   dp_plan: str | None = None
   model: dpsynth.training.ModelName = 'gemma4_e2b_it'
@@ -116,14 +118,16 @@ def main(argv: Sequence[str]) -> None:
   target_prompts = [cfg.instruction] * cfg.num_samples
   out_dir = epath.Path(cfg.output_dir)
   logging.info('DP fine-tuning on %d documents...', len(train_data))
-  with jax.set_mesh(dpsynth.training.make_mesh()):
-    with dpsynth.checkpoint(cfg.checkpoint_dir):
-      result = fine_tuner(
-          rng=np.random.default_rng(cfg.seed),
-          data=train_data,
-          canaries=canaries,
-          target_prompts=target_prompts,
-      )
+  with (
+      jax.set_mesh(dpsynth.training.make_mesh()),
+      dpsynth.checkpoint(cfg.checkpoint_dir, cfg.run_id),
+  ):
+    result = fine_tuner(
+        rng=np.random.default_rng(cfg.seed),
+        data=train_data,
+        canaries=canaries,
+        target_prompts=target_prompts,
+    )
     result.save(out_dir / 'params')
 
   if result.auditor is not None:

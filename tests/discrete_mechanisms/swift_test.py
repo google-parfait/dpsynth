@@ -153,15 +153,15 @@ class SWIFTTest(absltest.TestCase):
     data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
     config = swift.SWIFTConfig(pgm_iters=10).configure(budget=10.0)
 
-    with _checkpoint.checkpoint(temp_dir):
+    with _checkpoint.checkpoint(temp_dir, 'run_1', cleanup=False):
       result1 = config(np.random.default_rng(0), data)
 
-    measurements_path = os.path.join(temp_dir, 'measurements.npz')
-    model_path = os.path.join(temp_dir, 'model.npz')
+    measurements_path = os.path.join(temp_dir, 'run_1', 'measurements.npz')
+    model_path = os.path.join(temp_dir, 'run_1', 'model.npz')
     self.assertTrue(os.path.exists(measurements_path))
     self.assertTrue(os.path.exists(model_path))
 
-    with _checkpoint.checkpoint(temp_dir):
+    with _checkpoint.checkpoint(temp_dir, 'run_1'):
       result2 = config(np.random.default_rng(1), data)
 
     self.assertIsInstance(result2, common.DiscreteMechanismResult)

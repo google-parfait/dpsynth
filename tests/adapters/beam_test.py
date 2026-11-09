@@ -569,21 +569,22 @@ class ExecuteTest(parameterized.TestCase):
       calls += 1
       return p | beam.Create(rows)
 
-    with dpsynth.checkpoint(ckpt_dir):
+    run_dir = os.path.join(ckpt_dir, 'run_1')
+    with dpsynth.checkpoint(ckpt_dir, 'run_1', cleanup=False):
       expected = beam_adapter.execute(
           mech, np.random.default_rng(0), counting_rows_fn
       )
     self.assertEqual(calls, 2)
     self.assertTrue(
-        os.path.exists(os.path.join(ckpt_dir, 'column_measurements.npz'))
+        os.path.exists(os.path.join(run_dir, 'column_measurements.npz'))
     )
     self.assertTrue(
-        os.path.exists(os.path.join(ckpt_dir, 'precomputed_marginals.npz'))
+        os.path.exists(os.path.join(run_dir, 'precomputed_marginals.npz'))
     )
 
     # Both Pass 1 and Pass 2 checkpoints exist: neither pipeline pass runs.
     calls = 0
-    with dpsynth.checkpoint(ckpt_dir):
+    with dpsynth.checkpoint(ckpt_dir, 'run_1', cleanup=False):
       cached_all = beam_adapter.execute(
           mech, np.random.default_rng(0), counting_rows_fn
       )
@@ -591,9 +592,9 @@ class ExecuteTest(parameterized.TestCase):
     self.assertTrue(cached_all.synthetic_data.equals(expected.synthetic_data))
 
     # Only Pass 1 checkpoint exists: Pass 1 is skipped and Pass 2 runs.
-    os.remove(os.path.join(ckpt_dir, 'precomputed_marginals.npz'))
+    os.remove(os.path.join(run_dir, 'precomputed_marginals.npz'))
     calls = 0
-    with dpsynth.checkpoint(ckpt_dir):
+    with dpsynth.checkpoint(ckpt_dir, 'run_1'):
       cached_pass1 = beam_adapter.execute(
           mech, np.random.default_rng(0), counting_rows_fn
       )

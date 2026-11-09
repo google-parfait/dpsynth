@@ -62,6 +62,10 @@ and this project adheres to
     `np.random.Generator` upfront for each randomized stage, ensuring caller RNG
     progression is identical whether stages are computed from scratch or loaded
     from a checkpoint ([#287](https://github.com/google-parfait/dpsynth/issues/287)).
+-   **Checkpoint run scoping and cleanup**: `dpsynth.checkpoint` now requires a
+    `run_id` parameter (storing checkpoints under `checkpoint_dir / run_id`) and
+    deletes `checkpoint_dir / run_id` upon normal exit by default
+    (`cleanup=True`, [#289](https://github.com/google-parfait/dpsynth/issues/289)).
 -   **Non-numeric cells in numerical columns**: Vectorized numerical
     initialization and discretization in `local_mode` and `dpsynth.relational`
     now standardize object-dtype arrays containing non-numeric strings or `None`

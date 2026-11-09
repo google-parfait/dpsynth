@@ -179,7 +179,7 @@ class DPTrainerTest(absltest.TestCase):
         raise RuntimeError('Simulated preemption at step 4')
 
     with self.assertRaises(RuntimeError):
-      with dpsynth.checkpoint(ckpt_dir):
+      with dpsynth.checkpoint(ckpt_dir, 'run_1'):
         base_trainer(
             rng=np.random.default_rng(42),
             data=data,
@@ -191,7 +191,7 @@ class DPTrainerTest(absltest.TestCase):
     # restoring the initial RNG seed even when a fresh RNG is passed.
     steps_run_2 = []
     log_2 = lambda s, m: steps_run_2.append(s)
-    with dpsynth.checkpoint(ckpt_dir):
+    with dpsynth.checkpoint(ckpt_dir, 'run_1', cleanup=False):
       resumed = base_trainer(np.random.default_rng(999), data, metrics_fn=log_2)
     self.assertEqual(steps_run_2, [5, 6])
     np.testing.assert_allclose(
@@ -201,7 +201,7 @@ class DPTrainerTest(absltest.TestCase):
     # Third run: restores final step 6 checkpoint and executes 0 steps.
     steps_run_3 = []
     log_3 = lambda s, m: steps_run_3.append(s)
-    with dpsynth.checkpoint(ckpt_dir):
+    with dpsynth.checkpoint(ckpt_dir, 'run_1'):
       cached = base_trainer(np.random.default_rng(123), data, metrics_fn=log_3)
     self.assertEqual(steps_run_3, [])
     np.testing.assert_allclose(
@@ -310,7 +310,7 @@ class DPTrainerTest(absltest.TestCase):
         learning_rate=1e-2,
         checkpoint_every=2,
     ).configure(budget=1.0)
-    with dpsynth.checkpoint(ckpt_dir):
+    with dpsynth.checkpoint(ckpt_dir, 'run_1'):
       first = trainer(rng=np.random.default_rng(7), data=data)
       second = trainer(rng=np.random.default_rng(7), data=data)
     np.testing.assert_allclose(first.params['w'], second.params['w'], rtol=1e-5)

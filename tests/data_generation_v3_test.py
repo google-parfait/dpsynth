@@ -359,18 +359,19 @@ class DataGenerationV3Test(parameterized.TestCase):
     df = pd.DataFrame({'A': ['a', 'b', 'c'], 'B': [1.0, 5.0, 10.0]})
     calibrated = TabularConfig().configure(domains, budget=100.0)
 
-    with dpsynth.checkpoint(temp_dir):
+    with dpsynth.checkpoint(temp_dir, 'run_1', cleanup=False):
       result1 = calibrated(np.random.default_rng(0), df)
     self.assertIsInstance(result1.synthetic_data, pd.DataFrame)
 
-    col_meas_path = os.path.join(temp_dir, 'column_measurements.npz')
-    disc_data_path = os.path.join(temp_dir, 'discrete_data.npz')
-    precomp_path = os.path.join(temp_dir, 'precomputed_marginals.npz')
+    run_dir = os.path.join(temp_dir, 'run_1')
+    col_meas_path = os.path.join(run_dir, 'column_measurements.npz')
+    disc_data_path = os.path.join(run_dir, 'discrete_data.npz')
+    precomp_path = os.path.join(run_dir, 'precomputed_marginals.npz')
     self.assertTrue(os.path.exists(col_meas_path))
     self.assertTrue(os.path.exists(disc_data_path))
     self.assertTrue(os.path.exists(precomp_path))
 
-    with dpsynth.checkpoint(temp_dir):
+    with dpsynth.checkpoint(temp_dir, 'run_1'):
       result2 = calibrated(np.random.default_rng(0), df)
     self.assertIsInstance(result2.synthetic_data, pd.DataFrame)
     self.assertListEqual(result2.synthetic_data.columns.tolist(), ['A', 'B'])

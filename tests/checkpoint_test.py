@@ -27,6 +27,10 @@ import mbi
 import numpy as np
 
 
+class _PreemptedError(Exception):
+  pass
+
+
 class CheckpointTest(parameterized.TestCase):
 
   def test_context_manager_scoping(self):
@@ -34,21 +38,56 @@ class CheckpointTest(parameterized.TestCase):
     self.assertIsNone(_checkpoint.get_active_checkpoint_dir())
 
     temp_dir = self.create_tempdir().full_path
-    with _checkpoint.checkpoint(temp_dir) as active_dir:
-      self.assertIsNotNone(active_dir)
-      self.assertEqual(
-          _checkpoint.get_active_checkpoint_dir(),
-          active_dir,
-      )
+    with _checkpoint.checkpoint(temp_dir, "run_1") as active_dir:
+      self.assertEqual(active_dir, epath.Path(temp_dir) / "run_1")
+      self.assertEqual(_checkpoint.get_active_checkpoint_dir(), active_dir)
+    self.assertFalse((epath.Path(temp_dir) / "run_1").exists())
+    self.assertTrue(epath.Path(temp_dir).exists())
 
     self.assertIsNone(_checkpoint.get_active_checkpoint_dir())
-    with _checkpoint.checkpoint(os.path.relpath(temp_dir)) as rel_dir:
-      self.assertEqual(rel_dir, epath.Path(temp_dir))
+    with _checkpoint.checkpoint(os.path.relpath(temp_dir), "run_2") as rel_dir:
+      self.assertEqual(rel_dir, epath.Path(temp_dir) / "run_2")
+
+  @parameterized.parameters(None, "")
+  def test_missing_run_id_raises(self, bad_run_id):
+    temp_dir = self.create_tempdir().full_path
+    with self.assertRaises(ValueError):
+      with _checkpoint.checkpoint(temp_dir, bad_run_id):
+        pass
+
+  def test_run_id_isolation_and_cleanup(self):
+    temp_dir = self.create_tempdir().full_path
+    run1_dir = epath.Path(temp_dir) / "run_1"
+    run2_dir = epath.Path(temp_dir) / "run_2"
+
+    def fail():
+      raise _PreemptedError()
+
+    with self.assertRaises(_PreemptedError):
+      with _checkpoint.checkpoint(temp_dir, "run_1"):
+        _checkpoint.get_or_compute("s1", lambda: np.array([1, 2]), rng=None)
+        _checkpoint.get_or_compute("s2", fail, rng=None)
+    self.assertTrue((run1_dir / "s1.npz").exists())
+
+    with _checkpoint.checkpoint(temp_dir, "run_2", cleanup=False):
+      val2 = _checkpoint.get_or_compute("s1", lambda: np.array([3]), rng=None)
+      np.testing.assert_array_equal(val2, [3])
+    self.assertTrue(run2_dir.exists())
+
+    with _checkpoint.checkpoint(temp_dir, "run_1"):
+      val1 = _checkpoint.get_or_compute("s1", lambda: np.array([9]), rng=None)
+      val2 = _checkpoint.get_or_compute("s2", lambda: np.array([5]), rng=None)
+      np.testing.assert_array_equal(val1, [1, 2])
+      np.testing.assert_array_equal(val2, [5])
+    self.assertFalse(run1_dir.exists())
+    self.assertTrue(run2_dir.exists())
 
   def test_context_manager_none_disabled(self):
-    with _checkpoint.checkpoint(None) as active_dir:
+    with _checkpoint.checkpoint(None, None) as active_dir:
       self.assertIsNone(active_dir)
       self.assertIsNone(_checkpoint.get_active_checkpoint_dir())
+    with _checkpoint.checkpoint(None, "run_1") as active_dir:
+      self.assertIsNone(active_dir)
 
   def test_get_or_compute_disabled_runs_function(self):
     call_count = 0
@@ -67,7 +106,7 @@ class CheckpointTest(parameterized.TestCase):
 
   def test_get_or_compute_saves_and_loads(self):
     temp_dir = self.create_tempdir().full_path
-    with _checkpoint.checkpoint(temp_dir):
+    with _checkpoint.checkpoint(temp_dir, "run_1"):
       call_count = 0
 
       def compute():
@@ -87,7 +126,7 @@ class CheckpointTest(parameterized.TestCase):
 
   def test_get_or_compute_spawns_rng(self):
     temp_dir = self.create_tempdir().full_path
-    with _checkpoint.checkpoint(temp_dir):
+    with _checkpoint.checkpoint(temp_dir, "run_1"):
       rng1 = np.random.default_rng(42)
       _checkpoint.get_or_compute(
           "rng_stage", lambda r: r.normal(size=5), rng=rng1
@@ -188,7 +227,7 @@ class CheckpointTest(parameterized.TestCase):
       np.testing.assert_array_equal(state["params"]["w"], [1.0, 1.0])
 
     temp_dir = self.create_tempdir().full_path
-    with _checkpoint.checkpoint(temp_dir):
+    with _checkpoint.checkpoint(temp_dir, "run_1"):
       with _checkpoint.orbax_session(init_fn, {"w": np.ones(2)}) as (state, cb):
         self.assertIsNotNone(cb)
         self.assertEqual(state["step"], 0)

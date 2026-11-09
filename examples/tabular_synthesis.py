@@ -35,7 +35,6 @@ class Config:
     domain_path: Path to the domain Schema YAML file.
     config_path: Optional YAML path to a serialized TabularConfig.
     output_dir: Directory where synthetic data and privacy report are written.
-    checkpoint_dir: Optional directory for intermediate stage checkpointing.
     epsilon: Target differential privacy epsilon.
     delta: Target differential privacy delta.
     seed: Optional random seed for reproducibility.
@@ -45,7 +44,6 @@ class Config:
   domain_path: str = 'datasets/adult_domain.yaml'
   config_path: str | None = None
   output_dir: str = 'dpsynth_output'
-  checkpoint_dir: str | None = None
   epsilon: float = 1.0
   delta: float = 1e-6
   seed: int | None = None
@@ -74,8 +72,7 @@ def main(cfg: Config) -> None:
     df = pd.read_parquet(cfg.input_path)
   else:
     df = pd.read_csv(cfg.input_path)
-  with dpsynth.checkpoint(cfg.checkpoint_dir):
-    result = mechanism(rng, df)
+  result = mechanism(rng, df)
 
   # Save the synthetic dataset and privacy report to disk.
   out_dir = epath.Path(cfg.output_dir)
