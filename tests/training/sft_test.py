@@ -19,6 +19,7 @@ without loading any real model checkpoints.
 """
 
 import dataclasses
+import functools
 import math
 import os
 import sys
@@ -30,6 +31,7 @@ from absl.testing import parameterized
 from dpsynth import serialize
 from dpsynth import training as dp_sft
 from dpsynth.training import _gemma as model
+from dpsynth.training import _sequence_model
 from flax import nnx
 import grain.python as grain
 import jax
@@ -222,7 +224,7 @@ class GemmaModelTest(absltest.TestCase):
       samples = seq_model.sample_fn(seq_model.params, ['q1'], 512)
 
     self.assertIsInstance(seq_model, dp_sft.SequenceModel)
-    self.assertEqual(seq_model.tokenize_fn(('p', 'r'), 512), fake_example)
+    self.assertEqual(seq_model.tokenize_fn(('p', 'r')), fake_example)
     self.assertEqual(samples, ['gen_q1'])
     batch = {
         'input_tokens': jnp.array([[1, 2, 3, 4]], dtype=jnp.int32),
@@ -231,6 +233,22 @@ class GemmaModelTest(absltest.TestCase):
     loss, aux = seq_model.loss_fn(seq_model.params, batch, jax.random.key(0))
     self.assertTrue(jnp.isfinite(loss))
     self.assertIn('loss', aux)
+
+  def test_tokenize_example_unpadded(self):
+    fake_sp = mock.Mock()
+    fake_sp.bos_id.return_value = 2
+    fake_sp.eos_id.return_value = 1
+    fake_sp.EncodeAsIds.side_effect = lambda s: [10 + len(s), 20 + len(s)]
+    with mock.patch.object(model, '_get_tokenizer', return_value=fake_sp):
+      out = model.tokenize_example(('Hi', 'World'))
+    p_len = 1 + 2  # BOS + 2 prompt tokens
+    r_len = 2 + 1  # 2 response tokens + EOS
+    self.assertEqual(out['input_tokens'].dtype, np.int32)
+    self.assertEqual(out['loss_mask'].dtype, np.int32)
+    self.assertEqual(out['input_tokens'].shape, (p_len + r_len,))
+    np.testing.assert_array_equal(out['loss_mask'], [0] * p_len + [1] * r_len)
+    self.assertEqual(int(out['input_tokens'][0]), 2)
+    self.assertEqual(int(out['input_tokens'][-1]), 1)
 
 
 class LoraCheckpointTest(absltest.TestCase):
@@ -246,7 +264,7 @@ class LoraCheckpointTest(absltest.TestCase):
     m1 = _TinyLora(nnx.Rngs(0))
     m1.lora.lora_b.value = jnp.ones_like(m1.lora.lora_b.value)
     ckpt_dir = self.create_tempdir().full_path + '/lora_ckpt'
-    dp_sft.FineTuneResult(model=m1).save(ckpt_dir)
+    model.save_lora_params(m1, ckpt_dir)
 
     m2 = _TinyLora(nnx.Rngs(1))
     model.load_lora_params(m2, ckpt_dir)
@@ -274,16 +292,19 @@ class DPFineTunerTest(parameterized.TestCase):
       )
 
   def test_direct_dp_fine_tuner_validates_calibration(self):
+    model_fn = functools.partial(
+        model.load_gemma_sequence_model, 'gemma4_e2b_it'
+    )
     uncalibrated_plan = _default_config()
     with self.assertRaisesRegex(ValueError, 'noise_multiplier is not set'):
       dp_sft.DPFineTuner(
-          model='gemma4_e2b_it',
+          model=model_fn,
           mechanism_config=uncalibrated_plan,
           optimizer=optax.adamw(1e-3),
       )
     calibrated_plan = uncalibrated_plan.calibrate(epsilon=1.0, delta=1e-5)
     mechanism = dp_sft.DPFineTuner(
-        model='gemma4_e2b_it',
+        model=model_fn,
         mechanism_config=calibrated_plan,
         optimizer=optax.adamw(1e-3),
     )
@@ -358,7 +379,7 @@ class DPFineTunerTest(parameterized.TestCase):
     mock_load.assert_called_once()
     self.assertGreater(mock_tok.call_count, 0)
     self.assertIsInstance(result, dp_sft.FineTuneResult)
-    self.assertIsInstance(result.model, type(tiny_model))
+    self.assertIsInstance(result.model, dp_sft.SequenceModel)
 
   @parameterized.parameters((None,), (['q1', 'q2'],))
   def test_sequence_tokenization(self, target_prompts):
@@ -400,20 +421,19 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertEqual([step for step, _ in logged_steps], [1, 2])
     self.assertIn('loss', logged_steps[0][1])
     self.assertIsInstance(result, dp_sft.FineTuneResult)
-    self.assertIsInstance(result.model, type(tiny_model))
+    self.assertIsInstance(result.model, dp_sft.SequenceModel)
     self.assertIsNone(result.auditor)
 
     if target_prompts is None:
       mock_sampler.assert_not_called()
       self.assertIsNone(result.samples)
     else:
-      mock_sampler.assert_called_once_with(result.model, max_seq_length=512)
+      mock_sampler.assert_called_once_with(mock.ANY, max_seq_length=512)
       self.assertEqual(result.samples, [('q1', 'gen_q1'), ('q2', 'gen_q2')])
 
   @parameterized.parameters(False, True)
   def test_canaries_auditing(self, use_map_dataset):
-    def fake_tokenize(example, max_seq_length):
-      del max_seq_length
+    def fake_tokenize(example):
       _, resp = example
       tok = int(resp)
       return {
@@ -428,7 +448,9 @@ class DPFineTunerTest(parameterized.TestCase):
         noise_multiplier=0.0,  # No noise to ensure memorization.
     )
     mechanism = dp_sft.DPFineTuner(
-        model='gemma4_e2b_it',
+        model=functools.partial(
+            model.load_gemma_sequence_model, 'gemma4_e2b_it'
+        ),
         mechanism_config=config,
         optimizer=optax.adamw(0.1),
         max_seq_length=4,
@@ -464,6 +486,19 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertEqual(restored.lora_rank, 8)
     self.assertEqual(restored.iterations, 100)
     self.assertEqual(restored.epochs, 1.0)
+
+  def test_pad_and_truncate(self):
+    rng = np.random.default_rng(42)
+    for _ in range(32):
+      seq_len = int(rng.integers(0, 16))
+      target_len = int(rng.integers(1, 12))
+      x = rng.integers(1, 100, size=(seq_len,), dtype=np.int32)
+      out = _sequence_model.pad_and_truncate(x, target_len)
+      self.assertEqual(out.shape, (target_len,))
+      self.assertEqual(out.dtype, np.int32)
+      n = min(seq_len, target_len)
+      np.testing.assert_array_equal(out[:n], x[:n])
+      np.testing.assert_array_equal(out[n:], 0)
 
 
 if __name__ == '__main__':

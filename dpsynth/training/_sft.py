@@ -32,31 +32,32 @@ Example usage::
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 import dataclasses
 import functools
 import math
-import os
 
 import dp_accounting
 from dpsynth import api
 from dpsynth.training import _callbacks as callbacks
 from dpsynth.training import _gemma as model
+from dpsynth.training import _sequence_model
 from dpsynth.training import _trainer as dp_trainer
-from flax import nnx
 import grain.python as grain
 import jax
-import jax.numpy as jnp
 import jax_privacy
 from jax_privacy import execution_plan
 from jax_privacy import noise_addition
 import numpy as np
 import optax
 
+SequenceModel = _sequence_model.SequenceModel
+SequenceModelLoader = Callable[[], SequenceModel]
 
-def _tokenize_examples(examples, tok_fn):
-  """Tokenizes a non-empty sequence of examples into a stacked PyTree."""
-  records = [tok_fn(ex) for ex in examples]
+
+def _tokenize_examples(examples, tok_fn, pad_fn):
+  """Tokenizes and pads a non-empty sequence of examples into a stacked PyTree."""
+  records = [pad_fn(tok_fn(ex)) for ex in examples]
   return jax.tree.map(lambda *xs: np.stack(xs), *records)
 
 
@@ -68,18 +69,14 @@ class FineTuneResult:
   excluded.
 
   Attributes:
-    model: The LoRA-wrapped model with trained parameters merged in.
+    model: ``SequenceModel`` with trained parameters.
     auditor: Optional ``CanaryScoreAuditor`` when ``canaries`` are provided.
     samples: Optional ``(prompt, response)`` pairs from ``target_prompts``.
   """
 
-  model: nnx.Module
+  model: _sequence_model.SequenceModel
   auditor: jax_privacy.auditing.CanaryScoreAuditor | None = None
   samples: list[tuple[str, str]] | None = None
-
-  def save(self, path: str | os.PathLike[str]) -> None:
-    """Saves trainable LoRA parameters from ``self.model`` to ``path``."""
-    model.save_lora_params(self.model, path)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -162,11 +159,15 @@ class DPFineTunerConfig(api.MechanismConfig):
         l2_clip_norm=self.clipping_norm,
         noise_multiplier=noise_multiplier,
     )
+    # Defer loading until __call__ so calibration binary search does not
+    # instantiate weights and loading runs inside the caller's device mesh.
+    model_fn = functools.partial(
+        model.load_gemma_sequence_model, self.model, lora_rank=self.lora_rank
+    )
     return DPFineTuner(
-        model=self.model,
+        model=model_fn,
         mechanism_config=mechanism_config,
         optimizer=optax.adamw(self.learning_rate),
-        lora_rank=self.lora_rank,
         max_seq_length=self.max_seq_length,
         microbatch_size=self.microbatch_size,
         log_every=self.log_every,
@@ -178,17 +179,15 @@ class DPFineTunerConfig(api.MechanismConfig):
 class DPFineTuner(api.CalibratedMechanism):
   """Calibrated differentially private fine-tuner for Gemma models via DP-SGD."""
 
-  model: model.ModelName
+  model: SequenceModel | SequenceModelLoader
   mechanism_config: execution_plan.ExecutionPlanConfig
   optimizer: optax.GradientTransformation
-  lora_rank: int = 16
   max_seq_length: int = 512
   microbatch_size: int | None = None
   log_every: int | None = None
   checkpoint_every: int = 500
 
   def __post_init__(self):
-    model.validate_model_name(self.model)
     if self.log_every and self.checkpoint_every % self.log_every != 0:
       raise ValueError('checkpoint_every must be a multiple of log_every.')
     if getattr(self.mechanism_config, 'noise_multiplier', 0.0) is None:
@@ -236,32 +235,25 @@ class DPFineTuner(api.CalibratedMechanism):
       auditor and sampled ``(prompt, response)`` pairs. Private training state
       (noise, optimizer) is not exposed.
     """
-    # 1-to-1 per-record mapping preserves record-level differential privacy.
-    tok_fn = functools.partial(
-        model.tokenize_example, max_seq_length=self.max_seq_length
+    seq_model = (
+        self.model if isinstance(self.model, SequenceModel) else self.model()
     )
-    canary_data = _tokenize_examples(canaries, tok_fn) if canaries else None
+
+    # 1-to-1 per-record mapping preserves record-level differential privacy.
+    tok_fn = seq_model.tokenize_fn
+    pad_fn = functools.partial(
+        _sequence_model.pad_and_truncate, length=self.max_seq_length
+    )
+    canary_data = (
+        _tokenize_examples(canaries, tok_fn, pad_fn) if canaries else None
+    )
 
     if isinstance(data, grain.MapDataset):
-      dataset = data.map(tok_fn)
+      dataset = data.map(tok_fn).map(pad_fn)
     else:
-      dataset = _tokenize_examples(data, tok_fn)
+      dataset = _tokenize_examples(data, tok_fn, pad_fn)
 
-    loaded_model = model.load_gemma(
-        self.model,
-        lora_rank=self.lora_rank,
-    )
-    graphdef, trainable_params, frozen_params = nnx.split(
-        loaded_model, nnx.LoRAParam, ...
-    )
-    del loaded_model
-
-    def loss_fn(params, data, prng):
-      del prng  # Deterministic forward pass (no dropout during DP training).
-      bf16_params = optax.tree.cast(params, jnp.bfloat16)
-      merged = nnx.merge(graphdef, bf16_params, frozen_params)
-      return model.sft_loss_fn(merged, data)
-
+    trainable_params = seq_model.params
     mesh = jax.sharding.get_mesh()
     if not mesh.empty and 'replica' in mesh.axis_names:
       perf = execution_plan.PerformanceFlags(
@@ -275,10 +267,9 @@ class DPFineTuner(api.CalibratedMechanism):
           microbatch_size=self.microbatch_size,
       )
 
-    # Keep master LoRA weights in float32 so small updates do not underflow.
     trainer = dp_trainer.DPTrainer(
-        init_params=optax.tree.cast(trainable_params, jnp.float32),
-        loss_fn=loss_fn,
+        init_params=trainable_params,
+        loss_fn=seq_model.loss_fn,
         mechanism_config=self.mechanism_config,
         optimizer=self.optimizer,
         performance_flags=perf,
@@ -288,13 +279,15 @@ class DPFineTuner(api.CalibratedMechanism):
     del trainable_params
     state = trainer(rng, dataset, metrics_fn=metrics_fn, canaries=canary_data)
 
-    bf16_params = optax.tree.cast(state.params, jnp.bfloat16)
-    merged = nnx.merge(graphdef, bf16_params, frozen_params)
+    trained_model = dataclasses.replace(seq_model, params=state.params)
 
     samples = None
-    if target_prompts is not None:
-      max_len = self.max_seq_length
-      sampler = model.GemmaSampler(merged, max_seq_length=max_len)
-      samples = list(zip(target_prompts, sampler(target_prompts), strict=True))
+    if target_prompts is not None and trained_model.sample_fn is not None:
+      responses = trained_model.sample_fn(
+          state.params, target_prompts, self.max_seq_length
+      )
+      samples = list(zip(target_prompts, responses, strict=True))
 
-    return FineTuneResult(model=merged, auditor=state.auditor, samples=samples)
+    return FineTuneResult(
+        model=trained_model, auditor=state.auditor, samples=samples
+    )

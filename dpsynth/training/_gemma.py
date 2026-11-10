@@ -265,8 +265,7 @@ def _get_tokenizer() -> Any:
 
 def tokenize_example(
     example: tuple[str, str],
-    max_seq_length: int,
-) -> dict[str, np.ndarray]:
+) -> _sequence_model.TokenizedExample:
   """Tokenizes a single (prompt, response) pair for supervised fine-tuning.
 
   Prompt tokens are masked out (``loss_mask=0``) so only the response
@@ -275,30 +274,20 @@ def tokenize_example(
 
   Args:
     example: A ``(prompt, response)`` string pair.
-    max_seq_length: Maximum sequence length (including special tokens).
 
   Returns:
-    Dict with ``'input_tokens'`` and ``'loss_mask'`` (int32 ``[L]``).
+    Dict with unpadded 1D ``'input_tokens'`` and ``'loss_mask'`` int32 arrays.
   """
   tokenizer = _get_tokenizer()
   prompt, response = example
-  tokens = np.zeros((max_seq_length,), dtype=np.int32)
-  mask = np.zeros((max_seq_length,), dtype=np.int32)
-
   # Embed turn tags as strings so SentencePiece handles tokenization
   # boundaries correctly (encoding pieces separately can shift BPE merges).
-  prompt_str = format_prompt(prompt)
-  response_str = format_response(response)
-  prompt_ids = [tokenizer.bos_id()] + tokenizer.EncodeAsIds(prompt_str)
-  response_ids = tokenizer.EncodeAsIds(response_str) + [tokenizer.eos_id()]
-
-  ids = prompt_ids + response_ids
-  length = min(len(ids), max_seq_length)
-  tokens[:length] = ids[:length]
-  # Mask: 0 for prompt, 1 for response.
-  resp_start = min(len(prompt_ids), length)
-  mask[resp_start:length] = 1
-
+  p_str = format_prompt(prompt)
+  r_str = format_response(response)
+  p_ids = [tokenizer.bos_id(), *tokenizer.EncodeAsIds(p_str)]
+  r_ids = [*tokenizer.EncodeAsIds(r_str), tokenizer.eos_id()]
+  tokens = np.asarray(p_ids + r_ids, dtype=np.int32)
+  mask = np.asarray([0] * len(p_ids) + [1] * len(r_ids), dtype=np.int32)
   return {'input_tokens': tokens, 'loss_mask': mask}
 
 
@@ -414,5 +403,3 @@ def load_gemma_sequence_model(
       tokenize_fn=tokenize_example,
       sample_fn=sample_fn,
   )
-
-

@@ -32,12 +32,18 @@ Logits = jax.Array
 Prompt = str
 Response = str
 MaxSeqLength = int
-# Dict with 'input_tokens' and 'loss_mask' int32 arrays of shape (L,).
+# Dict with 'input_tokens' and 'loss_mask' int32 arrays.
 TokenizedExample = dict[str, np.typing.NDArray[np.int32]]
 
 ForwardFn = Callable[[Params, TokenBatch], Logits]
-TokenizeFn = Callable[[tuple[Prompt, Response], MaxSeqLength], TokenizedExample]
+TokenizeFn = Callable[[tuple[Prompt, Response]], TokenizedExample]
 SampleFn = Callable[[Params, Sequence[Prompt], MaxSeqLength], list[Response]]
+
+
+def pad_and_truncate(tree: Any, length: int) -> Any:
+  """Truncates or right-pads 1D array leaves with zeros to ``length``."""
+  pad = lambda x: np.pad(x[:length], (0, max(0, length - x.size)))
+  return jax.tree.map(pad, tree)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -49,8 +55,8 @@ class SequenceModel:
     forward_fn: Differentiable ``(params, tokens) -> logits`` function mapping
       trainable parameters and ``int32`` token IDs ``[B, L]`` to vocabulary
       logits ``[B, L, V]``.
-    tokenize_fn: ``(example, max_seq_length) -> tokenized_dict`` tokenizer
-      mapping a ``(prompt, response)`` pair to host NumPy ``int32`` arrays.
+    tokenize_fn: ``example -> tokenized_dict`` tokenizer mapping a ``(prompt,
+      response)`` pair to unpadded 1D host NumPy ``int32`` arrays.
     sample_fn: Optional ``(params, prompts, max_seq_length) -> responses``
       function for generating responses from trained parameters.
   """

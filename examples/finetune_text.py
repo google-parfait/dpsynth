@@ -48,6 +48,7 @@ import dpsynth.training
 from etils import epath
 import jax
 import numpy as np
+from orbax import checkpoint as ocp
 import simple_parsing
 
 
@@ -118,7 +119,10 @@ def main(argv: Sequence[str]) -> None:
         canaries=canaries,
         target_prompts=target_prompts,
     )
-    result.save(out_dir / 'params')
+    with ocp.StandardCheckpointer() as checkpointer:
+      checkpointer.save(
+          (out_dir / 'params').resolve(), result.model.params, force=True
+      )
 
   if result.auditor is not None:
     audit_report = dpsynth.AuditReport.from_auditor(result.auditor)
