@@ -24,7 +24,7 @@ from typing import TypeAlias
 
 from absl import logging
 from dpsynth import transformations
-from dpsynth.local_mode import primitives
+from dpsynth.statistical import primitives
 import mbi
 import mbi.clique_utils
 import mbi.junction_tree

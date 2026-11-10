@@ -27,7 +27,7 @@ from apache_beam.options import pipeline_options
 import dpsynth
 from dpsynth import data_generation_v3
 from dpsynth.adapters import beam as beam_adapter
-from dpsynth.local_mode import initialization
+from dpsynth.statistical import initialization
 import mbi
 import numpy as np
 

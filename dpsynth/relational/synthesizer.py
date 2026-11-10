@@ -29,12 +29,12 @@ from dpsynth import data_generation_v3
 from dpsynth import discrete_mechanisms
 from dpsynth import domain
 from dpsynth.discrete_mechanisms import common as dm_common
-from dpsynth.local_mode import initialization
-from dpsynth.local_mode import primitives
-from dpsynth.local_mode import vectorized_transformations as vtx
 from dpsynth.relational import domain as rel_domain
 from dpsynth.relational import post_processing
 from dpsynth.relational import transformations
+from dpsynth.statistical import initialization
+from dpsynth.statistical import primitives
+from dpsynth.statistical import vectorized_transformations as vtx
 import mbi
 import numpy as np
 import pandas as pd
@@ -932,7 +932,7 @@ class MultiTableMechanism(api.CalibratedMechanism):
     exploration_strategy: Exploration strategy ('empty_token' or 'size_sliced').
     link_sensitivities: Mapping from link name to cascading integer sensitivity.
 
-  Note: For simplicity, user-defined contraints are not supported yet.
+  Note: For simplicity, user-defined constraints are not supported yet.
   """
 
   domains: Mapping[str, domain.Schema]

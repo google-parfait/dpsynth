@@ -22,8 +22,8 @@ import math
 import dp_accounting
 from dpsynth import api
 from dpsynth import domain
-from dpsynth.local_mode import primitives
-from dpsynth.local_mode import vectorized_transformations as vtx
+from dpsynth.statistical import primitives
+from dpsynth.statistical import vectorized_transformations as vtx
 import numpy as np
 
 

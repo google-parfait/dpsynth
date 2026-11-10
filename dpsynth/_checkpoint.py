@@ -22,7 +22,7 @@ import contextvars
 from typing import Any, TypeAlias, TypeVar
 
 from absl import logging
-from dpsynth.local_mode import initialization
+from dpsynth.statistical import initialization
 from etils import epath
 import jax
 from jax.experimental import multihost_utils

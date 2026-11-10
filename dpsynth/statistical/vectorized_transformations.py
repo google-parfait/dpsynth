@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Vectorized transformations for the local_mode package.
+"""Vectorized transformations for the statistical package.
 
 This is a vectorized fork of ``dpsynth/transformations.py``, optimized for
 single-machine (numpy-based) environments.  Functions operate on 1-D numpy

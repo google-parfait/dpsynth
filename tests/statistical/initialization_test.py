@@ -15,9 +15,9 @@
 from absl.testing import absltest
 import dp_accounting
 import dpsynth
-from dpsynth.local_mode import initialization
-from dpsynth.local_mode import primitives
-from dpsynth.local_mode import vectorized_transformations as vtx
+from dpsynth.statistical import initialization
+from dpsynth.statistical import primitives
+from dpsynth.statistical import vectorized_transformations as vtx
 import numpy as np
 
 

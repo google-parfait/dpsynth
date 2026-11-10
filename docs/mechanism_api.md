@@ -28,7 +28,7 @@ DPSynth structures all differential privacy (DP) algorithms around two core
 abstractions:
 
 1.  **{class}`~dpsynth.MechanismConfig`**: An abstract base class defining
-    the interface for an configuration recipe for a `CalibratedMechanism`.
+    the interface for a configuration recipe for a `CalibratedMechanism`.
     Subclasses are generally lightweight frozen dataclasses defined in terms of
     basic python primitives (mechanism hyper-parameters), and can hence be
     serialized and restored via human- and machine-readable formats like YAML.
@@ -280,7 +280,7 @@ composed or split as cleanly:
     bisections, whose composite `dp_event` is a composition of exponential
     mechanisms.
 
-[dp-quantiles-src]: https://github.com/google-parfait/dpsynth/blob/main/dpsynth/local_mode/primitives.py
+[dp-quantiles-src]: https://github.com/google-parfait/dpsynth/blob/main/dpsynth/statistical/primitives.py
 
 Because these heterogeneous parameters cannot be directly combined,
 `configure()` accepts a single scalar `zcdp_rho` and translates it into each

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Differentially private primitives for local mode synthetic data generation.
+"""Differentially private primitives for statistical synthetic data generation.
 
 This module is intended to be the singular home for low-level DP building blocks
 in dpsynth, making a potential future switch to a PyDP or OpenDP backend

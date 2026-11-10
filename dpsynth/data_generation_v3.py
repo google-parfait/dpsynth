@@ -28,8 +28,8 @@ from dpsynth import constraints
 from dpsynth import discrete_mechanisms
 from dpsynth import domain
 from dpsynth.discrete_mechanisms import common as dm_common
-from dpsynth.local_mode import initialization
-from dpsynth.local_mode import vectorized_transformations as vtx
+from dpsynth.statistical import initialization
+from dpsynth.statistical import vectorized_transformations as vtx
 import mbi
 import numpy as np
 import pandas as pd

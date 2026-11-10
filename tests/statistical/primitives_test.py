@@ -16,7 +16,7 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from dpsynth.local_mode import primitives
+from dpsynth.statistical import primitives
 import numpy as np
 
 

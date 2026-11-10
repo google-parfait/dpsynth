@@ -20,11 +20,11 @@ import itertools
 from typing import Any, TypeAlias, TypeVar
 
 from dpsynth.dataset_descriptors import dataset_descriptor
-from dpsynth.local_mode import primitives
 from dpsynth.pipeline_transformations import diagnostic_info
 from dpsynth.pipeline_transformations import independent_mechanism
 from dpsynth.pipeline_transformations import marginals_computations
 from dpsynth.pipeline_transformations import types
+from dpsynth.statistical import primitives
 import jax
 import jax.numpy as jnp
 import mbi

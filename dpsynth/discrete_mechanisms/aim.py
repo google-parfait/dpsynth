@@ -22,7 +22,7 @@ import dp_accounting
 from dpsynth import api
 from dpsynth.discrete_mechanisms import accounting
 from dpsynth.discrete_mechanisms import common
-from dpsynth.local_mode import primitives
+from dpsynth.statistical import primitives
 import jax.numpy as jnp
 import mbi
 import mbi.junction_tree

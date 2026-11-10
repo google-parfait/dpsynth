@@ -12,16 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Local (in-memory) initialization and primitives."""
-
-from dpsynth.local_mode import initialization
-from dpsynth.local_mode.initialization import CategoricalInitializerConfig
-from dpsynth.local_mode.initialization import NumericalInitializerConfig
-from dpsynth.local_mode.initialization import OpenSetInitializerConfig
-
-__all__ = [
-    'CategoricalInitializerConfig',
-    'NumericalInitializerConfig',
-    'OpenSetInitializerConfig',
-    'initialization',
-]
+"""Marginal-based statistical synthetic data generation."""

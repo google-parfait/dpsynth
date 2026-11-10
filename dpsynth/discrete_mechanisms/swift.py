@@ -41,7 +41,7 @@ from dpsynth.discrete_mechanisms import accounting
 from dpsynth.discrete_mechanisms import clique_tree
 from dpsynth.discrete_mechanisms import common
 from dpsynth.discrete_mechanisms import swift_utils
-from dpsynth.local_mode import primitives
+from dpsynth.statistical import primitives
 import mbi
 import networkx as nx
 import numpy as np

@@ -20,11 +20,11 @@ import unittest.mock
 from absl.testing import absltest
 import dp_accounting
 import dpsynth
-from dpsynth.local_mode import initialization
 from dpsynth.relational import domain as rel_domain
 from dpsynth.relational import post_processing
 from dpsynth.relational import synthesizer
 from dpsynth.relational import transformations
+from dpsynth.statistical import initialization
 import mbi
 import numpy as np
 import pandas as pd

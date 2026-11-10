@@ -19,7 +19,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import dp_accounting
 import dpsynth
-from dpsynth.local_mode import initialization
+from dpsynth.statistical import initialization
 import mbi
 import numpy as np
 import yaml

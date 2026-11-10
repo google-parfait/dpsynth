@@ -15,7 +15,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 import dpsynth
-from dpsynth.local_mode import vectorized_transformations
+from dpsynth.statistical import vectorized_transformations
 import numpy as np
 
 
