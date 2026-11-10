@@ -55,6 +55,23 @@ and this project adheres to
 -   **`compress_columns` in `TabularConfig`**: Automatically compresses rare
     categories (< 3σ) for categorical columns not present in constraints.
 
+### Fixed
+
+-   **Checkpoint RNG isolation**: `_checkpoint.get_or_compute` now requires an
+    explicit `rng` argument and spawns an independent child
+    `np.random.Generator` upfront for each randomized stage, ensuring caller RNG
+    progression is identical whether stages are computed from scratch or loaded
+    from a checkpoint ([#287](https://github.com/google-parfait/dpsynth/issues/287)).
+-   **Checkpoint run scoping and cleanup**: `dpsynth.checkpoint` now requires a
+    `run_id` parameter (storing checkpoints under `checkpoint_dir / run_id`) and
+    deletes `checkpoint_dir / run_id` upon normal exit by default
+    (`cleanup=True`, [#289](https://github.com/google-parfait/dpsynth/issues/289)).
+-   **Non-numeric cells in numerical columns**: Vectorized numerical
+    initialization and discretization in `local_mode` and `dpsynth.relational`
+    now standardize object-dtype arrays containing non-numeric strings or `None`
+    instead of raising a data-dependent `ValueError` or `TypeError`
+    ([#288](https://github.com/google-parfait/dpsynth/issues/288)).
+
 ### Internal / Cleanups
 
 -   **Decoupled initializers from MBI**: Removed MBI and JAX dependencies from
@@ -80,12 +97,12 @@ and this project adheres to
     install small:
     -   `[pipeline]` — scalable Apache Beam / `pipeline_dp` execution path and
         its TensorFlow-based TFRecord I/O.
-    -   `[text]` — free-form text features (`dpsynth.text`): GenAI batch feature
-        extraction and DP fine-tuning of Gemma. `google-genai` moved here from
-        the base install.
+    -   `[training]` — model training and fine-tuning features
+        (`dpsynth.training`): GenAI batch feature extraction and DP fine-tuning
+        of Gemma. `google-genai` moved here from the base install.
     -   `[examples]` — dependencies used only by the example notebooks
         (`kagglehub`, `scikit-learn`, `sdmetrics`).
-    -   `[all]` — the `pipeline` and `text` feature extras.
+    -   `[all]` — the `pipeline` and `training` feature extras.
 
     DPSynth is installed from GitHub rather than PyPI, so request extras with
     the direct-reference syntax, e.g.:

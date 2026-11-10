@@ -1,0 +1,331 @@
+step_01:
+  type: CategoricalAttribute
+  possible_values:
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_02:
+  type: CategoricalAttribute
+  possible_values:
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_03:
+  type: CategoricalAttribute
+  possible_values:
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_04:
+  type: CategoricalAttribute
+  possible_values:
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_05:
+  type: CategoricalAttribute
+  possible_values:
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_06:
+  type: CategoricalAttribute
+  possible_values:
+  - <END>
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_07:
+  type: CategoricalAttribute
+  possible_values:
+  - <END>
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_08:
+  type: CategoricalAttribute
+  possible_values:
+  - <END>
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_09:
+  type: CategoricalAttribute
+  possible_values:
+  - <END>
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_10:
+  type: CategoricalAttribute
+  possible_values:
+  - <END>
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_11:
+  type: CategoricalAttribute
+  possible_values:
+  - <END>
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_12:
+  type: CategoricalAttribute
+  possible_values:
+  - <END>
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_13:
+  type: CategoricalAttribute
+  possible_values:
+  - <END>
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_14:
+  type: CategoricalAttribute
+  possible_values:
+  - <END>
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_15:
+  type: CategoricalAttribute
+  possible_values:
+  - <END>
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel
+step_16:
+  type: CategoricalAttribute
+  possible_values:
+  - <END>
+  - frontpage
+  - news
+  - tech
+  - local
+  - opinion
+  - on-air
+  - misc
+  - weather
+  - msn-news
+  - health
+  - living
+  - business
+  - msn-sports
+  - sports
+  - summary
+  - bbs
+  - travel

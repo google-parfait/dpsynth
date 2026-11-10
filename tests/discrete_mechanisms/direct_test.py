@@ -13,8 +13,8 @@
 # limitations under the License.
 
 from absl.testing import absltest
+import dpsynth
 from dpsynth.discrete_mechanisms import common
-from dpsynth.discrete_mechanisms import direct
 import mbi
 import numpy as np
 
@@ -25,7 +25,7 @@ class DirectTest(absltest.TestCase):
     data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
 
     prespecified_queries = [('a', 'b'), ('a', 'c'), ('b', 'c')]
-    config = direct.DirectConfig(
+    config = dpsynth.DirectConfig(
         prespecified_marginal_queries=prespecified_queries,
         pgm_iters=500,
     )
@@ -39,13 +39,13 @@ class DirectTest(absltest.TestCase):
       np.testing.assert_allclose(actual, expected, atol=1)
 
   def test_calibrate_gives_expected_gdp_budget(self):
-    calibrated = direct.DirectConfig().calibrate(epsilon=1.0, delta=1e-5)
+    calibrated = dpsynth.DirectConfig().calibrate(epsilon=1.0, delta=1e-5)
     self.assertAlmostEqual(calibrated.gdp_budget, 0.07185134, places=6)
 
   def test_custom_estimator(self):
     data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
     prespecified_queries = [('a', 'b'), ('a', 'c'), ('b', 'c')]
-    config = direct.DirectConfig(
+    config = dpsynth.DirectConfig(
         prespecified_marginal_queries=prespecified_queries,
         estimator=mbi.estimation.InteriorGradient(),
         pgm_iters=500,
@@ -67,7 +67,7 @@ class DirectTest(absltest.TestCase):
           potentials, total, constraints=constraints, **kwargs
       )
 
-    config = direct.DirectConfig(
+    config = dpsynth.DirectConfig(
         prespecified_marginal_queries=[('a', 'b')],
         estimator=mbi.estimation.InteriorGradient(),
         marginal_oracle=tracking_oracle,
@@ -80,7 +80,7 @@ class DirectTest(absltest.TestCase):
     data = mbi.Dataset.synthetic(
         mbi.Domain(['a', 'b', 'c', 'd'], [2, 3, 2, 2]), N=100
     )
-    config = direct.DirectConfig(
+    config = dpsynth.DirectConfig(
         prespecified_marginal_queries=[('a', 'b', 'c'), ('b', 'a', 'd')],
         downward_closure=True,
         pgm_iters=10,

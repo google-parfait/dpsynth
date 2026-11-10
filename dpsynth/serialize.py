@@ -104,6 +104,10 @@ def _make_converter() -> cattrs.Converter:
       lambda cl: cl is tuple or typing.get_origin(cl) is tuple,
       lambda val: tuple(conv.unstructure(x) for x in val),
   )
+  conv.register_unstructure_hook_func(
+      lambda cl: hasattr(cl, 'ndim') and hasattr(cl, 'tolist'),
+      lambda val: val.tolist(),
+  )
 
   # 2. Polymorphic structuring for abstract base classes and unions
   conv.register_structure_hook(

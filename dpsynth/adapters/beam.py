@@ -38,8 +38,9 @@ import uuid
 from absl import logging
 import apache_beam as beam
 from apache_beam.io.filesystems import FileSystems
+from dpsynth import _checkpoint
 from dpsynth import data_generation_v3
-from dpsynth.local_mode import initialization
+from dpsynth.statistical import initialization
 import mbi
 import numpy as np
 
@@ -443,23 +444,28 @@ def execute(
     # Pass 1: privately learn distribution of each column independently.
     # Exiting the `with` block executes the Beam DAG; singleton PCollections are
     # written to temp_dir so the driver process can read them back.
-    with beam.Pipeline(
-        options=_copy_pipeline_options(pipeline_options, 'pass1')
-    ) as p:
-      rows = create_rows_fn(p)
-      summary = (
-          rows
-          | ComputeSufficientStats(inits)
-          | 'ToDict' >> beam.combiners.ToDict()
+    def _pass1(init_rng):
+      with beam.Pipeline(
+          options=_copy_pipeline_options(pipeline_options, 'pass1')
+      ) as p:
+        rows = create_rows_fn(p)
+        summary = (
+            rows
+            | ComputeSufficientStats(inits)
+            | 'ToDict' >> beam.combiners.ToDict()
+        )
+        _ = summary | 'WriteSummary' >> beam.Map(_write, path=summary_path)
+        count = rows | 'CountRows' >> beam.combiners.Count.Globally()
+        _ = count | 'WriteRowCount' >> beam.Map(_write, path=count_path)
+      # We run this on the driver so we don't have to track worker-side RNGs.
+      sparse_stats = _read(summary_path)
+      num_rows_in = int(_read(count_path))
+      return run_from_summary(
+          sparse_stats, inits, init_rng, num_rows=num_rows_in
       )
-      _ = summary | 'WriteSummary' >> beam.Map(_write, path=summary_path)
-      count = rows | 'CountRows' >> beam.combiners.Count.Globally()
-      _ = count | 'WriteRowCount' >> beam.Map(_write, path=count_path)
-    # We run this on the driver so we don't have to track worker-side RNGs.
-    sparse_stats = _read(summary_path)
-    num_rows_in = int(_read(count_path))
-    column_measurements = run_from_summary(
-        sparse_stats, inits, rng, num_rows=num_rows_in
+
+    column_measurements = _checkpoint.get_or_compute(
+        'column_measurements', _pass1, rng=rng
     )
     logging.info('[DPSynth/Beam]: Pass 1 complete.')
 
@@ -474,19 +480,24 @@ def execute(
     )
 
     # Pass 2: compute the marginal workload.
-    with beam.Pipeline(
-        options=_copy_pipeline_options(pipeline_options, 'pass2')
-    ) as p:
-      rows = create_rows_fn(p)
-      marginals = rows | ComputeMarginals(
-          column_measurements,
-          dict(mechanism.schema),
-          workload,
-      )
-      _ = marginals | 'WriteCliqueVector' >> beam.Map(
-          _write, path=marginals_path
-      )
-    clique_vector = _read(marginals_path)
+    def _pass2():
+      with beam.Pipeline(
+          options=_copy_pipeline_options(pipeline_options, 'pass2')
+      ) as p:
+        rows = create_rows_fn(p)
+        marginals = rows | ComputeMarginals(
+            column_measurements,
+            dict(mechanism.schema),
+            workload,
+        )
+        _ = marginals | 'WriteCliqueVector' >> beam.Map(
+            _write, path=marginals_path
+        )
+      return _read(marginals_path)
+
+    clique_vector = _checkpoint.get_or_compute(
+        'precomputed_marginals', _pass2, rng=None
+    )
     logging.info('[DPSynth/Beam]: Pass 2 complete.')
 
     # Run the discrete mechanism and decode on the driver.

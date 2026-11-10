@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Vectorized transformations for the local_mode package.
+"""Vectorized transformations for the statistical package.
 
 This is a vectorized fork of ``dpsynth/transformations.py``, optimized for
 single-machine (numpy-based) environments.  Functions operate on 1-D numpy
@@ -44,21 +44,17 @@ def discrete_encode(
   Out-of-domain values are mapped to ``attribute_domain.out_of_domain_index``.
 
   Args:
-    data: 1-D array of categorical values.  Must be a homogeneous dtype.
+    data: 1-D array of categorical values.
     attribute_domain: The categorical attribute defining the encoding.
 
   Returns:
     A 1-D integer array of indices into ``attribute_domain.possible_values``.
   """
-  lookup = attribute_domain.lookup
   default = attribute_domain.out_of_domain_index
-  # Loop over unique values only (typically ≪ len(data) for categoricals),
-  # then remap via pure numpy fancy indexing.  Normalizing to str avoids
-  # mixed-type comparison errors in np.unique on numpy 2.x (e.g. NaN + str).
-  data = np.asarray(data, dtype=str)
-  uniq, inv = np.unique(data, return_inverse=True)
-  uniq_encoded = np.array([lookup.get(v, default) for v in uniq], dtype=int)
-  return uniq_encoded[inv]
+  lookup = {v: i for i, v in enumerate(attribute_domain.possible_values)}
+  # O(1) dict hash lookup is faster than np.searchsorted on object/str arrays.
+  indices = (lookup.get(x, default) for x in data)
+  return np.fromiter(indices, dtype=int, count=len(data))
 
 
 def discrete_decode(
@@ -114,6 +110,17 @@ def categorical_attribute_from_edges(
   return domain.CategoricalAttribute(intervals)  # pyrefly: ignore[bad-argument-count]
 
 
+def to_float_array(
+    data: np.ndarray, attribute: domain.NumericalAttribute
+) -> np.ndarray:
+  """Coerces data to a 1-D float array, standardizing non-numeric arrays."""
+  if isinstance(data, np.ndarray) and np.issubdtype(data.dtype, np.number):
+    return np.asarray(data, dtype=float)
+  # Object-dtype arrays (mixed numbers, strings, or None) or Python sequences.
+  vals = map(attribute.standardize, data)
+  return np.fromiter(vals, dtype=float, count=len(data))
+
+
 def discretize(
     data: np.ndarray,
     bin_edges: np.ndarray,
@@ -138,12 +145,8 @@ def discretize(
   min_, max_ = attribute_domain.min_value, attribute_domain.max_value
   # Coerce to float64 so object-typed arrays (e.g. containing '<OOD>') work
   # with np.clip / np.isnan without TypeError.
-  data = np.asarray(data, dtype=float)
+  data = to_float_array(data, attribute_domain)
   _validate_bin_edges(bin_edges, attribute_domain)
-
-  if bin_edges.size == 0:
-    # Single bin covers the entire domain.
-    return np.zeros(len(data), dtype=int)
 
   if attribute_domain.clip_to_range:
     # Out-of-domain values are clipped to the public range (including nan).
@@ -182,13 +185,6 @@ def undiscretize(
   min_, max_ = attribute_domain.min_value, attribute_domain.max_value
   _validate_bin_edges(bin_edges, attribute_domain)
 
-  if bin_edges.size == 0:
-    # Single bin: return domain midpoint for all indices.
-    mid = (min_ + max_) / 2.0
-    result = np.full(len(bin_indices), mid)
-    if attribute_domain.dtype == 'int' and attribute_domain.clip_to_range:
-      result = np.ceil(result).astype(int)
-    return result
   full_edges = np.r_[min_, bin_edges, max_]
   lefts, rights = full_edges[:-1], full_edges[1:]
   handling = attribute_domain.interval_handling

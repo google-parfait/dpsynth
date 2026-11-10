@@ -76,7 +76,7 @@ operates directly on Pandas DataFrames. See
 [Specifying Attribute Domains](specifying_domains.md) for how to construct or
 infer attribute domains for your schema. In the example below, we load the
 predefined domain specification for the UCI Adult dataset from
-[adult_domain.yaml](https://github.com/google-parfait/dpsynth/blob/main/examples/adult_domain.yaml):
+[adult_domain.yaml](https://github.com/google-parfait/dpsynth/blob/main/examples/datasets/adult_domain.yaml):
 
 ```python
 import dpsynth
@@ -84,8 +84,8 @@ from dpsynth import discrete_mechanisms
 import numpy as np
 import pandas as pd
 
-domains = dpsynth.from_yaml("examples/adult_domain.yaml")
-sensitive_df = pd.read_csv("adult.csv")
+domains = dpsynth.from_yaml("examples/datasets/adult_domain.yaml")
+sensitive_df = pd.read_csv("examples/datasets/adult.csv")
 
 config = dpsynth.TabularConfig(
     discrete_mechanism=discrete_mechanisms.MSTConfig(),

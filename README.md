@@ -60,7 +60,7 @@ DP mechanisms that naturally compose and build on top of each other:
     *   **Sequence**: Event sequences, trajectories, and user session logs.
     *   **Text**: Unstructured text and prompt/response pairs via DP language
         model fine-tuning and conditional generation
-        ([`dpsynth.text`](dpsynth/text/dp_sft.py)).
+        ([`dpsynth.training`](dpsynth/training/)).
 *   **Maturity and API Stability**: While the library supports these different
     modalities, they are currently at different levels of maturity. Basic
     tabular and discrete synthesis are the most mature and well-tested, whereas
@@ -231,7 +231,7 @@ These modules are used by both the in-memory and pipeline code paths:
 *   **[`data_generation_v3.py`](dpsynth/data_generation_v3.py)**: The
     end-to-end in-memory generation pipeline. This is what
     `dpsynth.TabularConfig` exposes.
-*   **[`local_mode/`](dpsynth/local_mode/)**: Locally-optimized DP primitives
+*   **[`statistical/`](dpsynth/statistical/)**: Locally-optimized DP primitives
     for quantiles and partition selection (NumPy/SciPy-based).
 *   **[`adapters/pydantic.py`](dpsynth/adapters/pydantic.py)**: API for synthesizing
     collections of Pydantic models directly.

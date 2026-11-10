@@ -272,9 +272,14 @@ PrivacyReport(
     (via `dpsynth.checkpoint`) or pipeline temporary location is provided during
     execution, mechanisms may materialize non-DP intermediates to disk (such as
     the discretized private dataset or un-noised sufficient statistics) to
-    support preemption recovery or distributed execution. It is the caller's
-    responsibility to ensure that any checkpoint or temporary directory uses
-    appropriately access-controlled, encrypted storage.
+    support preemption recovery or distributed execution. `dpsynth.checkpoint`
+    requires a `run_id` subdirectory and deletes `checkpoint_dir / run_id` upon
+    normal completion by default (`cleanup=True`), but checkpoints remain on
+    disk if a run is interrupted and do not validate that the mechanism
+    configuration, privacy budget, or dataset match across runs. Callers must
+    ensure that any checkpoint or temporary directory uses appropriately
+    access-controlled, encrypted storage, and pass a unique `run_id` per logical
+    run so separate runs never reuse stale checkpoints.
 
 --------------------------------------------------------------------------------
 

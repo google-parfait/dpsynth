@@ -47,7 +47,7 @@ pipeline = [
     "tensorflow",
 ]
 all = [
-    "dpsynth[pipeline,text]",
+    "dpsynth[pipeline,training]",
 ]
 dev = [
     "chex",
@@ -55,13 +55,15 @@ dev = [
     "pytest-xdist",
     "pyrefly",
 ]
-text = [
+training = [
     "flax",
-    "google-tunix",
+    "google-tunix @ git+https://github.com/google/tunix.git",
     "qwix",
     "google-genai>=2.0",
     "jax-privacy @ git+https://github.com/google-parfait/jax_privacy.git",
     "optax",
+    # Transitive google-tunix dep; v5 lazy aliases import torch when absent.
+    "transformers<5",
 ]
 docs = [
     "sphinx",
@@ -69,7 +71,7 @@ docs = [
     "myst-parser",
 ]
 examples = [
-    "dpsynth[text]",
+    "dpsynth[training]",
     "datasets",
     "kagglehub",
     "scikit-learn",
@@ -100,5 +102,4 @@ preset = "basic"
 [tool.uv]
 override-dependencies = [
     "typing-extensions>=4.14.0",
-    "tokenizers>=0.20.0",
 ]

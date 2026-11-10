@@ -1,0 +1,221 @@
+main_topic:
+  type: CategoricalAttribute
+  possible_values:
+  - Technology
+  - Science
+  - Mathematics
+  - History
+  - Literature
+  - Arts & Culture
+  - Business & Finance
+  - Health & Medicine
+  - Programming & Software Development
+  - Education & Learning
+  - Travel & Geography
+  - Food & Cooking
+  - Sports & Recreation
+  - Personal Advice
+  - General Knowledge Query
+  - Creative Input Request
+  - Symbolism & Interpretation
+  - Ambiguous/Unclear
+  - Other
+  description: The main topic of the conversation.
+programming_sub_topic:
+  type: CategoricalAttribute
+  possible_values:
+  - Python
+  - JavaScript
+  - Java
+  - C++
+  - SQL
+  - Web Development
+  - Mobile Development
+  - Data Science/ML
+  - Algorithms
+  - DevOps
+  - Game Development
+  - Cybersecurity
+  - Code Completion
+  - Code Debugging
+  - Other Programming
+  - Not Applicable
+  description: Specific programming sub-topic if applicable, otherwise 'Not Applicable'.
+user_intent:
+  type: CategoricalAttribute
+  possible_values:
+  - Factual Q&A
+  - Summarization
+  - Creative Writing/Generation
+  - Brainstorming/Ideation
+  - Code Generation
+  - Translation
+  - Rewriting/Editing
+  - Mathematical Calculation
+  - Role-playing
+  - Instruction Following
+  - Advice Seeking
+  - Image/Media Request
+  - General Conversation
+  - Other
+  description: Primary goal the user wants to accomplish.
+task_complexity:
+  type: CategoricalAttribute
+  possible_values:
+  - Low
+  - Medium
+  - High
+  - Very High
+  description: Difficulty and effort required for the assistant to fulfill the request.
+specificity_level:
+  type: CategoricalAttribute
+  possible_values:
+  - Vague/Ambiguous
+  - General
+  - Specific
+  - Highly Specific & Constrained
+  description: How specific and detailed the instructions are in the user's prompt.
+prompt_format:
+  type: CategoricalAttribute
+  possible_values:
+  - Prose
+  - Direct Question
+  - List / Bullet Points
+  - Code Block
+  - Instructional Steps
+  - Mixed Format
+  - Other
+  description: Basic structural format of the user's prompt.
+language:
+  type: CategoricalAttribute
+  possible_values:
+  - English
+  - Spanish
+  - Russian
+  - French
+  - German
+  - Chinese
+  - Japanese
+  - Code-Only
+  - Mixed Language
+  - Other
+  description: Primary natural language used in the conversation.
+jargon_usage:
+  type: CategoricalAttribute
+  possible_values:
+  - None
+  - Low
+  - Medium
+  - High
+  description: Extent to which the prompt uses specialized domain-specific terminology.
+constraint_presence:
+  type: CategoricalAttribute
+  possible_values:
+  - No Constraints
+  - Implicit Constraints
+  - Explicit Positive Constraints
+  - Explicit Negative Constraints
+  - Complex/Layered Constraints
+  description: Whether the user provides explicit rules or negative constraints.
+creativity_level:
+  type: CategoricalAttribute
+  possible_values:
+  - None
+  - Low
+  - Medium
+  - High
+  description: How much novel, creative generation is required for the response.
+tone:
+  type: CategoricalAttribute
+  possible_values:
+  - Neutral/Formal
+  - Conversational/Informal
+  - Humorous/Playful
+  - Demanding/Authoritative
+  - Frustrated/Annoyed
+  - Curious/Inquisitive
+  - Urgent
+  description: Overall tone of the user's prompt.
+persona_adoption:
+  type: CategoricalAttribute
+  possible_values:
+  - No Persona Requested
+  - Implicit Persona
+  - Expert Persona
+  - Fictional Character
+  - Other Defined Role
+  description: Whether the prompt asks the assistant to adopt a specific persona.
+conversation_depth:
+  type: CategoricalAttribute
+  possible_values:
+  - Single Turn
+  - Short (2-3 turns)
+  - Medium (4-6 turns)
+  - Long (7+ turns)
+  description: Number of turns in the conversation.
+topic_consistency:
+  type: CategoricalAttribute
+  possible_values:
+  - Consistent Topic
+  - Topic Refinement/Clarification
+  - Topic Shift (Natural Progression)
+  - Topic Abandonment (New Topic)
+  - Not Applicable (Single Turn)
+  description: How the topic evolves across turns ('Not Applicable (Single Turn)'
+    if 1).
+assistant_stance:
+  type: CategoricalAttribute
+  possible_values:
+  - Fully Cooperative & Direct
+  - Enthusiastic & Creative
+  - Helpful Refusal (Capability)
+  - Helpful Refusal (Policy/Safety)
+  - Seeking Clarification
+  - Neutral & Factual
+  description: Primary stance the assistant takes in its responses.
+refusal_type:
+  type: CategoricalAttribute
+  possible_values:
+  - No Refusal
+  - Capability Limitation
+  - Safety/Policy Violation
+  - Ethical/Legal Constraint
+  - Request Ambiguity
+  - Other
+  description: Primary reason if the assistant refuses or pushes back.
+safety_risk:
+  type: CategoricalAttribute
+  possible_values:
+  - None
+  - Low
+  - Medium
+  - High
+  description: Potential for the conversation to involve sensitive or harmful topics.
+groundedness:
+  type: CategoricalAttribute
+  possible_values:
+  - Not Required
+  - Partially Required
+  - Strictly Required
+  - Logically Grounded
+  description: Whether the response requires grounding in verifiable factual information.
+user_expertise:
+  type: CategoricalAttribute
+  possible_values:
+  - Novice
+  - Intermediate
+  - Expert
+  - Undeterminable
+  description: User's apparent level of expertise based on their phrasing and questions.
+response_format_requested:
+  type: CategoricalAttribute
+  possible_values:
+  - No Format Specified
+  - List
+  - Table
+  - Code Block
+  - JSON
+  - Specific Length
+  - Specific Style
+  - Other Specified Format
+  description: Whether the user explicitly asks for a specific output format.

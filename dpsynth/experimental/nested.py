@@ -143,6 +143,8 @@ class NestedTabularMechanism(api.CalibratedMechanism):
       self,
       rng: np.random.Generator,
       data: Mapping[str, pd.DataFrame],
+      *,
+      num_rows: int | None = None,
   ) -> NestedSynthesisResult:
     """Runs the mechanism on per-type DataFrames, returns synthetic records."""
     shared_cols = list(self.schema.shared_schema.attributes)
@@ -163,14 +165,14 @@ class NestedTabularMechanism(api.CalibratedMechanism):
         else pd.DataFrame(columns=shared_cols + ["_type"])
     )
     assert isinstance(shared_df, pd.DataFrame)
-    shared_result = self.shared_synth(rng, shared_df)
+    shared_result = self.shared_synth(rng, shared_df, num_rows=num_rows)
 
     synthetic_details: dict[str, pd.DataFrame] = {}
     detail_results: dict[str, data_generation_v3.DataGenerationResult] = {}
     for type_name, synth in self.detail_synths.items():
       detail_cols = list(self.schema.per_type_schemas[type_name].attributes)
       sub_df = data[type_name].reindex(columns=detail_cols)
-      res = synth(rng, sub_df)
+      res = synth(rng, sub_df, num_rows=num_rows)
       synthetic_details[type_name] = res.synthetic_data
       detail_results[type_name] = res
 
@@ -234,6 +236,7 @@ class NestedTabularConfig(api.MechanismConfig):
     shared_mechanism: Discrete mechanism for the shared model.
     detail_mechanism: Discrete mechanism for per-type models.
     init_budget_fraction: Within each TabularConfig, fraction for initializers.
+    compress_columns: Whether to compress rare categorical values.
   """
 
   shared_budget_fraction: float = 0.5
@@ -244,6 +247,7 @@ class NestedTabularConfig(api.MechanismConfig):
       default_factory=discrete_mechanisms.MSTConfig
   )
   init_budget_fraction: float = 0.1
+  compress_columns: bool = False
 
   def configure(  # pyrefly: ignore[bad-override]
       self,
@@ -271,6 +275,7 @@ class NestedTabularConfig(api.MechanismConfig):
         domains=shared_domains,
         discrete_mechanism=self.shared_mechanism,
         init_budget_fraction=self.init_budget_fraction,
+        compress_columns=self.compress_columns,
     )
     shared_synth = shared_config.configure(
         budget=rho_shared,
@@ -285,6 +290,7 @@ class NestedTabularConfig(api.MechanismConfig):
           domains=type_schema.attributes,
           discrete_mechanism=self.detail_mechanism,
           init_budget_fraction=self.init_budget_fraction,
+          compress_columns=self.compress_columns,
       )
       detail_synths[type_name] = config.configure(
           budget=rho_detail,

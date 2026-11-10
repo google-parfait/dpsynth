@@ -30,9 +30,6 @@ Example usage::
 
   data = [("What is 2+2?", "4"), ("Capital of France?", "Paris")]
   result = fine_tuner(rng=np.random.default_rng(42), data=data)
-
-For the underlying DP-SGD implementation, see ``dp_trainer``.
-For model loading and loss construction, see ``model``.
 """
 
 from __future__ import annotations
@@ -45,9 +42,9 @@ import os
 
 import dp_accounting
 from dpsynth import api
-from dpsynth.text import callbacks
-from dpsynth.text import dp_trainer
-from dpsynth.text import model
+from dpsynth.training import _callbacks as callbacks
+from dpsynth.training import _gemma as model
+from dpsynth.training import _trainer as dp_trainer
 from flax import nnx
 import grain.python as grain
 import jax
@@ -75,10 +72,12 @@ class FineTuneResult:
   Attributes:
     model: The LoRA-wrapped model with trained parameters merged in.
     auditor: Optional ``CanaryScoreAuditor`` when ``canaries`` are provided.
+    samples: Optional ``(prompt, response)`` pairs from ``target_prompts``.
   """
 
   model: nnx.Module
   auditor: jax_privacy.auditing.CanaryScoreAuditor | None = None
+  samples: list[tuple[str, str]] | None = None
 
   def save(self, path: str | os.PathLike[str]) -> None:
     """Saves trainable LoRA parameters from ``self.model`` to ``path``."""
@@ -104,7 +103,9 @@ class DPFineTunerConfig(api.MechanismConfig):
     mechanism_config: ``BandMFConfig`` specifying the DP-SGD mechanism.
     lora_rank: Rank of the LoRA adapter matrices.
     max_seq_length: Maximum token sequence length (including special tokens).
-    optimizer: Optax gradient transformation for parameter updates.
+    learning_rate: Learning rate for the default optimizer. To use a custom
+      optimizer, call ``dataclasses.replace(mechanism, optimizer=...)`` on the
+      calibrated mechanism returned by ``configure`` or ``dpsynth.calibrate``.
     microbatch_size: Physical microbatch size for per-example gradient clipping.
     log_every: Optional step interval for logging un-noised training metrics.
     checkpoint_every: Step interval for saving mid-training Orbax checkpoints.
@@ -114,9 +115,7 @@ class DPFineTunerConfig(api.MechanismConfig):
   mechanism_config: execution_plan.BandMFConfig
   lora_rank: int = 16
   max_seq_length: int = 512
-  optimizer: optax.GradientTransformation = dataclasses.field(
-      default_factory=lambda: optax.adamw(1e-3)
-  )
+  learning_rate: float = 1e-3
   microbatch_size: int | None = None
   log_every: int | None = None
   checkpoint_every: int = 500
@@ -157,7 +156,7 @@ class DPFineTunerConfig(api.MechanismConfig):
         noise_multiplier=noise_multiplier,
     )
     cfg = dataclasses.replace(self, mechanism_config=calibrated_config)
-    return DPFineTuner(cfg)
+    return DPFineTuner(cfg, optax.adamw(self.learning_rate))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -165,6 +164,7 @@ class DPFineTuner(api.CalibratedMechanism):
   """Calibrated differentially private fine-tuner for Gemma models via DP-SGD."""
 
   config: DPFineTunerConfig
+  optimizer: optax.GradientTransformation
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -178,6 +178,7 @@ class DPFineTuner(api.CalibratedMechanism):
       *,
       metrics_fn: callbacks.MetricsFn | None = None,
       canaries: Sequence[tuple[str, str]] | None = None,
+      target_prompts: Sequence[str] | None = None,
   ) -> FineTuneResult:
     """Tokenizes text, loads the model, and runs DP-SGD fine-tuning.
 
@@ -185,17 +186,27 @@ class DPFineTuner(api.CalibratedMechanism):
     50/50 at random into held-in examples (appended to ``data``) and held-out
     examples for empirical privacy auditing.
 
+    When ``target_prompts`` are provided, ``GemmaSampler`` generates synthetic
+    responses at the end of training using default sampling settings. This is
+    primarily intended to spot-check synthetic data quality; for custom sampling
+    configuration or large-scale generation, run offline sampling on the
+    fine-tuned model instead.
+
     Args:
       rng: A numpy random number generator.
       data: Sequence or ``grain.MapDataset`` of ``(prompt, response)`` string
-        pairs.
+        pairs. Only ``response`` tokens contribute to the training loss; for
+        unconditional text generation, pair each document with a constant
+        instruction prompt (e.g., ``("Write a research abstract.", doc)``).
       metrics_fn: Optional ``(step, metrics) -> None`` callback invoked every
         ``log_every`` steps with scalar summary metrics.
       canaries: Optional public ``(prompt, response)`` pairs for DP auditing.
+      target_prompts: Optional prompts to sample from for output spot-checking.
 
     Returns:
       A ``FineTuneResult`` with the trained model and optional canary score
-      auditor. Private training state (noise, optimizer) is not exposed.
+      auditor and sampled ``(prompt, response)`` pairs. Private training state
+      (noise, optimizer) is not exposed.
     """
     # 1-to-1 per-record mapping preserves record-level differential privacy.
     tok_fn = functools.partial(
@@ -208,10 +219,9 @@ class DPFineTuner(api.CalibratedMechanism):
     else:
       dataset = _tokenize_examples(data, tok_fn)
 
-    lora_config = model.LoraConfig(rank=self.config.lora_rank)
     loaded_model = model.load_gemma(
         self.config.model,
-        lora_config,
+        lora_rank=self.config.lora_rank,
     )
     graphdef, trainable_params, frozen_params = nnx.split(
         loaded_model, nnx.LoRAParam, ...
@@ -242,15 +252,22 @@ class DPFineTuner(api.CalibratedMechanism):
         mechanism_config=self.config.mechanism_config,
         init_params=optax.tree.cast(trainable_params, jnp.float32),
         loss_fn=loss_fn,
-        optimizer=self.config.optimizer,
+        learning_rate=self.config.learning_rate,
         performance_flags=perf,
         log_every=self.config.log_every,
         checkpoint_every=self.config.checkpoint_every,
     )
     del trainable_params
-    trainer = dp_trainer.DPTrainer(trainer_config)
+    trainer = dp_trainer.DPTrainer(trainer_config, optimizer=self.optimizer)
     state = trainer(rng, dataset, metrics_fn=metrics_fn, canaries=canary_data)
 
     bf16_params = optax.tree.cast(state.params, jnp.bfloat16)
     merged = nnx.merge(graphdef, bf16_params, frozen_params)
-    return FineTuneResult(model=merged, auditor=state.auditor)
+
+    samples = None
+    if target_prompts is not None:
+      max_len = self.config.max_seq_length
+      sampler = model.GemmaSampler(merged, max_seq_length=max_len)
+      samples = list(zip(target_prompts, sampler(target_prompts), strict=True))
+
+    return FineTuneResult(model=merged, auditor=state.auditor, samples=samples)

@@ -16,35 +16,31 @@
 
 from unittest import mock
 from absl.testing import absltest
+import dpsynth
 from dpsynth.discrete_mechanisms import accounting
 from dpsynth.discrete_mechanisms import common
-from dpsynth.discrete_mechanisms import discrete
 from dpsynth.discrete_mechanisms import mst
 import mbi
 import numpy as np
-
-DiscreteConfig = discrete.DiscreteConfig
-DiscreteMechanism = discrete.DiscreteMechanism
-MSTConfig = mst.MSTConfig
 
 
 class DiscreteConfigTest(absltest.TestCase):
 
   def test_configure_splits_budget(self):
-    config = DiscreteConfig(
-        mechanism=MSTConfig(pgm_iters=500),
+    config = dpsynth.DiscreteConfig(
+        mechanism=dpsynth.MSTConfig(pgm_iters=500),
         one_way_budget_fraction=0.25,
     )
     synth = config.configure(budget=100.0)
-    self.assertIsInstance(synth, DiscreteMechanism)
+    self.assertIsInstance(synth, dpsynth.DiscreteMechanism)
     self.assertAlmostEqual(
         synth.one_way_gdp_budget,
         accounting.zcdp_to_gdp(25.0),
     )
 
   def test_configure_zero_one_way_fraction(self):
-    config = DiscreteConfig(
-        mechanism=MSTConfig(pgm_iters=500),
+    config = dpsynth.DiscreteConfig(
+        mechanism=dpsynth.MSTConfig(pgm_iters=500),
         one_way_budget_fraction=0.0,
     )
     synth = config.configure(budget=100.0)
@@ -58,8 +54,8 @@ class DiscreteMechanismTest(absltest.TestCase):
     data = mbi.Dataset.synthetic(domain, N=500)
     rng = np.random.default_rng(42)
 
-    config = DiscreteConfig(
-        mechanism=MSTConfig(pgm_iters=500),
+    config = dpsynth.DiscreteConfig(
+        mechanism=dpsynth.MSTConfig(pgm_iters=500),
     )
     synth = config.configure(budget=10000)
     result = synth(rng, data)
@@ -75,8 +71,8 @@ class DiscreteMechanismTest(absltest.TestCase):
     measurements = common.measure_marginals_with_noise(
         rng, data, [('a',), ('b',), ('c',)], gdp_sigma=1.0
     )
-    config = DiscreteConfig(
-        mechanism=MSTConfig(pgm_iters=500),
+    config = dpsynth.DiscreteConfig(
+        mechanism=dpsynth.MSTConfig(pgm_iters=500),
     )
     synth = config.configure(budget=10000)
     result = synth(rng, data, initial_measurements=measurements)
@@ -90,8 +86,8 @@ class DiscreteMechanismTest(absltest.TestCase):
     df['a'] = rng.choice(3, size=1000)
     data = mbi.Dataset(df, domain)
 
-    config = DiscreteConfig(
-        mechanism=MSTConfig(pgm_iters=500),
+    config = dpsynth.DiscreteConfig(
+        mechanism=dpsynth.MSTConfig(pgm_iters=500),
         compress_columns=True,
     )
     synth = config.configure(budget=10000)
@@ -100,8 +96,8 @@ class DiscreteMechanismTest(absltest.TestCase):
     self.assertEqual(result.synthetic_data.domain, domain)
 
   def test_dp_event_composes_one_way_and_inner(self):
-    config = DiscreteConfig(
-        mechanism=MSTConfig(pgm_iters=500),
+    config = dpsynth.DiscreteConfig(
+        mechanism=dpsynth.MSTConfig(pgm_iters=500),
         one_way_budget_fraction=0.25,
     )
     synth = config.configure(budget=100.0)
@@ -109,8 +105,8 @@ class DiscreteMechanismTest(absltest.TestCase):
     self.assertIsNotNone(event)
 
   def test_calibrate_works(self):
-    config = DiscreteConfig(
-        mechanism=MSTConfig(pgm_iters=500),
+    config = dpsynth.DiscreteConfig(
+        mechanism=dpsynth.MSTConfig(pgm_iters=500),
     )
     domain = mbi.Domain(['a', 'b'], [3, 4])
     data = mbi.Dataset.synthetic(domain, N=200)
@@ -121,7 +117,7 @@ class DiscreteMechanismTest(absltest.TestCase):
     self.assertIsInstance(result, common.DiscreteMechanismResult)
 
   def test_converts_dataset_to_clique_vector(self):
-    config = DiscreteConfig(mechanism=MSTConfig(pgm_iters=500))
+    config = dpsynth.DiscreteConfig(mechanism=dpsynth.MSTConfig(pgm_iters=500))
     synth = config.configure(budget=100.0)
     domain = mbi.Domain(['a', 'b'], [3, 4])
     data = mbi.Dataset.synthetic(domain, N=20)
@@ -132,8 +128,8 @@ class DiscreteMechanismTest(absltest.TestCase):
       self.assertIsInstance(mock_call.call_args.args[1], mbi.CliqueVector)
 
   def test_use_jax_for_generation(self):
-    config = DiscreteConfig(
-        mechanism=MSTConfig(pgm_iters=100),
+    config = dpsynth.DiscreteConfig(
+        mechanism=dpsynth.MSTConfig(pgm_iters=100),
         use_jax_for_generation=True,
     )
     domain = mbi.Domain(['a', 'b'], [3, 4])
@@ -145,8 +141,8 @@ class DiscreteMechanismTest(absltest.TestCase):
     self.assertEqual(result.synthetic_data.records, 200)
 
   def test_use_jax_for_bincount_and_generation(self):
-    config = DiscreteConfig(
-        mechanism=MSTConfig(pgm_iters=100),
+    config = dpsynth.DiscreteConfig(
+        mechanism=dpsynth.MSTConfig(pgm_iters=100),
         use_jax_for_bincount=True,
         use_jax_for_generation=True,
     )

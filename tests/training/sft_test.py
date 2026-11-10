@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for dpsynth.text.model and dpsynth.text.dp_sft.
+"""Tests for dpsynth.training.
 
 These tests verify the loss function, configuration, and calibration logic
 without loading any real model checkpoints.
@@ -20,13 +20,16 @@ without loading any real model checkpoints.
 
 import dataclasses
 import math
+import os
+import sys
 import typing
 from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from dpsynth.text import dp_sft
-from dpsynth.text import model
+from dpsynth import serialize
+from dpsynth import training as dp_sft
+from dpsynth.training import _gemma as model
 from flax import nnx
 import grain.python as grain
 import jax
@@ -187,20 +190,50 @@ class GemmaModelTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       model.load_gemma(typing.cast(model.ModelName, 'nonexistent'))
 
+  def test_epath_and_resolve_path(self):
+    self.assertEqual(os.environ.get('EPATH_USE_TF'), 'false')
+    self.assertTrue(model._resolve_path('rel/lora_ckpt').is_absolute())
+    self.assertEqual(
+        model._resolve_path('gs://bucket/lora_ckpt'),
+        model.epath.Path('gs://bucket/lora_ckpt'),
+    )
 
-class LoraConfigTest(absltest.TestCase):
+  def test_deprecated_text_subpackage_reexports(self):
+    sys.modules.pop('dpsynth.text', None)
+    with self.assertWarnsRegex(DeprecationWarning, 'dpsynth.training'):
+      import dpsynth.text  # pylint: disable=g-import-not-at-top
+    self.assertIs(dpsynth.text.DPFineTuner, dp_sft.DPFineTuner)
+    self.assertIs(dpsynth.text.DPTrainer, dp_sft.DPTrainer)
 
-  def test_defaults(self):
-    cfg = model.LoraConfig()
-    self.assertEqual(cfg.rank, 16)
-    self.assertIsNone(cfg.alpha)
-    self.assertIsNone(cfg.weight_qtype)
+  def test_load_gemma_sequence_model_and_loss_fn(self):
+    tiny_model = _make_tiny_lora_model()
+    fake_example = {
+        'input_tokens': np.array([1, 2, 3, 4], dtype=np.int32),
+        'loss_mask': np.array([0, 1, 1, 1], dtype=np.int32),
+    }
+    fake_sample = lambda prompts: [f'gen_{p}' for p in prompts]
+    with (
+        mock.patch.object(model, 'load_gemma', return_value=tiny_model),
+        mock.patch.object(model, 'tokenize_example', return_value=fake_example),
+        mock.patch.object(model, 'GemmaSampler', return_value=fake_sample),
+    ):
+      seq_model = dp_sft.load_gemma_sequence_model('gemma4_e2b_it')
+      assert seq_model.sample_fn is not None
+      samples = seq_model.sample_fn(seq_model.params, ['q1'], 512)
 
-  def test_custom_values(self):
-    cfg = model.LoraConfig(rank=8, alpha=16.0, targets='.*q_einsum')
-    self.assertEqual(cfg.rank, 8)
-    self.assertEqual(cfg.alpha, 16.0)
-    self.assertEqual(cfg.targets, '.*q_einsum')
+    self.assertIsInstance(seq_model, dp_sft.SequenceModel)
+    self.assertEqual(seq_model.tokenize_fn(('p', 'r'), 512), fake_example)
+    self.assertEqual(samples, ['gen_q1'])
+    batch = {
+        'input_tokens': jnp.array([[1, 2, 3, 4]], dtype=jnp.int32),
+        'loss_mask': jnp.array([[0, 1, 1, 1]], dtype=jnp.int32),
+    }
+    loss, aux = seq_model.loss_fn(seq_model.params, batch, jax.random.key(0))
+    self.assertTrue(jnp.isfinite(loss))
+    self.assertIn('loss', aux)
+
+
+class LoraCheckpointTest(absltest.TestCase):
 
   def test_save_and_load_lora_params(self):
     class _TinyLora(nnx.Module):
@@ -308,7 +341,8 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertIsInstance(result, dp_sft.FineTuneResult)
     self.assertIsInstance(result.model, type(tiny_model))
 
-  def test_sequence_tokenization(self):
+  @parameterized.parameters((None,), (['q1', 'q2'],))
+  def test_sequence_tokenization(self, target_prompts):
     tiny_model = _make_tiny_lora_model()
     fake_example = {
         'input_tokens': jnp.array([1, 2, 3, 4], dtype=jnp.int32),
@@ -326,6 +360,7 @@ class DPFineTunerTest(parameterized.TestCase):
     ).configure(budget=1.0)
     examples = [('p1', 'r1'), ('p2', 'r2')]
     logged_steps = []
+    fake_sample = lambda prompts: [f'gen_{p}' for p in prompts]
     with (
         mock.patch.object(
             model, 'load_gemma', return_value=tiny_model
@@ -333,9 +368,17 @@ class DPFineTunerTest(parameterized.TestCase):
         mock.patch.object(
             model, 'tokenize_example', return_value=fake_example
         ) as mock_tok,
+        mock.patch.object(
+            model, 'GemmaSampler', return_value=fake_sample
+        ) as mock_sampler,
     ):
       log_fn = lambda step, m: logged_steps.append((step, m))
-      result = mechanism(np.random.default_rng(0), examples, metrics_fn=log_fn)
+      result = mechanism(
+          np.random.default_rng(0),
+          examples,
+          metrics_fn=log_fn,
+          target_prompts=target_prompts,
+      )
 
     mock_load.assert_called_once()
     self.assertEqual(mock_tok.call_count, 2)
@@ -344,6 +387,13 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertIsInstance(result, dp_sft.FineTuneResult)
     self.assertIsInstance(result.model, type(tiny_model))
     self.assertIsNone(result.auditor)
+
+    if target_prompts is None:
+      mock_sampler.assert_not_called()
+      self.assertIsNone(result.samples)
+    else:
+      mock_sampler.assert_called_once_with(result.model, max_seq_length=512)
+      self.assertEqual(result.samples, [('q1', 'gen_q1'), ('q2', 'gen_q2')])
 
   @parameterized.parameters(False, True)
   def test_canaries_auditing(self, use_map_dataset):
@@ -366,8 +416,9 @@ class DPFineTunerTest(parameterized.TestCase):
         dp_sft.DPFineTunerConfig(
             model='gemma4_e2b_it',
             mechanism_config=config,
-            optimizer=optax.adamw(0.1),
-        )
+            learning_rate=0.1,
+        ),
+        optax.adamw(0.1),
     )
     num_examples = 8
     examples = [('p', '1')] * num_examples
@@ -382,7 +433,22 @@ class DPFineTunerTest(parameterized.TestCase):
 
     self.assertIsNotNone(result.auditor)
     assert result.auditor is not None
-    self.assertAlmostEqual(float(result.auditor.attack_auroc()), 1.0, places=5)
+    self.assertAlmostEqual(result.auditor.attack_auroc(), 1.0, places=5)
+
+  def test_yaml_round_trip(self):
+    config = dp_sft.DPFineTunerConfig(
+        model='gemma4_e2b_it',
+        mechanism_config=_default_config(),
+        learning_rate=2e-3,
+        lora_rank=8,
+    )
+    restored = serialize.from_yaml(
+        serialize.to_yaml(config), dp_sft.DPFineTunerConfig
+    )
+    self.assertEqual(restored.model, config.model)
+    self.assertEqual(restored.learning_rate, 2e-3)
+    self.assertEqual(restored.lora_rank, 8)
+    self.assertEqual(restored.mechanism_config.iterations, 100)
 
 
 if __name__ == '__main__':

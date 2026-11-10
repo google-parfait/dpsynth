@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from absl.testing import absltest
-from dpsynth import domain
+import dpsynth
 from dpsynth import transformations
 import numpy as np
 import pandas as pd
@@ -32,7 +32,7 @@ class TestDataTransformations(absltest.TestCase):
     self.assertEqual(transformer3.inverse(4), 1)
 
   def test_discrete_encoder_transform(self):
-    attribute = domain.CategoricalAttribute(
+    attribute = dpsynth.CategoricalAttribute(
         possible_values=['<OOD>', 'a', 'b', '(0, 1]', 'False', '314159']
     )
     discrete_encoder = transformations.discrete_encoder(attribute)
@@ -46,7 +46,7 @@ class TestDataTransformations(absltest.TestCase):
     self.assertEqual(discrete_encoder('True'), 0)
 
   def test_discrete_encoder_inverse(self):
-    attribute = domain.CategoricalAttribute(
+    attribute = dpsynth.CategoricalAttribute(
         possible_values=['a', 'b', 'c'], out_of_domain_index=0
     )
     discrete_encoder = transformations.discrete_encoder(attribute)
@@ -57,7 +57,7 @@ class TestDataTransformations(absltest.TestCase):
       discrete_encoder.inverse(4)
 
   def test_invalid_bin_edges_raises_error(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=10)
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10)
     with self.assertRaises(ValueError):
       transformations.create_discretize_transformation(attr, [-1, 2, 3])
     with self.assertRaises(ValueError):
@@ -66,7 +66,7 @@ class TestDataTransformations(absltest.TestCase):
       transformations.create_discretize_transformation(attr, [1, 2, 3, 5, 4])
 
   def test_correct_mapping_clip_to_range(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=True
     )
 
@@ -90,7 +90,7 @@ class TestDataTransformations(absltest.TestCase):
     self.assertEqual(transform_fn(interval2), interval1)
 
   def test_correct_mapping_no_clip_to_range(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=False
     )
     categorical, transform_fn = (
@@ -118,7 +118,7 @@ class TestDataTransformations(absltest.TestCase):
     self.assertEqual(transform_fn(interval2), '<OOD>')
 
   def test_valid_discretization_clip_to_range_inverse(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=True
     )
 
@@ -134,14 +134,14 @@ class TestDataTransformations(absltest.TestCase):
     # exception, or silently return a value without failing.
 
   def test_integer_discretization_invertible(self):
-    attr = domain.NumericalAttribute(0, 10, dtype='int')
+    attr = dpsynth.NumericalAttribute(0, 10, dtype='int')
     _, fn = transformations.create_uniform_discretize_transformation(attr, 5)
     # Non-boundary values round-trip exactly via midpoint inversion.
     for i in [1, 3, 5, 7, 9]:
       self.assertEqual(fn.inverse(fn(i)), i)
 
   def test_valid_discretization_no_clip_to_range_inverse(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=False
     )
     categorical, transform_fn = (
@@ -157,7 +157,7 @@ class TestDataTransformations(absltest.TestCase):
     self.assertTrue(np.isnan(transform_fn.inverse('<OOD>')))
 
   def test_discretize_inverse_sentinel_default_nan(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=False
     )
     _, transform_fn = transformations.create_discretize_transformation(
@@ -166,7 +166,7 @@ class TestDataTransformations(absltest.TestCase):
     self.assertTrue(np.isnan(transform_fn.inverse('<OOD>')))
 
   def test_discretize_inverse_custom_sentinel(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, clip_to_range=False, sentinel=-1
     )
     _, transform_fn = transformations.create_discretize_transformation(
@@ -175,7 +175,7 @@ class TestDataTransformations(absltest.TestCase):
     self.assertEqual(transform_fn.inverse('<OOD>'), -1)
 
   def test_valid_discretization_for_int_attribute(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=10, dtype='int')
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10, dtype='int')
     categorical, transform_fn = (
         transformations.create_discretize_transformation(attr, [5])
     )
@@ -189,7 +189,7 @@ class TestDataTransformations(absltest.TestCase):
     self.assertBetween(transform_fn.inverse(interval2), 5, 10)
 
   def test_discretize_interval_handling_sample(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=100, interval_handling='sample'
     )
     _, transform_fn = transformations.create_discretize_transformation(
@@ -206,7 +206,7 @@ class TestDataTransformations(absltest.TestCase):
     self.assertTrue(np.isnan(transform_fn.inverse('<OOD>')))
 
   def test_discretize_interval_handling_interval(self):
-    attr = domain.NumericalAttribute(
+    attr = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, interval_handling='interval'
     )
     _, transform_fn = transformations.create_discretize_transformation(
@@ -218,14 +218,14 @@ class TestDataTransformations(absltest.TestCase):
 
   def test_discretize_reverse_semi_infinite_intervals(self):
     # Midpoint mode: semi-infinite intervals should return the finite endpoint.
-    attr = domain.NumericalAttribute(min_value=0, max_value=10)
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10)
     _, transform_fn = transformations.create_discretize_transformation(
         attr, [5]
     )
     self.assertBetween(transform_fn.inverse('(5.0, 10.0]'), 5, 10)
     self.assertBetween(transform_fn.inverse('[0.0, 5.0]'), 0, 5)
     # Sample mode: semi-infinite intervals should also return the finite end.
-    attr_sample = domain.NumericalAttribute(
+    attr_sample = dpsynth.NumericalAttribute(
         min_value=0, max_value=10, interval_handling='sample'
     )
     _, transform_fn_sample = transformations.create_discretize_transformation(
@@ -277,14 +277,14 @@ class TestDataTransformations(absltest.TestCase):
     self.assertIn(transform_fn.inverse(0), [0, 1, 2, 3])
 
   def test_discretize_raises_on_oob_bins(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=10)
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10)
     with self.assertRaises(ValueError):
       transformations.create_discretize_transformation(attr, [-1, 2, 3])
     with self.assertRaises(ValueError):
       transformations.create_discretize_transformation(attr, [5, 11])
 
   def test_uniform_discretize(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=10, dtype='int')
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=10, dtype='int')
     categorical, transform = (
         transformations.create_uniform_discretize_transformation(attr, 5)
     )
@@ -299,7 +299,7 @@ class TestDataTransformations(absltest.TestCase):
       self.assertIsInstance(interval, str)
 
   def test_binary_discretize(self):
-    attr = domain.NumericalAttribute(min_value=0, max_value=1, dtype='int')
+    attr = dpsynth.NumericalAttribute(min_value=0, max_value=1, dtype='int')
     categorical, transformation = (
         transformations.create_uniform_discretize_transformation(attr, 2)
     )

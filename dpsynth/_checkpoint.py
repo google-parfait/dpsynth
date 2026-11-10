@@ -22,10 +22,12 @@ import contextvars
 from typing import Any, TypeAlias, TypeVar
 
 from absl import logging
-from dpsynth.local_mode import initialization
+from dpsynth.statistical import initialization
 from etils import epath
 import jax
+from jax.experimental import multihost_utils
 import mbi
+import numpy as np
 
 T = TypeVar("T")
 PathType = epath.PathLike
@@ -56,36 +58,50 @@ jax.tree_util.register_dataclass(
 @contextlib.contextmanager
 def checkpoint(
     checkpoint_dir: str | PathType | None,
+    run_id: str | None,
+    *,
+    cleanup: bool = True,
 ) -> Iterator[epath.Path | None]:
   """Context manager enabling intermediate checkpointing for dpsynth mechanisms.
 
-  When active, mechanisms that support checkpointing (such as TabularMechanism,
-  SWIFT, and DPTrainer) persist intermediate state under ``checkpoint_dir`` and
-  resume from existing checkpoints when rerun. Tabular mechanisms store stage
-  outputs as ``.npz`` archives via ``mbi.save``, while ``DPTrainer`` uses
-  ``orbax.checkpoint.CheckpointManager`` to periodically save and restore
-  ``TrainingState`` across training steps.
+  Persists intermediate mechanism state under ``checkpoint_dir / run_id`` so
+  preempted runs can resume, and deletes ``checkpoint_dir / run_id`` upon normal
+  exit when ``cleanup=True``.
 
   Note:
-    ``checkpoint_dir`` should be treated as private working storage and must not
-    be publicly released. While final mechanism outputs are differentially
-    private, intermediate checkpoints (such as ``DPTrainer``'s
-    ``TrainingState``, which includes optimizer state and correlated noise
-    state) are not differentially private.
+    Treat ``checkpoint_dir`` as private working storage, as intermediate
+    checkpoints are not differentially private. Checkpoints are not validated
+    against the mechanism configuration, privacy budget, or input dataset:
+    reusing checkpoints across different configurations, budgets, or datasets,
+    or invoking a mechanism multiple times in one ``checkpoint`` block, breaks
+    differential privacy guarantees. Pass a ``run_id`` that stays constant
+    across preemptions of a single run and differs across distinct runs.
 
   Args:
-    checkpoint_dir: Directory path where checkpoints should be stored/loaded. If
-      None, checkpointing is disabled and computations run in-memory.
+    checkpoint_dir: Base directory for checkpoints, or None to disable.
+    run_id: Run identifier appended as ``checkpoint_dir / run_id`` to isolate
+      runs. Required whenever ``checkpoint_dir`` is not None.
+    cleanup: Whether to delete ``checkpoint_dir / run_id`` upon normal exit.
 
   Yields:
-    The resolved path of the checkpoint directory, or None if it is disabled.
+    The resolved path of ``checkpoint_dir / run_id``, or None if disabled.
   """
-  path = epath.Path(checkpoint_dir) if checkpoint_dir is not None else None
-  if path is not None:
+  path = None
+  if checkpoint_dir is not None:
+    if not run_id:
+      raise ValueError("run_id is required when checkpoint_dir is set.")
+    path = epath.Path(checkpoint_dir) / run_id
+    if not path.is_absolute():
+      path = path.resolve()
     path.mkdir(parents=True, exist_ok=True)
   token = _ACTIVE_CHECKPOINT_DIR.set(path)
   try:
     yield path
+    if path is not None and cleanup:
+      if jax.process_count() > 1:
+        multihost_utils.sync_global_devices("dpsynth_checkpoint_cleanup")
+      if jax.process_index() == 0:
+        path.rmtree(missing_ok=True)
   finally:
     _ACTIVE_CHECKPOINT_DIR.reset(token)
 
@@ -99,6 +115,7 @@ def get_or_compute(
     name: str,
     compute_fn: Callable[..., T],
     *args: Any,
+    rng: np.random.Generator | None,
     **kwargs: Any,
 ) -> T:
   """Returns the checkpointed value if available, or computes and saves it.
@@ -107,11 +124,19 @@ def get_or_compute(
     name: The stage name (e.g. 'column_measurements', 'discrete_data').
     compute_fn: Callable that produces the intermediate value.
     *args: Positional arguments for ``compute_fn``.
+    rng: Random number generator for randomized stages, or None for
+      deterministic stages.
     **kwargs: Keyword arguments for ``compute_fn``.
 
   Returns:
     The loaded or computed value.
   """
+  if rng is not None:
+    # Generator.spawn derives a statistically independent child BitGenerator
+    # stream via SeedSequence hashing while advancing the parent's spawn counter
+    # by 1, isolating the caller's RNG from how many draws the stage consumes
+    # and ensuring identical RNG progression on cache hits and misses.
+    args = (rng.spawn(1)[0], *args)
   dir_path = get_active_checkpoint_dir()
   if dir_path is None:
     return compute_fn(*args, **kwargs)

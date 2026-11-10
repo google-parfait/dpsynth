@@ -20,10 +20,12 @@ from collections.abc import Callable, Sequence
 import dataclasses
 import functools
 import itertools
+import os
 import time
 from typing import Any, Literal
 
 from absl import logging
+from dpsynth.training import _sequence_model
 from etils import epath
 from flax import nnx
 import jax
@@ -36,6 +38,9 @@ import qwix
 import tunix
 from tunix.models.gemma4 import model as gemma4_model
 from tunix.models.gemma4 import params as gemma4_params
+
+# Avoid lazy-loading tf.io.gfile for gs:// paths, which segfaults on CUDA.
+os.environ.setdefault('EPATH_USE_TF', 'false')
 
 # Supported Gemma 4 model names.
 ModelName = Literal[
@@ -96,20 +101,10 @@ def make_mesh(tp: int = 1) -> jax.sharding.Mesh:
   return jax.sharding.Mesh(devices, axis_names=('replica', 'fsdp', 'tp'))
 
 
-@dataclasses.dataclass(frozen=True)
-class LoraConfig:
-  """Configuration for LoRA adaptation."""
-
-  rank: int = 16
-  alpha: float | None = None
-  targets: str = _DEFAULT_LORA_TARGETS
-  weight_qtype: str | None = None
-
-
 def load_gemma(
     model: ModelName,
-    lora_config: LoraConfig = LoraConfig(),
     *,
+    lora_rank: int = 16,
     checkpoint_path: epath.PathLike | None = None,
     mesh: jax.sharding.Mesh | None = None,
 ) -> nnx.Module:
@@ -117,7 +112,7 @@ def load_gemma(
 
   Args:
     model: Which Gemma variant to load.
-    lora_config: LoRA adapter configuration.
+    lora_rank: Rank of the LoRA adapter matrices.
     checkpoint_path: Checkpoint to restore from. If None, loads pretrained base
       weights for ``model`` and initializes fresh LoRA adapters. If a checkpoint
       is provided, restores LoRA params.
@@ -146,16 +141,10 @@ def load_gemma(
       cfg,
       mesh=mesh,
   )
-  alpha = (
-      lora_config.alpha
-      if lora_config.alpha is not None
-      else float(lora_config.rank)
-  )
   lora_provider = qwix.LoraProvider(
-      module_path=lora_config.targets,
-      rank=lora_config.rank,
-      alpha=alpha,
-      weight_qtype=lora_config.weight_qtype,
+      module_path=_DEFAULT_LORA_TARGETS,
+      rank=lora_rank,
+      alpha=float(lora_rank),
   )
   warm_tokens = jnp.ones((1, 1), dtype=jnp.int32)
   warm_mask = jnp.ones((1, 1, 1), dtype=jnp.bool_)
@@ -193,7 +182,7 @@ def load_gemma(
   num_base = total - num_lora
   logging.info(
       'Loaded Gemma model w/ LoRA (rank=%d): %d lora (%.4f%%), %d base',
-      lora_config.rank,
+      lora_rank,
       num_lora,
       100.0 * num_lora / (num_lora + num_base),
       num_base,
@@ -201,12 +190,18 @@ def load_gemma(
   return lora_model
 
 
+def _resolve_path(path: epath.PathLike) -> epath.Path:
+  """Resolves relative local paths to absolute paths for Orbax."""
+  p = epath.Path(path)
+  return p if p.is_absolute() else p.resolve()
+
+
 def save_lora_params(lora_model: nnx.Module, path: epath.PathLike) -> None:
   """Saves trainable LoRA parameters from ``lora_model`` to ``path``."""
   lora_state = jax.block_until_ready(nnx.state(lora_model, nnx.LoRAParam))
   with ocp.Checkpointer(ocp.StandardCheckpointHandler()) as checkpointer:
     checkpointer.save(
-        epath.Path(path),
+        _resolve_path(path),
         args=ocp.args.StandardSave(lora_state),
         force=True,
     )
@@ -217,7 +212,7 @@ def load_lora_params(lora_model: nnx.Module, path: epath.PathLike) -> None:
   abstract_lora = nnx.state(lora_model, nnx.LoRAParam)
   with ocp.Checkpointer(ocp.StandardCheckpointHandler()) as checkpointer:
     restored = checkpointer.restore(
-        epath.Path(path),
+        _resolve_path(path),
         args=ocp.args.StandardRestore(abstract_lora),
     )
   nnx.update(lora_model, restored)
@@ -240,7 +235,7 @@ def sft_loss_fn(
   loss_mask = data['loss_mask']
 
   seq_len = input_tokens.shape[-1]
-  causal_mask = jnp.tril(jnp.ones((1, seq_len, seq_len), dtype=jnp.bool_))
+  causal_mask = jnp.tri(seq_len, dtype=jnp.bool_)[jnp.newaxis]
 
   logits, _ = module(input_tokens, attention_mask=causal_mask)
   logits = logits[:, :-1, :]
@@ -382,3 +377,42 @@ class GemmaSampler:
       )
       results.extend([str(r) for r in out.text[:cur_size]])
     return results
+
+
+def load_gemma_sequence_model(
+    model: ModelName,
+    *,
+    lora_rank: int = 16,
+    checkpoint_path: epath.PathLike | None = None,
+    mesh: jax.sharding.Mesh | None = None,
+) -> _sequence_model.SequenceModel:
+  """Loads a LoRA-wrapped Gemma 4 model as a ``SequenceModel``."""
+  loaded = load_gemma(
+      model, lora_rank=lora_rank, checkpoint_path=checkpoint_path, mesh=mesh
+  )
+  graphdef, trainable_params, frozen_params = nnx.split(
+      loaded, nnx.LoRAParam, ...
+  )
+  del loaded
+
+  def forward_fn(params: Any, tokens: jax.Array) -> jax.Array:
+    merged = nnx.merge(graphdef, params, frozen_params)
+    seq_len = tokens.shape[-1]
+    mask = jnp.tri(seq_len, dtype=jnp.bool_)[jnp.newaxis]
+    logits, _ = merged(tokens, attention_mask=mask)
+    return logits
+
+  def sample_fn(
+      params: Any, prompts: Sequence[str], max_seq_length: int
+  ) -> list[str]:
+    merged = nnx.merge(graphdef, params, frozen_params)
+    return GemmaSampler(merged, max_seq_length=max_seq_length)(prompts)
+
+  return _sequence_model.SequenceModel(
+      params=trainable_params,
+      forward_fn=forward_fn,
+      tokenize_fn=tokenize_example,
+      sample_fn=sample_fn,
+  )
+
+

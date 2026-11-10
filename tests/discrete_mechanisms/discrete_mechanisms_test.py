@@ -22,13 +22,8 @@ compression.
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from dpsynth.discrete_mechanisms import aim
+import dpsynth
 from dpsynth.discrete_mechanisms import common
-from dpsynth.discrete_mechanisms import direct
-from dpsynth.discrete_mechanisms import discrete
-from dpsynth.discrete_mechanisms import independent
-from dpsynth.discrete_mechanisms import mst
-from dpsynth.discrete_mechanisms import swift
 import mbi
 import numpy as np
 
@@ -36,11 +31,11 @@ _ZCDP_RHO = 10000
 _WORKLOAD = [('a', 'b'), ('b', 'c'), ('a',), ('b',), ('c',)]
 
 _MECHANISMS = {
-    'AIM': aim.AIMConfig(workload=_WORKLOAD, max_rounds=4, pgm_iters=500),
-    'MST': mst.MSTConfig(pgm_iters=500),
-    'SWIFT': swift.SWIFTConfig(workload=_WORKLOAD, pgm_iters=500),
-    'Independent': independent.IndependentConfig(),
-    'Direct': direct.DirectConfig(
+    'AIM': dpsynth.AIMConfig(workload=_WORKLOAD, max_rounds=4, pgm_iters=500),
+    'MST': dpsynth.MSTConfig(pgm_iters=500),
+    'SWIFT': dpsynth.SWIFTConfig(workload=_WORKLOAD, pgm_iters=500),
+    'Independent': dpsynth.IndependentConfig(),
+    'Direct': dpsynth.DirectConfig(
         prespecified_marginal_queries=_WORKLOAD, pgm_iters=500
     ),
 }
@@ -78,7 +73,7 @@ class CompressionPropertyTest(parameterized.TestCase):
 
   @parameterized.named_parameters(*_MECHANISMS.items())
   def test_compression_restores_domain(self, config):
-    synth_config = discrete.DiscreteConfig(
+    synth_config = dpsynth.DiscreteConfig(
         mechanism=config,
         compress_columns=True,
     )
@@ -92,7 +87,7 @@ class CompressionPropertyTest(parameterized.TestCase):
 
   @parameterized.named_parameters(*_MECHANISMS.items())
   def test_compression_with_initial_measurements(self, config):
-    synth_config = discrete.DiscreteConfig(
+    synth_config = dpsynth.DiscreteConfig(
         mechanism=config,
         compress_columns=True,
     )
@@ -115,7 +110,7 @@ class CalibrationTest(parameterized.TestCase):
 
   @parameterized.named_parameters(_MECHANISMS.items())
   def test_low_epsilon_calibration(self, mechanism):
-    if isinstance(mechanism, independent.IndependentConfig):
+    if isinstance(mechanism, dpsynth.IndependentConfig):
       return
     rng = np.random.default_rng(0)
     data = _make_skewed_dataset(rng)

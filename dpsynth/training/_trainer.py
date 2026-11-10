@@ -14,36 +14,22 @@
 
 """General-purpose differentially private training for JAX models.
 
-``DPTrainer`` is a ``DPMechanism`` that runs DP-SGD on an arbitrary JAX loss
-function and parameter pytree. It wraps ``jax_privacy`` — which provides
-per-example gradient clipping, noise addition, and privacy accounting — and
-exposes the same three-phase configure → calibrate → run API as other dpsynth
-mechanisms (``DPHistogram``, ``DPMarginals``, etc.).
+``DPTrainerConfig`` and ``DPTrainer`` wrap ``jax_privacy`` in DPSynth's
+configure / calibrate / run lifecycle, operating on arbitrary JAX parameter
+pytrees and loss functions without depending on Flax or model-specific logic.
 
-**Design rationale.** The key design decision is framework-agnosticism:
-``DPTrainer`` operates on pure JAX pytrees and callables, with no dependency on
-Flax, NNX, or any model-specific concepts like LoRA or tokenization. This
-preserves the full generality of ``jax_privacy`` (which itself is
-framework-agnostic) while fitting into dpsynth's ``DPMechanism`` protocol for
-uniform calibration and composition. Supervised fine-tuning of Flax NNX models
-is supported as a special case: the caller splits the ``nnx.Module`` into
-trainable and frozen state, closes over the frozen state in the loss function,
-and passes the trainable pytree to ``DPTrainer``. The higher-level
-``DPTextTrainer`` handles this NNX plumbing, along with Gemma model loading,
-LoRA application, tokenization, and checkpoint management — keeping this module
-focused on the DP-SGD training loop itself.
+Example usage::
 
-Usage::
-
-  trainer = DPTrainer.default(
+  config = jax_privacy.execution_plan.BandMFConfig.default(
+      num_bands=1, iterations=100, expected_participations=1.0,
+  )
+  trainer = DPTrainerConfig(
       init_params=my_params,
-      loss_fn=my_loss,
-      iterations=100,
-      batch_size=8,
-      num_examples=1000,
+      loss_fn=my_loss_fn,
+      mechanism_config=config,
   ).configure(budget=0.5)
 
-  final_state = trainer(rng=np.random.default_rng(42), data=dataset)
+  result = trainer(rng=np.random.default_rng(42), data=dataset)
 """
 
 from __future__ import annotations
@@ -57,7 +43,7 @@ from absl import logging
 import dp_accounting
 from dpsynth import _checkpoint
 from dpsynth import api
-from dpsynth.text import callbacks
+from dpsynth.training import _callbacks as callbacks
 import grain.python as grain
 import jax
 from jax.experimental import multihost_utils
@@ -133,22 +119,21 @@ class DPTrainerConfig(api.MechanismConfig):
   strict end-to-end DP accounting of all outputs is required.
 
   Attributes:
-    mechanism_config: ``BandMFConfig`` specifying the DP-SGD mechanism.
     init_params: Initial trainable parameter pytree.
-    loss_fn: ``(params, batch, prng) -> scalar`` loss function. Must be
-      compatible with ``jax.grad`` w.r.t. the first argument.
-    optimizer: Optax gradient transformation.
-    performance_flags: Optional ``PerformanceFlags`` for microbatching, SPMD,
-      compute dtype, and noise generation.
+    loss_fn: ``(params, batch, prng) -> (scalar_loss, aux_dict)`` loss function.
+    mechanism_config: ``ExecutionPlanConfig`` specifying the DP-SGD mechanism.
+    learning_rate: Learning rate for the default optimizer. To use a custom
+      optimizer, call ``dataclasses.replace(mechanism, optimizer=...)`` on the
+      calibrated mechanism returned by ``configure`` or ``dpsynth.calibrate``.
+    performance_flags: Optional ``PerformanceFlags`` for microbatching and SPMD.
     log_every: Optional step interval for logging un-noised training metrics.
-    checkpoint_every: Step interval for saving Orbax training checkpoints when
-      running inside a ``dpsynth.checkpoint(...)`` context.
+    checkpoint_every: Step interval for saving mid-training Orbax checkpoints.
   """
 
   init_params: training.Params
   loss_fn: training.LossFn
   mechanism_config: execution_plan.ExecutionPlanConfig
-  optimizer: optax.GradientTransformation
+  learning_rate: float = 1e-3
   performance_flags: execution_plan.PerformanceFlags | None = None
   log_every: int | None = None
   checkpoint_every: int = 100
@@ -171,8 +156,9 @@ class DPTrainerConfig(api.MechanismConfig):
     Returns:
       A new ``DPTrainer`` with calibrated ``config.noise_multiplier``.
     """
+    optimizer = optax.adamw(self.learning_rate)
     if isinstance(self.mechanism_config, execution_plan.NonPrivateConfig):
-      return DPTrainer(self)
+      return DPTrainer(self, optimizer)
     cfg = typing.cast(execution_plan.BandMFConfig, self.mechanism_config)
     num_bands = len(cfg.strategy)  # pyrefly: ignore[bad-argument-type]
     rounds = math.ceil(cfg.iterations / num_bands)
@@ -182,7 +168,7 @@ class DPTrainerConfig(api.MechanismConfig):
         noise_multiplier=noise_multiplier,
     )
     cfg = dataclasses.replace(self, mechanism_config=calibrated_config)
-    return DPTrainer(cfg)
+    return DPTrainer(cfg, optimizer)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -190,6 +176,7 @@ class DPTrainer(api.CalibratedMechanism):
   """Calibrated differentially private trainer via DP-SGD."""
 
   config: DPTrainerConfig
+  optimizer: optax.GradientTransformation
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -208,15 +195,18 @@ class DPTrainer(api.CalibratedMechanism):
 
     Args:
       rng: A numpy random number generator.
-      data: Training data as a dict of JAX arrays or a ``grain.MapDataset``.
-        When passing arrays, the first axis of each array is the example axis.
+      data: Training dataset as either (1) an ``ArrayTree`` (e.g. dict or tuple
+        of arrays) where all leaves share leading example dimension ``(N, ...)``
+        or (2) a ``grain.MapDataset`` whose elements ``data[i]`` are single
+        unbatched example PyTrees of shape ``(...)``. In both cases, ``loss_fn``
+        always receives a batched PyTree with leading axis ``(B, ...)``.
       metrics_fn: Optional ``(step, metrics) -> None`` callback invoked every
         ``log_every`` steps with scalar summary metrics.
-      canaries: Optional public canary candidate batch with the same PyTree
-        structure as ``data`` elements. Canaries are considered public data
-        (their per-example loss scores are returned in ``auditor``). When
-        provided, half are randomly assigned as held-in (appended to ``data``)
-        and half as held-out for auditing.
+      canaries: Optional batched ``ArrayTree`` of public canary candidates with
+        an even leading dimension ``(2 * K, ...)`` (``2 * K >= 2``) and the same
+        per-example PyTree structure and leaf shapes as ``data``. Half are
+        randomly assigned as held-in (appended to ``data``) and half as held-out
+        for empirical privacy auditing in ``TrainingResult.auditor``.
 
     Returns:
       A ``TrainingResult`` containing the trained parameters and optional
@@ -229,7 +219,9 @@ class DPTrainer(api.CalibratedMechanism):
     logging.info('DPTrainer config:\n%s', json.dumps(d, indent=2))
 
     if jax.process_index() == 0:
-      seed = _checkpoint.get_or_compute('rng_seed', rng.integers, 2**31)
+      seed = _checkpoint.get_or_compute(
+          'rng_seed', lambda r: r.integers(2**31), rng=rng
+      )
     else:
       seed = 0  # Dummy placeholder; overwritten by broadcast_one_to_all below.
     seed = multihost_utils.broadcast_one_to_all(np.asarray(seed, np.int32))
@@ -249,7 +241,7 @@ class DPTrainer(api.CalibratedMechanism):
         config=self.config.mechanism_config,
         performance_flags=perf,
         loss_fn=self.config.loss_fn,
-        optimizer=self.config.optimizer,
+        optimizer=self.optimizer,
     )
     callback = callbacks.DefaultCallbackFn(self.config.log_every, metrics_fn)
     # Copy init_params since DPTrainer.fit donates state buffers.

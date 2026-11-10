@@ -19,7 +19,8 @@ from unittest import mock
 from absl.testing import absltest
 import dp_accounting
 import dpsynth
-from dpsynth.text import dp_trainer
+from dpsynth import training as dp_trainer
+from dpsynth.training import _trainer
 from flax import nnx
 import grain.python as grain
 import jax
@@ -57,9 +58,9 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=self.dpsgd_config,
-        optimizer=optax.adamw(1e-4),
     )
     self.assertEqual(config.mechanism_config.iterations, 100)
+    self.assertEqual(config.learning_rate, 1e-3)
     self.assertIsNone(config.mechanism_config.noise_multiplier)
     with self.assertRaises(ValueError):
       dataclasses.replace(config, log_every=3, checkpoint_every=10)
@@ -70,7 +71,6 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=self.dpsgd_config,
-        optimizer=optax.adamw(1e-4),
     ).configure(budget=0.5)
     # Single band: sigma = sqrt(T / (2 * rho)) = 10.
     sigma = trainer.config.mechanism_config.noise_multiplier
@@ -100,7 +100,7 @@ class DPTrainerTest(absltest.TestCase):
         init_params=trainable,
         loss_fn=loss_fn,
         mechanism_config=full_batch_config,
-        optimizer=optax.adamw(1e-4),
+        learning_rate=1e-4,
     ).configure(budget=1.0)
 
     train_state = trainer(
@@ -118,7 +118,6 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=non_private_config,
-        optimizer=optax.adamw(1e-4),
     ).configure(budget=float('inf'))
 
     self.assertIsInstance(trainer.dp_event, dp_accounting.NonPrivateDpEvent)
@@ -137,7 +136,6 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=non_private_config,
-        optimizer=optax.adamw(1e-4),
     ).configure(budget=float('inf'))
 
     data = grain.MapDataset.source([{'x': np.ones((4, 4))} for _ in range(6)])
@@ -162,7 +160,7 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=mech_config,
-        optimizer=optax.adamw(1e-2),
+        learning_rate=1e-2,
         log_every=1,
         checkpoint_every=2,
     )
@@ -181,7 +179,7 @@ class DPTrainerTest(absltest.TestCase):
         raise RuntimeError('Simulated preemption at step 4')
 
     with self.assertRaises(RuntimeError):
-      with dpsynth.checkpoint(ckpt_dir):
+      with dpsynth.checkpoint(ckpt_dir, 'run_1'):
         base_trainer(
             rng=np.random.default_rng(42),
             data=data,
@@ -193,7 +191,7 @@ class DPTrainerTest(absltest.TestCase):
     # restoring the initial RNG seed even when a fresh RNG is passed.
     steps_run_2 = []
     log_2 = lambda s, m: steps_run_2.append(s)
-    with dpsynth.checkpoint(ckpt_dir):
+    with dpsynth.checkpoint(ckpt_dir, 'run_1', cleanup=False):
       resumed = base_trainer(np.random.default_rng(999), data, metrics_fn=log_2)
     self.assertEqual(steps_run_2, [5, 6])
     np.testing.assert_allclose(
@@ -203,7 +201,7 @@ class DPTrainerTest(absltest.TestCase):
     # Third run: restores final step 6 checkpoint and executes 0 steps.
     steps_run_3 = []
     log_3 = lambda s, m: steps_run_3.append(s)
-    with dpsynth.checkpoint(ckpt_dir):
+    with dpsynth.checkpoint(ckpt_dir, 'run_1'):
       cached = base_trainer(np.random.default_rng(123), data, metrics_fn=log_3)
     self.assertEqual(steps_run_3, [])
     np.testing.assert_allclose(
@@ -220,7 +218,7 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=mech_config,
-        optimizer=optax.adamw(1e-2),
+        learning_rate=1e-2,
     ).configure(budget=1.0)
     broadcast_seed = None
 
@@ -231,7 +229,9 @@ class DPTrainerTest(absltest.TestCase):
       return broadcast_seed
 
     with mock.patch.object(
-        dp_trainer.multihost_utils, 'broadcast_one_to_all', fake_broadcast
+        _trainer.multihost_utils,
+        'broadcast_one_to_all',
+        fake_broadcast,
     ):
       host0 = trainer(rng=np.random.default_rng(42), data=data)
       with mock.patch.object(jax, 'process_index', return_value=1):
@@ -257,7 +257,7 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=mech_config,
-        optimizer=optax.adamw(1e-2),
+        learning_rate=1e-2,
         log_every=2,
     ).configure(budget=1.0)
 
@@ -271,7 +271,7 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=mech_config,
-        optimizer=optax.adamw(1e-2),
+        learning_rate=1e-2,
         log_every=1,
     ).configure(budget=1.0)
     log_step = lambda s, m: per_step.append(m)
@@ -307,10 +307,10 @@ class DPTrainerTest(absltest.TestCase):
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=mech_config,
-        optimizer=optax.adamw(1e-2),
+        learning_rate=1e-2,
         checkpoint_every=2,
     ).configure(budget=1.0)
-    with dpsynth.checkpoint(ckpt_dir):
+    with dpsynth.checkpoint(ckpt_dir, 'run_1'):
       first = trainer(rng=np.random.default_rng(7), data=data)
       second = trainer(rng=np.random.default_rng(7), data=data)
     np.testing.assert_allclose(first.params['w'], second.params['w'], rtol=1e-5)
@@ -328,12 +328,12 @@ class DPTrainerTest(absltest.TestCase):
         noise_multiplier=0.0,
     )
     trainer = dp_trainer.DPTrainer(
-        dp_trainer.DPTrainerConfig(
+        config=dp_trainer.DPTrainerConfig(
             init_params={'w': jnp.zeros(8)},
             loss_fn=loss_fn,
             mechanism_config=config,
-            optimizer=optax.sgd(0.5),
-        )
+        ),
+        optimizer=optax.sgd(0.1),
     )
     canaries = {'x': jnp.eye(8)}
     result = trainer(
@@ -343,12 +343,12 @@ class DPTrainerTest(absltest.TestCase):
     )
     self.assertIsInstance(result, dp_trainer.TrainingResult)
     assert result.auditor is not None
-    self.assertAlmostEqual(float(result.auditor.attack_auroc()), 1.0, places=5)
+    self.assertAlmostEqual(result.auditor.attack_auroc(), 1.0, places=5)
 
     data = grain.MapDataset.source([{'x': np.zeros(8, dtype=np.float32)}] * 8)
     result = trainer(rng=np.random.default_rng(0), data=data, canaries=canaries)
     assert result.auditor is not None
-    self.assertAlmostEqual(float(result.auditor.attack_auroc()), 1.0, places=5)
+    self.assertAlmostEqual(result.auditor.attack_auroc(), 1.0, places=5)
 
     with self.assertRaises(ValueError):
       trainer(

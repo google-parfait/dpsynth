@@ -17,13 +17,13 @@
 from __future__ import annotations
 
 import doctest
+import functools
 
 from absl.testing import absltest
 from absl.testing import parameterized
 import dp_accounting
 import dpsynth
 from dpsynth import reporting
-from dpsynth import serialize
 import jax_privacy
 import numpy as np
 
@@ -105,7 +105,7 @@ class ReportingTest(parameterized.TestCase):
     )
     self.assertIsNone(report_none.trade_off_curve)
     self.assertEqual(
-        serialize.from_yaml(serialize.to_yaml(report_none)), report_none
+        dpsynth.from_yaml(dpsynth.to_yaml(report_none)), report_none
     )
 
   def test_from_dp_event_notes(self):
@@ -120,8 +120,8 @@ class ReportingTest(parameterized.TestCase):
         'Column bounds were computed from raw data without DP.',
     )
 
-    yaml_str = serialize.to_yaml(report)
-    loaded = serialize.from_yaml(yaml_str)
+    yaml_str = dpsynth.to_yaml(report)
+    loaded = dpsynth.from_yaml(yaml_str)
     self.assertEqual(loaded, report)
 
   def test_from_dp_event_custom_accountant_args(self):
@@ -151,8 +151,8 @@ class ReportingTest(parameterized.TestCase):
     self.assertIsNone(report.trade_off_curve)
 
   def test_serialize_yaml_roundtrip(self):
-    yaml_str = serialize.to_yaml(self.report)
-    loaded = serialize.from_yaml(yaml_str)
+    yaml_str = dpsynth.to_yaml(self.report)
+    loaded = dpsynth.from_yaml(yaml_str)
     self.assertEqual(loaded, self.report)
 
   def test_public_reexport(self):
@@ -176,9 +176,7 @@ class ReportingTest(parameterized.TestCase):
     assert report.trade_off_curve.auroc is not None
     assert report.lower_bound.auroc is not None
     assert report.upper_bound.auroc is not None
-    self.assertAlmostEqual(
-        report.trade_off_curve.auroc, float(auditor.attack_auroc())
-    )
+    self.assertAlmostEqual(report.trade_off_curve.auroc, auditor.attack_auroc())
     self.assertLessEqual(report.lower_bound.auroc, report.upper_bound.auroc)
     expected_fprs = list(reporting.DEFAULT_AUDIT_FPRS)
     self.assertEqual(
@@ -195,7 +193,7 @@ class ReportingTest(parameterized.TestCase):
         report.lower_bound.points,
         report.upper_bound.points,
     ):
-      self.assertAlmostEqual(tpr, float(auditor.tpr_at_given_fpr(fpr)))
+      self.assertAlmostEqual(tpr, auditor.tpr_at_given_fpr(fpr))
       self.assertLessEqual(lo, hi)
       self.assertGreaterEqual(lo, 0.0)
       self.assertLessEqual(hi, 1.0)
@@ -208,11 +206,11 @@ class ReportingTest(parameterized.TestCase):
     )
     self.assertEqual(report, report_same_seed)
 
-    yaml_str = serialize.to_yaml(report)
+    yaml_str = dpsynth.to_yaml(report)
     self.assertNotIn('!!python/tuple', yaml_str)
     self.assertIn('confidence: 0.95', yaml_str)
     self.assertIn('num_canaries: [80, 120]', yaml_str)
-    loaded = serialize.from_yaml(yaml_str)
+    loaded = dpsynth.from_yaml(yaml_str)
     self.assertEqual(loaded, report)
     self.assertIsInstance(loaded.num_canaries, tuple)
     self.assertIsInstance(loaded.trade_off_curve, reporting.TradeOffCurve)
@@ -241,8 +239,8 @@ class ReportingTest(parameterized.TestCase):
             seed=7,
         )
     )
-    expected_auroc_ci = np.asarray(
-        auditor.attack_auroc(bootstrap_params=expected_bootstrap)
+    expected_auroc_ci = auditor.bootstrap(
+        jax_privacy.auditing.CanaryScoreAuditor.attack_auroc, expected_bootstrap
     )
     self.assertEqual(report.num_canaries, (150, 200))
     self.assertEqual(report.confidence, 0.90)
@@ -253,15 +251,9 @@ class ReportingTest(parameterized.TestCase):
     assert report.trade_off_curve.auroc is not None
     assert report.lower_bound.auroc is not None
     assert report.upper_bound.auroc is not None
-    self.assertAlmostEqual(
-        report.trade_off_curve.auroc, float(auditor.attack_auroc())
-    )
-    self.assertAlmostEqual(
-        report.lower_bound.auroc, float(expected_auroc_ci[0])
-    )
-    self.assertAlmostEqual(
-        report.upper_bound.auroc, float(expected_auroc_ci[1])
-    )
+    self.assertAlmostEqual(report.trade_off_curve.auroc, auditor.attack_auroc())
+    self.assertAlmostEqual(report.lower_bound.auroc, expected_auroc_ci[0])
+    self.assertAlmostEqual(report.upper_bound.auroc, expected_auroc_ci[1])
     self.assertLessEqual(report.lower_bound.auroc, report.trade_off_curve.auroc)
     self.assertLessEqual(report.trade_off_curve.auroc, report.upper_bound.auroc)
     for (est, fpr), (lo, lo_fpr), (hi, hi_fpr) in zip(
@@ -269,14 +261,17 @@ class ReportingTest(parameterized.TestCase):
         report.lower_bound.points,
         report.upper_bound.points,
     ):
-      expected_ci = np.asarray(
-          auditor.tpr_at_given_fpr(fpr, bootstrap_params=expected_bootstrap)
+      expected_ci = auditor.bootstrap(
+          functools.partial(
+              jax_privacy.auditing.CanaryScoreAuditor.tpr_at_given_fpr, fpr=fpr
+          ),
+          expected_bootstrap,
       )
       self.assertEqual(lo_fpr, fpr)
       self.assertEqual(hi_fpr, fpr)
-      self.assertAlmostEqual(est, float(auditor.tpr_at_given_fpr(fpr)))
-      self.assertAlmostEqual(lo, float(expected_ci[0]))
-      self.assertAlmostEqual(hi, float(expected_ci[1]))
+      self.assertAlmostEqual(est, auditor.tpr_at_given_fpr(fpr))
+      self.assertAlmostEqual(lo, expected_ci[0])
+      self.assertAlmostEqual(hi, expected_ci[1])
       self.assertLessEqual(lo, est)
       self.assertLessEqual(est, hi)
 
