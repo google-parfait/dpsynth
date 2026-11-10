@@ -93,12 +93,11 @@ classes in the domain module:
 
 ```python
 import dpsynth
-from dpsynth import domain
 
 domains = {
-    "age": domain.NumericalAttribute(min_value=18, max_value=100, dtype="int"),
-    "tier": domain.CategoricalAttribute(possible_values=["FREE", "PRO"]),
-    "city": domain.OpenSetCategoricalAttribute(),
+    "age": dpsynth.NumericalAttribute(min_value=18, max_value=100, dtype="int"),
+    "tier": dpsynth.CategoricalAttribute(possible_values=["FREE", "PRO"]),
+    "city": dpsynth.OpenSetCategoricalAttribute(),
 }
 ```
 
@@ -217,7 +216,7 @@ domains = protobuf_adapter.infer_domain(
 )
 
 # Override an open-set string field when valid values are publicly known:
-domains["city"] = domain.CategoricalAttribute(
+domains["city"] = dpsynth.CategoricalAttribute(
     possible_values=["OTHER", "NYC", "LA", "SF"],
 )
 ```

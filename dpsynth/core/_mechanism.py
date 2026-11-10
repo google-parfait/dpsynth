@@ -36,7 +36,7 @@ from typing import Any
 import warnings
 
 import dp_accounting
-from dpsynth import _calibration
+from dpsynth.core import _calibration
 
 
 class CalibratedMechanism(abc.ABC):

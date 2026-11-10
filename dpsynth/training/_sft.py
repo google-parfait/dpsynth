@@ -41,7 +41,7 @@ import math
 import os
 
 import dp_accounting
-from dpsynth import api
+from dpsynth.core import _mechanism as api
 from dpsynth.training import _callbacks as callbacks
 from dpsynth.training import _gemma as model
 from dpsynth.training import _trainer as dp_trainer

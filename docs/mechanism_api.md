@@ -15,7 +15,7 @@ limitations under the License. -->
 # Mechanism API
 
 This document covers the architectural foundations and design decisions
-underlying the DPSynth Mechanism API ({mod}`dpsynth.api`). It is written for
+underlying the DPSynth Mechanism API ({mod}`dpsynth`). It is written for
 developers extending DPSynth with new synthesis algorithms, integrating
 mechanisms into data pipelines, or auditing privacy accounting correctness.
 
@@ -60,10 +60,10 @@ created several fundamental issues:
     vectors).
 
 To resolve this, DPSynth strictly decouples the immutable **recipe**
-({class}`~dpsynth.api.MechanismConfig`) from the immutable **runnable instance**
-({class}`~dpsynth.api.CalibratedMechanism`):
+({class}`~dpsynth.MechanismConfig`) from the immutable **runnable instance**
+({class}`~dpsynth.CalibratedMechanism`):
 
-| Dimension | {class}`~dpsynth.api.MechanismConfig` | {class}`~dpsynth.api.CalibratedMechanism` |
+| Dimension | {class}`~dpsynth.MechanismConfig` | {class}`~dpsynth.CalibratedMechanism` |
 | :--- | :--- | :--- |
 | **Role** | Hyperparameter recipe / blueprint | Executable mechanism instance |
 | **Mutability** | Frozen dataclass (immutable) | Frozen dataclass (immutable) |
@@ -75,10 +75,10 @@ To resolve this, DPSynth strictly decouples the immutable **recipe**
 By enforcing this separation:
 
 1.  **Immutability**: Once constructed, a
-    {class}`~dpsynth.api.CalibratedMechanism` cannot be modified or
+    {class}`~dpsynth.CalibratedMechanism` cannot be modified or
     un-calibrated.
 2.  **Strict Type Safety**: All parameters on
-    {class}`~dpsynth.api.CalibratedMechanism` are non-nullable; no defensive
+    {class}`~dpsynth.CalibratedMechanism` are non-nullable; no defensive
     assertions are required.
 3.  **Clean Separation of Concerns**: Algorithm designers specify *how to
     partition budget* in the config, while the calibrated mechanism focuses
@@ -120,14 +120,14 @@ serialized to disk via `dpsynth.to_yaml(config)`.
 
 In Step 2, the configuration recipe is bound to a specific domain and
 target $(\varepsilon, \delta)$-DP budget via
-{meth}`~dpsynth.api.MechanismConfig.calibrate`:
+{meth}`~dpsynth.MechanismConfig.calibrate`:
 
 1.  **A Domain/Schema**: Specifies attribute classifications (categorical,
     numerical, open-set), value domains, and cross-attribute constraints.
 2.  **A Privacy Budget $(\varepsilon, \delta)$**: Target differential privacy
     parameters.
 
-This produces a concrete, runnable {class}`~dpsynth.api.CalibratedMechanism`:
+This produces a concrete, runnable {class}`~dpsynth.CalibratedMechanism`:
 
 ```python
 # Define domain schema:
@@ -146,7 +146,7 @@ calibrated = config.calibrate(schema, epsilon=1.0, delta=1e-5)
 ### Step 3: Run on Sensitive Data
 
 In Step 3, the calibrated mechanism is executed on sensitive data. The
-calibrated instance is directly callable ({meth}`~dpsynth.api.CalibratedMechanism.__call__`):
+calibrated instance is directly callable ({meth}`~dpsynth.CalibratedMechanism.__call__`):
 
 ```python
 import numpy as np
@@ -213,7 +213,7 @@ this point is critical to understand the design decisions and correctness of the
 ### `calibrate(epsilon, delta)`:
 
 `calibrate()` is a concrete method defined once on the base
-{class}`~dpsynth.api.MechanismConfig` class. It serves users who want to specify
+{class}`~dpsynth.MechanismConfig` class. It serves users who want to specify
 a specific $(\varepsilon, \delta)$ target. The zcdp_rho intermediate
 representation is mostly hidden from users of `calibrate()`. Calibrate is
 implemented internally using `dp_accouning.calibrate_dp_mechanism`, using
@@ -285,7 +285,7 @@ composed or split as cleanly:
 Because these heterogeneous parameters cannot be directly combined,
 `configure()` accepts a single scalar `zcdp_rho` and translates it into each
 sub-mechanisms natural parameters in closed form. The mechanism then exposes
-its exact composition via its {attr}`~dpsynth.api.CalibratedMechanism.dp_event`,
+its exact composition via its {attr}`~dpsynth.CalibratedMechanism.dp_event`,
 enabling `calibrate()` to provide numerically tight accounting.
 
 ## Correctness of `calibrate()` vs. `configure()`

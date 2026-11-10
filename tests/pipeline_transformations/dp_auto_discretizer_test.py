@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from absl.testing import absltest
-from dpsynth import domain
+from dpsynth.core import domain
 from dpsynth.pipeline_transformations import dp_auto_discretizer
 import pipeline_dp
 

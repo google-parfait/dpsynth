@@ -20,8 +20,8 @@ import dataclasses
 import math
 
 import dp_accounting
-from dpsynth import api
-from dpsynth import domain
+from dpsynth.core import _mechanism as api
+from dpsynth.core import domain
 from dpsynth.statistical import primitives
 from dpsynth.statistical import vectorized_transformations as vtx
 import numpy as np

@@ -17,8 +17,8 @@
 import math
 from typing import Any
 
-from dpsynth import domain
 from dpsynth import transformations
+from dpsynth.core import domain
 from dpsynth.pipeline_transformations import types
 import numpy as np
 import pipeline_dp

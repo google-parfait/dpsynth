@@ -17,7 +17,7 @@ import math
 from absl.testing import absltest
 from absl.testing import parameterized
 import dpsynth
-from dpsynth import domain
+from dpsynth.core import domain
 import numpy as np
 
 

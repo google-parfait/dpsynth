@@ -27,8 +27,8 @@ from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from dpsynth import serialize
 from dpsynth import training as dp_sft
+from dpsynth.core import serialize
 from dpsynth.training import _gemma as model
 from flax import nnx
 import grain.python as grain

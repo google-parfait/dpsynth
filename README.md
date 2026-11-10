@@ -178,8 +178,8 @@ path:
 ### 3. Post-Processing Mode
 
 **Entry point:**
-[`postprocessing.generate_synthetic_data_from_marginals()`
-](dpsynth/postprocessing.py)
+[`dpsynth.generate_synthetic_data_from_marginals()`
+](dpsynth/statistical/postprocessing.py)
 
 For situations where **noisy marginals are already computed** by an
 external system (e.g., a SQL pipeline or a custom DP mechanism), you
@@ -213,11 +213,11 @@ some differences:
 
 These modules are used by both the in-memory and pipeline code paths:
 
-*   **[`domain.py`](dpsynth/domain.py)**: Public API for defining attribute
+*   **[`core/domain.py`](dpsynth/core/domain.py)**: Public API for defining attribute
     domains (`CategoricalAttribute`, `NumericalAttribute`,
     `OpenSetCategoricalAttribute`). Users construct these objects to describe
     their data schema.
-*   **[`constraints.py`](dpsynth/constraints.py)**: Definition and validation of
+*   **[`core/constraints.py`](dpsynth/core/constraints.py)**: Definition and validation of
     cross-attribute constraints, provided by users to enforce structural
     properties.
 *   **[`transformations.py`](dpsynth/transformations.py)**: Internal logic for
@@ -253,7 +253,7 @@ These modules are used by both the in-memory and pipeline code paths:
 
 ### Post-Processing
 
-*   **[`postprocessing.py`](dpsynth/postprocessing.py)**: Utilities for
+*   **[`statistical/postprocessing.py`](dpsynth/statistical/postprocessing.py)**: Utilities for
     post-processing pre-computed noisy marginals into synthetic data via
     Private-PGM, without running DPSynth's own DP measurement step.
 
