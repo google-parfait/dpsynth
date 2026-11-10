@@ -16,7 +16,7 @@ import itertools
 import os
 
 from absl.testing import absltest
-from dpsynth import _checkpoint
+import dpsynth
 from dpsynth.discrete_mechanisms import clique_tree
 from dpsynth.discrete_mechanisms import common
 from dpsynth.discrete_mechanisms import swift
@@ -137,7 +137,7 @@ class SWIFTTest(absltest.TestCase):
   def test_fits_one_way_marginals(self):
     data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
 
-    config = swift.SWIFTConfig(pgm_iters=500).configure(budget=10000)
+    config = dpsynth.SWIFTConfig(pgm_iters=500).configure(budget=10000)
 
     result = config(np.random.default_rng(0), data)
 
@@ -151,9 +151,9 @@ class SWIFTTest(absltest.TestCase):
   def test_checkpointing(self):
     temp_dir = self.create_tempdir().full_path
     data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
-    config = swift.SWIFTConfig(pgm_iters=10).configure(budget=10.0)
+    config = dpsynth.SWIFTConfig(pgm_iters=10).configure(budget=10.0)
 
-    with _checkpoint.checkpoint(temp_dir, 'run_1', cleanup=False):
+    with dpsynth.checkpoint(temp_dir, 'run_1', cleanup=False):
       result1 = config(np.random.default_rng(0), data)
 
     measurements_path = os.path.join(temp_dir, 'run_1', 'measurements.npz')
@@ -161,7 +161,7 @@ class SWIFTTest(absltest.TestCase):
     self.assertTrue(os.path.exists(measurements_path))
     self.assertTrue(os.path.exists(model_path))
 
-    with _checkpoint.checkpoint(temp_dir, 'run_1'):
+    with dpsynth.checkpoint(temp_dir, 'run_1'):
       result2 = config(np.random.default_rng(1), data)
 
     self.assertIsInstance(result2, common.DiscreteMechanismResult)
