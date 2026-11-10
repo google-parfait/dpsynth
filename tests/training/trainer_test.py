@@ -57,11 +57,12 @@ class DPTrainerTest(absltest.TestCase):
     config = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
-        mechanism_config=self.dpsgd_config,
+        iterations=100,
+        epochs=4,
     )
-    self.assertEqual(config.mechanism_config.iterations, 100)
+    self.assertEqual(config.iterations, 100)
+    self.assertEqual(config.epochs, 4)
     self.assertEqual(config.learning_rate, 1e-3)
-    self.assertIsNone(config.mechanism_config.noise_multiplier)
     with self.assertRaises(ValueError):
       dataclasses.replace(config, log_every=3, checkpoint_every=10)
 
@@ -70,12 +71,19 @@ class DPTrainerTest(absltest.TestCase):
     trainer = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
-        mechanism_config=self.dpsgd_config,
+        iterations=100,
+        epochs=4,
+        microbatch_size=2,
     ).configure(budget=0.5)
     # Single band: sigma = sqrt(T / (2 * rho)) = 10.
-    sigma = trainer.config.mechanism_config.noise_multiplier
+    sigma = trainer.mechanism_config.noise_multiplier
     self.assertAlmostEqual(sigma, 10.0)
+    self.assertEqual(trainer.performance_flags.microbatch_size, 2)
     self.assertIsNotNone(trainer.dp_event)
+    with self.assertRaises(ValueError):
+      dataclasses.replace(trainer, log_every=3, checkpoint_every=10)
+    with self.assertRaisesRegex(ValueError, 'noise_multiplier is not set'):
+      dataclasses.replace(trainer, mechanism_config=self.dpsgd_config)
 
   def test_nnx_split_merge_round_trip(self):
     """Demonstrates the NNX split/merge pattern for LoRA fine-tuning."""
@@ -90,16 +98,11 @@ class DPTrainerTest(absltest.TestCase):
       x = batch['x']
       return jnp.mean(model(x) ** 2), ()
 
-    full_batch_config = jax_privacy.execution_plan.BandMFConfig.default(
-        num_bands=1,
-        iterations=5,
-        expected_participations=5,
-        l2_clip_norm=1.0,
-    )
     trainer = dp_trainer.DPTrainerConfig(
         init_params=trainable,
         loss_fn=loss_fn,
-        mechanism_config=full_batch_config,
+        iterations=5,
+        epochs=5,
         learning_rate=1e-4,
     ).configure(budget=1.0)
 
@@ -114,11 +117,12 @@ class DPTrainerTest(absltest.TestCase):
         iterations=5,
         batch_size=2,
     )
-    trainer = dp_trainer.DPTrainerConfig(
+    trainer = dp_trainer.DPTrainer(
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=non_private_config,
-    ).configure(budget=float('inf'))
+        optimizer=optax.adamw(1e-3),
+    )
 
     self.assertIsInstance(trainer.dp_event, dp_accounting.NonPrivateDpEvent)
     train_state = trainer(
@@ -132,11 +136,12 @@ class DPTrainerTest(absltest.TestCase):
         iterations=3,
         batch_size=2,
     )
-    trainer = dp_trainer.DPTrainerConfig(
+    trainer = dp_trainer.DPTrainer(
         init_params=params,
         loss_fn=loss_fn,
         mechanism_config=non_private_config,
-    ).configure(budget=float('inf'))
+        optimizer=optax.adamw(1e-3),
+    )
 
     data = grain.MapDataset.source([{'x': np.ones((4, 4))} for _ in range(6)])
     train_state = trainer(rng=np.random.default_rng(42), data=data)
@@ -150,16 +155,12 @@ class DPTrainerTest(absltest.TestCase):
     ckpt_dir = self.create_tempdir().full_path
     params, loss_fn = _dummy_params_and_loss()
     data = {'x': jnp.arange(128, dtype=jnp.float32).reshape((8, 4, 4))}
-    mech_config = jax_privacy.execution_plan.BandMFConfig.default(
-        num_bands=2,
-        iterations=6,
-        expected_participations=3,
-        l2_clip_norm=1.0,
-    )
     base_config = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
-        mechanism_config=mech_config,
+        iterations=6,
+        epochs=3,
+        num_bands=2,
         learning_rate=1e-2,
         log_every=1,
         checkpoint_every=2,
@@ -213,11 +214,11 @@ class DPTrainerTest(absltest.TestCase):
     # broadcast_one_to_all broadcasts from process_index == 0 as documented.
     params, loss_fn = _dummy_params_and_loss()
     data = {'x': jnp.arange(128, dtype=jnp.float32).reshape((8, 4, 4))}
-    mech_config = dataclasses.replace(self.dpsgd_config, iterations=4)
     trainer = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
-        mechanism_config=mech_config,
+        iterations=4,
+        epochs=4,
         learning_rate=1e-2,
     ).configure(budget=1.0)
     broadcast_seed = None
@@ -247,16 +248,11 @@ class DPTrainerTest(absltest.TestCase):
       loss = jnp.sum(params['w'] * batch['x'])
       return loss, {'custom_aux': loss * 2.0}
 
-    mech_config = jax_privacy.execution_plan.BandMFConfig.default(
-        num_bands=1,
-        iterations=4,
-        expected_participations=2,
-        l2_clip_norm=1.0,
-    )
     trainer = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
-        mechanism_config=mech_config,
+        iterations=4,
+        epochs=2,
         learning_rate=1e-2,
         log_every=2,
     ).configure(budget=1.0)
@@ -270,7 +266,8 @@ class DPTrainerTest(absltest.TestCase):
     step_trainer = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
-        mechanism_config=mech_config,
+        iterations=4,
+        epochs=2,
         learning_rate=1e-2,
         log_every=1,
     ).configure(budget=1.0)
@@ -297,16 +294,11 @@ class DPTrainerTest(absltest.TestCase):
     ckpt_dir = self.create_tempdir().full_path
     params, loss_fn = _dummy_params_and_loss()
     data = {'x': jnp.ones((4, 4, 4))}
-    mech_config = jax_privacy.execution_plan.BandMFConfig.default(
-        num_bands=1,
-        iterations=3,
-        expected_participations=3,
-        l2_clip_norm=1.0,
-    )
     trainer = dp_trainer.DPTrainerConfig(
         init_params=params,
         loss_fn=loss_fn,
-        mechanism_config=mech_config,
+        iterations=3,
+        epochs=3,
         learning_rate=1e-2,
         checkpoint_every=2,
     ).configure(budget=1.0)
@@ -328,11 +320,9 @@ class DPTrainerTest(absltest.TestCase):
         noise_multiplier=0.0,
     )
     trainer = dp_trainer.DPTrainer(
-        config=dp_trainer.DPTrainerConfig(
-            init_params={'w': jnp.zeros(8)},
-            loss_fn=loss_fn,
-            mechanism_config=config,
-        ),
+        init_params={'w': jnp.zeros(8)},
+        loss_fn=loss_fn,
+        mechanism_config=config,
         optimizer=optax.sgd(0.1),
     )
     canaries = {'x': jnp.eye(8)}

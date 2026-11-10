@@ -199,15 +199,14 @@ class TabularTransformer(api.CalibratedMechanism):
     graphdef, trainable_params, frozen_params, loss_fn = _init_model_and_loss(
         rng, self.config, data.domain
     )
-    trainer_config = dp_trainer.DPTrainerConfig(
+    trainer = dp_trainer.DPTrainer(
         init_params=typing.cast(typing.Any, trainable_params),
         loss_fn=loss_fn,
         mechanism_config=self.mechanism_config,
-        learning_rate=self.config.learning_rate,
+        optimizer=optax.adam(self.config.learning_rate),
         performance_flags=execution_plan.PerformanceFlags(keep_batch_dim=False),
     )
-    optimizer = optax.adam(self.config.learning_rate)
-    state = dp_trainer.DPTrainer(trainer_config, optimizer)(rng, {"x": rows})
+    state = trainer(rng, {"x": rows})
 
     synthetic_dataset = _sample_dataset(
         rng,

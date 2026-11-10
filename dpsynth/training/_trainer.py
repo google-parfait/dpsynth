@@ -20,13 +20,11 @@ pytrees and loss functions without depending on Flax or model-specific logic.
 
 Example usage::
 
-  config = jax_privacy.execution_plan.BandMFConfig.default(
-      num_bands=1, iterations=100, expected_participations=1.0,
-  )
   trainer = DPTrainerConfig(
       init_params=my_params,
       loss_fn=my_loss_fn,
-      mechanism_config=config,
+      iterations=100,
+      epochs=1.0,
   ).configure(budget=0.5)
 
   result = trainer(rng=np.random.default_rng(42), data=dataset)
@@ -98,20 +96,13 @@ def _setup_canaries(
 class DPTrainerConfig(api.MechanismConfig):
   """General-purpose differentially private training via DP-SGD.
 
-  Wraps ``jax_privacy.DPTrainer`` in the ``DPMechanism`` protocol, providing
-  calibration, privacy accounting, and a clean ``(rng, data)`` call signature.
+  Wraps ``DPTrainer`` in the ``DPMechanism`` protocol, providing calibration,
+  privacy accounting, and a clean ``(rng, data)`` call signature.
 
   The caller is responsible for preparing ``init_params`` and ``loss_fn``. For
   Flax NNX models, this means splitting the model into trainable and frozen
   state and closing over the frozen state in the loss function. For pure JAX
   code, the params and loss function can be used directly.
-
-  Mechanism can be configured via `jax_privacy.execution_plan.BandMFConfig`.
-  To configure a basic 4-epoch DP-SGD, use:
-
-    >>> config = execution_plan.BandMFConfig.default(
-    ...   num_bands=1, iterations=500, expected_participations=4, l2_clip_norm=1
-    ... )
 
   Note: Step-level metrics logged when ``log_every`` is set (such as loss,
   batch size, and gradient norms) are un-noised and not accounted for in the
@@ -121,20 +112,26 @@ class DPTrainerConfig(api.MechanismConfig):
   Attributes:
     init_params: Initial trainable parameter pytree.
     loss_fn: ``(params, batch, prng) -> (scalar_loss, aux_dict)`` loss function.
-    mechanism_config: ``ExecutionPlanConfig`` specifying the DP-SGD mechanism.
+    iterations: Total number of training iterations.
+    epochs: Expected number of times each example participates across training.
+    num_bands: Number of bands in the BandMF strategy matrix.
+    clipping_norm: Maximum L2 norm of per-example gradients.
     learning_rate: Learning rate for the default optimizer. To use a custom
       optimizer, call ``dataclasses.replace(mechanism, optimizer=...)`` on the
       calibrated mechanism returned by ``configure`` or ``dpsynth.calibrate``.
-    performance_flags: Optional ``PerformanceFlags`` for microbatching and SPMD.
+    microbatch_size: Physical microbatch size for per-example gradient clipping.
     log_every: Optional step interval for logging un-noised training metrics.
     checkpoint_every: Step interval for saving mid-training Orbax checkpoints.
   """
 
   init_params: training.Params
   loss_fn: training.LossFn
-  mechanism_config: execution_plan.ExecutionPlanConfig
+  iterations: int
+  epochs: float
+  num_bands: int = 1
+  clipping_norm: float = 1.0
   learning_rate: float = 1e-3
-  performance_flags: execution_plan.PerformanceFlags | None = None
+  microbatch_size: int | None = None
   log_every: int | None = None
   checkpoint_every: int = 100
 
@@ -143,7 +140,7 @@ class DPTrainerConfig(api.MechanismConfig):
       raise ValueError('checkpoint_every must be a multiple of log_every.')
 
   def configure(self, _=None, *, budget, delta=0.0) -> DPTrainer:
-    """Returns a copy with noise calibrated to the zCDP budget.
+    """Returns a ``DPTrainer`` with noise calibrated to the zCDP budget.
 
     Uses a loose upper bound ignoring subsampling amplification:
     ``sigma = sqrt(T / (2 * budget))``. The ``dp_event`` property returns the
@@ -154,34 +151,52 @@ class DPTrainerConfig(api.MechanismConfig):
       delta: Unused. Accepted for interface compatibility.
 
     Returns:
-      A new ``DPTrainer`` with calibrated ``config.noise_multiplier``.
+      A new ``DPTrainer`` with calibrated ``mechanism_config.noise_multiplier``.
     """
-    optimizer = optax.adamw(self.learning_rate)
-    if isinstance(self.mechanism_config, execution_plan.NonPrivateConfig):
-      return DPTrainer(self, optimizer)
-    cfg = typing.cast(execution_plan.BandMFConfig, self.mechanism_config)
-    num_bands = len(cfg.strategy)  # pyrefly: ignore[bad-argument-type]
-    rounds = math.ceil(cfg.iterations / num_bands)
+    del delta
+    rounds = math.ceil(self.iterations / self.num_bands)
     noise_multiplier = math.sqrt(rounds / (2.0 * budget))
-    calibrated_config = dataclasses.replace(
-        cfg,
+    mechanism_config = execution_plan.BandMFConfig.default(
+        num_bands=self.num_bands,
+        iterations=self.iterations,
+        expected_participations=self.epochs,
+        l2_clip_norm=self.clipping_norm,
         noise_multiplier=noise_multiplier,
     )
-    cfg = dataclasses.replace(self, mechanism_config=calibrated_config)
-    return DPTrainer(cfg, optimizer)
+    perf = execution_plan.PerformanceFlags(microbatch_size=self.microbatch_size)
+    return DPTrainer(
+        init_params=self.init_params,
+        loss_fn=self.loss_fn,
+        mechanism_config=mechanism_config,
+        optimizer=optax.adamw(self.learning_rate),
+        performance_flags=perf,
+        log_every=self.log_every,
+        checkpoint_every=self.checkpoint_every,
+    )
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
 class DPTrainer(api.CalibratedMechanism):
   """Calibrated differentially private trainer via DP-SGD."""
 
-  config: DPTrainerConfig
+  init_params: training.Params
+  loss_fn: training.LossFn
+  mechanism_config: execution_plan.ExecutionPlanConfig
   optimizer: optax.GradientTransformation
+  performance_flags: execution_plan.PerformanceFlags | None = None
+  log_every: int | None = None
+  checkpoint_every: int = 100
+
+  def __post_init__(self):
+    if self.log_every and self.checkpoint_every % self.log_every != 0:
+      raise ValueError('checkpoint_every must be a multiple of log_every.')
+    if getattr(self.mechanism_config, 'noise_multiplier', 0.0) is None:
+      raise ValueError('noise_multiplier is not set on mechanism_config.')
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
     """The DpEvent characterizing the privacy cost of DP-SGD training."""
-    return self.config.mechanism_config.make().dp_event
+    return self.mechanism_config.make().dp_event
 
   def __call__(
       self,
@@ -212,7 +227,7 @@ class DPTrainer(api.CalibratedMechanism):
       A ``TrainingResult`` containing the trained parameters and optional
       canary score auditor.
     """
-    cfg = typing.cast(typing.Any, self.config.mechanism_config)
+    cfg = typing.cast(typing.Any, self.mechanism_config)
     d = dataclasses.asdict(cfg)
     if hasattr(cfg, 'strategy') and cfg.strategy is not None:
       d['strategy'] = [float(x) for x in cfg.strategy]
@@ -233,23 +248,23 @@ class DPTrainer(api.CalibratedMechanism):
     if canaries is not None:
       data, in_canaries, out_canaries = _setup_canaries(data, canaries, rng)
 
-    perf = self.config.performance_flags or execution_plan.PerformanceFlags()
+    perf = self.performance_flags or execution_plan.PerformanceFlags()
     if perf.noise_seed is None:
       perf = dataclasses.replace(perf, noise_seed=int(rng.integers(2**31)))
 
     trainer = training.DPTrainer(
-        config=self.config.mechanism_config,
+        config=self.mechanism_config,
         performance_flags=perf,
-        loss_fn=self.config.loss_fn,
+        loss_fn=self.loss_fn,
         optimizer=self.optimizer,
     )
-    callback = callbacks.DefaultCallbackFn(self.config.log_every, metrics_fn)
+    callback = callbacks.DefaultCallbackFn(self.log_every, metrics_fn)
     # Copy init_params since DPTrainer.fit donates state buffers.
-    init_params = jax.tree.map(jax.numpy.copy, self.config.init_params)
+    init_params = jax.tree.map(jax.numpy.copy, self.init_params)
     with _checkpoint.orbax_session(
         trainer.init,
         init_params,
-        checkpoint_every=self.config.checkpoint_every,
+        checkpoint_every=self.checkpoint_every,
         callback=callback,
     ) as (initial_state, step_callback):
       state = trainer.fit(
@@ -262,11 +277,11 @@ class DPTrainer(api.CalibratedMechanism):
     auditor = None
     if canaries is not None:
       auditor = training.audit(
-          self.config.loss_fn,
+          self.loss_fn,
           state.params,
           in_canaries,
           out_canaries,
-          self.config.init_params,
+          self.init_params,
           microbatch_size=perf.microbatch_size,
           prng_key=int(rng.integers(2**31)),
       )

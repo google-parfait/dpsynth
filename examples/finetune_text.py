@@ -47,7 +47,6 @@ import dpsynth
 import dpsynth.training
 from etils import epath
 import jax
-from jax_privacy import execution_plan
 import numpy as np
 import simple_parsing
 
@@ -63,7 +62,6 @@ class Config:
     checkpoint_dir: Optional directory for mid-training checkpoints.
     run_id: Run identifier required when checkpoint_dir is set.
     canary_path: Optional path to a JSON file containing canary text strings.
-    dp_plan: Optional YAML path for a BandMFConfig execution plan.
     model: Gemma model variant to fine-tune.
     microbatch_size: Microbatch size for per-example gradient clipping.
     num_samples: Number of synthetic documents to generate.
@@ -76,7 +74,6 @@ class Config:
   checkpoint_dir: str | None = None
   run_id: str | None = None
   canary_path: str | None = None
-  dp_plan: str | None = None
   model: dpsynth.training.ModelName = 'gemma4_e2b_it'
   microbatch_size: int = 8
   num_samples: int = 64
@@ -100,18 +97,11 @@ def main(argv: Sequence[str]) -> None:
   if cfg.canary_path is not None:
     canaries = _load_examples(cfg.canary_path, cfg.instruction)
 
-  if cfg.dp_plan is not None:
-    plan = dpsynth.from_yaml(cfg.dp_plan, execution_plan.BandMFConfig)
-  else:
-    plan = execution_plan.BandMFConfig.default(
-        num_bands=8,
-        iterations=1000,
-        expected_participations=8.0,
-    )
-
   fine_tuner = dpsynth.training.DPFineTunerConfig(
       model=cfg.model,
-      mechanism_config=plan,
+      iterations=1000,
+      epochs=8.0,
+      num_bands=8,
       microbatch_size=cfg.microbatch_size,
   ).calibrate(epsilon=8.0, delta=1e-5)
 

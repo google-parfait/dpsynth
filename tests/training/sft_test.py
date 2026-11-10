@@ -258,41 +258,64 @@ class DPFineTunerTest(parameterized.TestCase):
   def test_creates_valid_mechanism_config(self):
     config = dp_sft.DPFineTunerConfig(
         model='gemma4_e2b_it',
-        mechanism_config=_default_config(),
+        iterations=100,
+        epochs=1.0,
     )
     self.assertEqual(config.model, 'gemma4_e2b_it')
-    self.assertEqual(config.mechanism_config.iterations, 100)
-    self.assertIsNone(config.mechanism_config.noise_multiplier)
+    self.assertEqual(config.iterations, 100)
+    self.assertEqual(config.epochs, 1.0)
     with self.assertRaises(ValueError):
       dataclasses.replace(config, log_every=3, checkpoint_every=10)
     with self.assertRaises(ValueError):
       dp_sft.DPFineTunerConfig(
           model=typing.cast(model.ModelName, 'nonexistent'),
-          mechanism_config=_default_config(),
+          iterations=100,
+          epochs=1.0,
       )
+
+  def test_direct_dp_fine_tuner_validates_calibration(self):
+    uncalibrated_plan = _default_config()
+    with self.assertRaisesRegex(ValueError, 'noise_multiplier is not set'):
+      dp_sft.DPFineTuner(
+          model='gemma4_e2b_it',
+          mechanism_config=uncalibrated_plan,
+          optimizer=optax.adamw(1e-3),
+      )
+    calibrated_plan = uncalibrated_plan.calibrate(epsilon=1.0, delta=1e-5)
+    mechanism = dp_sft.DPFineTuner(
+        model='gemma4_e2b_it',
+        mechanism_config=calibrated_plan,
+        optimizer=optax.adamw(1e-3),
+    )
+    self.assertIsNotNone(mechanism.dp_event)
+    with self.assertRaises(ValueError):
+      dataclasses.replace(mechanism, log_every=3, checkpoint_every=10)
 
   def test_calibrate_sets_noise_multiplier(self):
     mechanism = dp_sft.DPFineTunerConfig(
         model='gemma4_e2b_it',
-        mechanism_config=_default_config(),
+        iterations=100,
+        epochs=1.0,
     ).configure(budget=0.5)
-    self.assertIsNotNone(mechanism.config.mechanism_config.noise_multiplier)
-    self.assertGreater(mechanism.config.mechanism_config.noise_multiplier, 0.0)
+    self.assertIsNotNone(mechanism.mechanism_config.noise_multiplier)
+    self.assertGreater(mechanism.mechanism_config.noise_multiplier, 0.0)
 
   def test_calibrate_noise_formula(self):
     mechanism = dp_sft.DPFineTunerConfig(
         model='gemma4_e2b_it',
-        mechanism_config=_default_config(),
+        iterations=100,
+        epochs=1.0,
     ).configure(budget=0.5)
     # Single band: rounds = iterations, sigma = sqrt(T / (2*rho)).
     expected = math.sqrt(100 / (2.0 * 0.5))
-    sigma = mechanism.config.mechanism_config.noise_multiplier
+    sigma = mechanism.mechanism_config.noise_multiplier
     self.assertAlmostEqual(sigma, expected)
 
   def test_dp_event_after_calibration(self):
     mechanism = dp_sft.DPFineTunerConfig(
         model='gemma4_e2b_it',
-        mechanism_config=_default_config(),
+        iterations=100,
+        epochs=1.0,
     ).configure(budget=0.5)
     event = mechanism.dp_event
     self.assertIsNotNone(event)
@@ -303,14 +326,10 @@ class DPFineTunerTest(parameterized.TestCase):
         'input_tokens': jnp.array([1, 2, 3, 4], dtype=jnp.int32),
         'loss_mask': jnp.array([0, 1, 1, 1], dtype=jnp.int32),
     }
-    config = execution_plan.BandMFConfig.default(
-        num_bands=1,
-        iterations=2,
-        expected_participations=1.0,
-    )
     mechanism = dp_sft.DPFineTunerConfig(
         model='gemma4_e2b_it',
-        mechanism_config=config,
+        iterations=2,
+        epochs=1.0,
     ).configure(budget=1.0)
     orig_fit = jax_privacy.training.DPTrainer.fit
 
@@ -348,14 +367,10 @@ class DPFineTunerTest(parameterized.TestCase):
         'input_tokens': jnp.array([1, 2, 3, 4], dtype=jnp.int32),
         'loss_mask': jnp.array([0, 1, 1, 1], dtype=jnp.int32),
     }
-    config = execution_plan.BandMFConfig.default(
-        num_bands=1,
-        iterations=2,
-        expected_participations=1.0,
-    )
     mechanism = dp_sft.DPFineTunerConfig(
         model='gemma4_e2b_it',
-        mechanism_config=config,
+        iterations=2,
+        epochs=1.0,
         log_every=1,
     ).configure(budget=1.0)
     examples = [('p1', 'r1'), ('p2', 'r2')]
@@ -413,12 +428,10 @@ class DPFineTunerTest(parameterized.TestCase):
         noise_multiplier=0.0,  # No noise to ensure memorization.
     )
     mechanism = dp_sft.DPFineTuner(
-        dp_sft.DPFineTunerConfig(
-            model='gemma4_e2b_it',
-            mechanism_config=config,
-            learning_rate=0.1,
-        ),
-        optax.adamw(0.1),
+        model='gemma4_e2b_it',
+        mechanism_config=config,
+        optimizer=optax.adamw(0.1),
+        max_seq_length=4,
     )
     num_examples = 8
     examples = [('p', '1')] * num_examples
@@ -438,7 +451,8 @@ class DPFineTunerTest(parameterized.TestCase):
   def test_yaml_round_trip(self):
     config = dp_sft.DPFineTunerConfig(
         model='gemma4_e2b_it',
-        mechanism_config=_default_config(),
+        iterations=100,
+        epochs=1.0,
         learning_rate=2e-3,
         lora_rank=8,
     )
@@ -448,7 +462,8 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertEqual(restored.model, config.model)
     self.assertEqual(restored.learning_rate, 2e-3)
     self.assertEqual(restored.lora_rank, 8)
-    self.assertEqual(restored.mechanism_config.iterations, 100)
+    self.assertEqual(restored.iterations, 100)
+    self.assertEqual(restored.epochs, 1.0)
 
 
 if __name__ == '__main__':

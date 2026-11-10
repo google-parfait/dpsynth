@@ -20,12 +20,10 @@ DP-SGD training via ``DPTrainer``.
 
 Example usage::
 
-  config = jax_privacy.execution_plan.BandMFConfig.default(
-      num_bands=1, iterations=100, expected_participations=1.0,
-  )
   fine_tuner = DPFineTunerConfig(
       model='gemma4_e2b_it',
-      mechanism_config=config,
+      iterations=100,
+      epochs=1.0,
   ).configure(budget=0.5)
 
   data = [("What is 2+2?", "4"), ("Capital of France?", "Paris")]
@@ -100,7 +98,10 @@ class DPFineTunerConfig(api.MechanismConfig):
 
   Attributes:
     model: Gemma model preset name.
-    mechanism_config: ``BandMFConfig`` specifying the DP-SGD mechanism.
+    iterations: Total number of training iterations.
+    epochs: Expected number of times each example participates across training.
+    num_bands: Number of bands in the BandMF strategy matrix.
+    clipping_norm: Maximum L2 norm of per-example gradients.
     lora_rank: Rank of the LoRA adapter matrices.
     max_seq_length: Maximum token sequence length (including special tokens).
     learning_rate: Learning rate for the default optimizer. To use a custom
@@ -112,7 +113,10 @@ class DPFineTunerConfig(api.MechanismConfig):
   """
 
   model: model.ModelName
-  mechanism_config: execution_plan.BandMFConfig
+  iterations: int
+  epochs: float
+  num_bands: int = 1
+  clipping_norm: float = 1.0
   lora_rank: int = 16
   max_seq_length: int = 512
   learning_rate: float = 1e-3
@@ -148,28 +152,52 @@ class DPFineTunerConfig(api.MechanismConfig):
       A new ``DPFineTuner`` with calibrated
       ``mechanism_config.noise_multiplier``.
     """
-    num_bands = len(self.mechanism_config.strategy)  # pyrefly: ignore[bad-argument-type]
-    rounds = math.ceil(self.mechanism_config.iterations / num_bands)
+    del delta
+    rounds = math.ceil(self.iterations / self.num_bands)
     noise_multiplier = math.sqrt(rounds / (2.0 * budget))
-    calibrated_config = dataclasses.replace(
-        self.mechanism_config,
+    mechanism_config = execution_plan.BandMFConfig.default(
+        num_bands=self.num_bands,
+        iterations=self.iterations,
+        expected_participations=self.epochs,
+        l2_clip_norm=self.clipping_norm,
         noise_multiplier=noise_multiplier,
     )
-    cfg = dataclasses.replace(self, mechanism_config=calibrated_config)
-    return DPFineTuner(cfg, optax.adamw(self.learning_rate))
+    return DPFineTuner(
+        model=self.model,
+        mechanism_config=mechanism_config,
+        optimizer=optax.adamw(self.learning_rate),
+        lora_rank=self.lora_rank,
+        max_seq_length=self.max_seq_length,
+        microbatch_size=self.microbatch_size,
+        log_every=self.log_every,
+        checkpoint_every=self.checkpoint_every,
+    )
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class DPFineTuner(api.CalibratedMechanism):
   """Calibrated differentially private fine-tuner for Gemma models via DP-SGD."""
 
-  config: DPFineTunerConfig
+  model: model.ModelName
+  mechanism_config: execution_plan.ExecutionPlanConfig
   optimizer: optax.GradientTransformation
+  lora_rank: int = 16
+  max_seq_length: int = 512
+  microbatch_size: int | None = None
+  log_every: int | None = None
+  checkpoint_every: int = 500
+
+  def __post_init__(self):
+    model.validate_model_name(self.model)
+    if self.log_every and self.checkpoint_every % self.log_every != 0:
+      raise ValueError('checkpoint_every must be a multiple of log_every.')
+    if getattr(self.mechanism_config, 'noise_multiplier', 0.0) is None:
+      raise ValueError('noise_multiplier is not set on mechanism_config.')
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
     """The DpEvent characterizing the privacy cost of DP-SGD training."""
-    return self.config.mechanism_config.make().dp_event
+    return self.mechanism_config.make().dp_event
 
   def __call__(
       self,
@@ -210,7 +238,7 @@ class DPFineTuner(api.CalibratedMechanism):
     """
     # 1-to-1 per-record mapping preserves record-level differential privacy.
     tok_fn = functools.partial(
-        model.tokenize_example, max_seq_length=self.config.max_seq_length
+        model.tokenize_example, max_seq_length=self.max_seq_length
     )
     canary_data = _tokenize_examples(canaries, tok_fn) if canaries else None
 
@@ -220,8 +248,8 @@ class DPFineTuner(api.CalibratedMechanism):
       dataset = _tokenize_examples(data, tok_fn)
 
     loaded_model = model.load_gemma(
-        self.config.model,
-        lora_rank=self.config.lora_rank,
+        self.model,
+        lora_rank=self.lora_rank,
     )
     graphdef, trainable_params, frozen_params = nnx.split(
         loaded_model, nnx.LoRAParam, ...
@@ -237,28 +265,27 @@ class DPFineTuner(api.CalibratedMechanism):
     mesh = jax.sharding.get_mesh()
     if not mesh.empty and 'replica' in mesh.axis_names:
       perf = execution_plan.PerformanceFlags(
-          microbatch_size=self.config.microbatch_size,
+          microbatch_size=self.microbatch_size,
           batch_axis_name='replica',
           intermediate_strategy=noise_addition.SupportedStrategies.ZERO,
           param_specs=jax.tree.map(lambda x: x.sharding, trainable_params),
       )
     else:
       perf = execution_plan.PerformanceFlags(
-          microbatch_size=self.config.microbatch_size,
+          microbatch_size=self.microbatch_size,
       )
 
     # Keep master LoRA weights in float32 so small updates do not underflow.
-    trainer_config = dp_trainer.DPTrainerConfig(
-        mechanism_config=self.config.mechanism_config,
+    trainer = dp_trainer.DPTrainer(
         init_params=optax.tree.cast(trainable_params, jnp.float32),
         loss_fn=loss_fn,
-        learning_rate=self.config.learning_rate,
+        mechanism_config=self.mechanism_config,
+        optimizer=self.optimizer,
         performance_flags=perf,
-        log_every=self.config.log_every,
-        checkpoint_every=self.config.checkpoint_every,
+        log_every=self.log_every,
+        checkpoint_every=self.checkpoint_every,
     )
     del trainable_params
-    trainer = dp_trainer.DPTrainer(trainer_config, optimizer=self.optimizer)
     state = trainer(rng, dataset, metrics_fn=metrics_fn, canaries=canary_data)
 
     bf16_params = optax.tree.cast(state.params, jnp.bfloat16)
@@ -266,7 +293,7 @@ class DPFineTuner(api.CalibratedMechanism):
 
     samples = None
     if target_prompts is not None:
-      max_len = self.config.max_seq_length
+      max_len = self.max_seq_length
       sampler = model.GemmaSampler(merged, max_seq_length=max_len)
       samples = list(zip(target_prompts, sampler(target_prompts), strict=True))
 
