@@ -41,6 +41,7 @@ import dp_accounting
 from dpsynth import api
 from dpsynth.training import _callbacks as callbacks
 from dpsynth.training import _gemma as model
+from dpsynth.training import _optimizers
 from dpsynth.training import _sequence_model
 from dpsynth.training import _trainer as dp_trainer
 import grain.python as grain
@@ -167,7 +168,7 @@ class DPFineTunerConfig(api.MechanismConfig):
     return DPFineTuner(
         model=model_fn,
         mechanism_config=mechanism_config,
-        optimizer=optax.adamw(self.learning_rate),
+        optimizer=_optimizers.denoised_adamw(self.learning_rate),
         max_seq_length=self.max_seq_length,
         microbatch_size=self.microbatch_size,
         log_every=self.log_every,

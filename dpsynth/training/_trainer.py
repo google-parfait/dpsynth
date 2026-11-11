@@ -42,6 +42,7 @@ import dp_accounting
 from dpsynth import _checkpoint
 from dpsynth import api
 from dpsynth.training import _callbacks as callbacks
+from dpsynth.training import _optimizers
 import grain.python as grain
 import jax
 from jax.experimental import multihost_utils
@@ -168,7 +169,7 @@ class DPTrainerConfig(api.MechanismConfig):
         init_params=self.init_params,
         loss_fn=self.loss_fn,
         mechanism_config=mechanism_config,
-        optimizer=optax.adamw(self.learning_rate),
+        optimizer=_optimizers.denoised_adamw(self.learning_rate),
         performance_flags=perf,
         log_every=self.log_every,
         checkpoint_every=self.checkpoint_every,
