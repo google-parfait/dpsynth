@@ -442,7 +442,7 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/02/10/5da547df7a391dc
 [[packages]]
 name = "dp-accounting"
 version = "0.7.0"
-vcs = { type = "git", url = "https://github.com/google/differential-privacy.git", commit-id = "fc52b8bbe5460e8c11f668c029d0e4fdbc856877", subdirectory = "python/dp_accounting" }
+vcs = { type = "git", url = "https://github.com/google/differential-privacy.git", commit-id = "09438ad658d9748ef441e5979287d84224720a82", subdirectory = "python/dp_accounting" }
 
 [[packages]]
 name = "dpsynth"
@@ -694,7 +694,7 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/5e/2e/4f0a152f2e576e4
 [[packages]]
 name = "google-tunix"
 version = "0.1.8"
-vcs = { type = "git", url = "https://github.com/google/tunix.git", commit-id = "198e691d752c5ca033647a945fd37639532665e0" }
+vcs = { type = "git", url = "https://github.com/google/tunix.git", commit-id = "54f16363b021ba811eddca0fd20eb8382d4c516a" }
 
 [[packages]]
 name = "googleapis-common-protos"
@@ -937,7 +937,7 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/d4/5a/26a1305f8978bc4
 [[packages]]
 name = "jax-privacy"
 version = "2.4.0"
-vcs = { type = "git", url = "https://github.com/google-parfait/jax_privacy.git", commit-id = "c3c96ee16ab74c27c4b3981016478be82d5513f9" }
+vcs = { type = "git", url = "https://github.com/google-parfait/jax_privacy.git", commit-id = "c6b23515470ed2de5b5eb6ae195e3c5c3e0bd436" }
 
 [[packages]]
 name = "jaxlib"
@@ -1018,15 +1018,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/2d/c2/de1db8c6d413597076a4259cea409b83459b2db997c003578affdd32bf66/libclang-18.1.1-py2.py3-none-musllinux_1_2_x86_64.whl", upload-time = 2024-03-17T16:14:20Z, size = 24921494, hashes = { sha256 = "69f8eb8f65c279e765ffd28aaa7e9e364c776c17618af8bff22a8df58677ff4f" } },
     { url = "https://files.pythonhosted.org/packages/0b/2d/3f480b1e1d31eb3d6de5e3ef641954e5c67430d5ac93b7fa7e07589576c7/libclang-18.1.1-py2.py3-none-win_amd64.whl", upload-time = 2024-03-17T16:42:21Z, size = 26415083, hashes = { sha256 = "4dd2d3b82fab35e2bf9ca717d7b63ac990a3519c7e312f19fa8e86dcc712f7fb" } },
     { url = "https://files.pythonhosted.org/packages/71/cf/e01dc4cc79779cd82d77888a88ae2fa424d93b445ad4f6c02bfc18335b70/libclang-18.1.1-py2.py3-none-win_arm64.whl", upload-time = 2024-03-17T16:42:59Z, size = 22361112, hashes = { sha256 = "3f0e1f49f04d3cd198985fea0511576b0aee16f9ff0e0f0cad7f9c57ec3c20e8" } },
-]
-
-[[packages]]
-name = "libtpu"
-version = "0.0.44.1"
-index = "https://pypi.org/simple"
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6f/66/e57cdbcfaeb1c232b685ee78c15e37a5a7cb3889e3f604db6ca80c0717a5/libtpu-0.0.44.1-cp312-cp312-manylinux_2_31_x86_64.whl", upload-time = 2026-07-27T23:48:43Z, size = 215596766, hashes = { sha256 = "4a96b7c320f63267e6ce82f323c2d8fca68395170ac98db4eb29d8e3cca2edf9" } },
-    { url = "https://files.pythonhosted.org/packages/1b/27/42e544ac8d4a072f03b8335395060559d70db6b6cc995fa0fe5df66ce0cb/libtpu-0.0.44.1-cp313-cp313-manylinux_2_31_x86_64.whl", upload-time = 2026-07-27T23:48:52Z, size = 215596867, hashes = { sha256 = "a9ddf82730f44e9a61b6a2e3ebbfc7a9881583f6d74f7805e84fa9610c9a0ac0" } },
 ]
 
 [[packages]]
@@ -1372,8 +1363,8 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/23/cd/066e86230ae37ed
 
 [[packages]]
 name = "optax"
-version = "0.2.9.dev0"
-vcs = { type = "git", url = "https://github.com/google-deepmind/optax.git", commit-id = "85d06ce267b027d61e3a1421ee7ba0bb0c6c145b" }
+version = "0.2.9"
+vcs = { type = "git", url = "https://github.com/google-deepmind/optax.git", commit-id = "c56f8532bba98f952de70af529b7bbc6beb7cabf" }
 
 [[packages]]
 name = "optree"
