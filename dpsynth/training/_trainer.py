@@ -70,6 +70,7 @@ def _setup_canaries(
     data: optax.ArrayTree | grain.MapDataset,
     canaries: optax.ArrayTree,
     rng: np.random.Generator,
+    repeats: int = 1,
 ) -> tuple[
     optax.ArrayTree | grain.MapDataset, optax.ArrayTree, optax.ArrayTree
 ]:
@@ -80,15 +81,15 @@ def _setup_canaries(
   if n < 2:
     raise ValueError(f'canaries must have >= 2 examples, got {n}.')
   perm = rng.permutation(n)
-  in_idx, out_idx = np.split(perm, 2)
+  in_idx, out_idx = np.array_split(perm, 2)
   in_canaries = jax.tree.map(lambda x: x[in_idx], canaries)
   out_canaries = jax.tree.map(lambda x: x[out_idx], canaries)
   if isinstance(data, grain.MapDataset):
     get_row = lambda i: jax.tree.map(lambda x: x[i], in_canaries)
     in_data = grain.MapDataset.range(len(in_idx)).map(get_row)
-    data = grain.MapDataset.concatenate([data, in_data])
+    data = grain.MapDataset.concatenate([data] + [in_data] * repeats)
   else:
-    fn = lambda a, b: np.concatenate([a, b], axis=0)
+    fn = lambda a, b: np.concatenate([a] + [b] * repeats, axis=0)
     data = jax.tree.map(fn, data, in_canaries)
   return data, in_canaries, out_canaries
 
@@ -123,6 +124,7 @@ class DPTrainerConfig(api.MechanismConfig):
     microbatch_size: Physical microbatch size for per-example gradient clipping.
     log_every: Optional step interval for logging un-noised training metrics.
     checkpoint_every: Step interval for saving mid-training Orbax checkpoints.
+    canary_repeats: Held-in canary repetitions for empirical group privacy.
   """
 
   init_params: training.Params
@@ -135,10 +137,13 @@ class DPTrainerConfig(api.MechanismConfig):
   microbatch_size: int | None = None
   log_every: int | None = None
   checkpoint_every: int = 100
+  canary_repeats: int = 1
 
   def __post_init__(self):
     if self.log_every and self.checkpoint_every % self.log_every != 0:
       raise ValueError('checkpoint_every must be a multiple of log_every.')
+    if self.canary_repeats < 1:
+      raise ValueError('canary_repeats must be >= 1.')
 
   def configure(self, _=None, *, budget, delta=0.0) -> DPTrainer:
     """Returns a ``DPTrainer`` with noise calibrated to the zCDP budget.
@@ -173,6 +178,7 @@ class DPTrainerConfig(api.MechanismConfig):
         performance_flags=perf,
         log_every=self.log_every,
         checkpoint_every=self.checkpoint_every,
+        canary_repeats=self.canary_repeats,
     )
 
 
@@ -187,10 +193,13 @@ class DPTrainer(api.CalibratedMechanism):
   performance_flags: execution_plan.PerformanceFlags | None = None
   log_every: int | None = None
   checkpoint_every: int = 100
+  canary_repeats: int = 1
 
   def __post_init__(self):
     if self.log_every and self.checkpoint_every % self.log_every != 0:
       raise ValueError('checkpoint_every must be a multiple of log_every.')
+    if self.canary_repeats < 1:
+      raise ValueError('canary_repeats must be >= 1.')
     if getattr(self.mechanism_config, 'noise_multiplier', 0.0) is None:
       raise ValueError('noise_multiplier is not set on mechanism_config.')
 
@@ -219,10 +228,11 @@ class DPTrainer(api.CalibratedMechanism):
       metrics_fn: Optional ``(step, metrics) -> None`` callback invoked every
         ``log_every`` steps with scalar summary metrics.
       canaries: Optional batched ``ArrayTree`` of public canary candidates with
-        an even leading dimension ``(2 * K, ...)`` (``2 * K >= 2``) and the same
+        a leading dimension of at least 2 examples (``N >= 2``) and the same
         per-example PyTree structure and leaf shapes as ``data``. Half are
-        randomly assigned as held-in (appended to ``data``) and half as held-out
-        for empirical privacy auditing in ``TrainingResult.auditor``.
+        randomly assigned as held-in (appended to ``data``, potentially with
+        repetition) and half as held-out for empirical privacy auditing in
+        ``TrainingResult.auditor``.
 
     Returns:
       A ``TrainingResult`` containing the trained parameters and optional
@@ -247,7 +257,9 @@ class DPTrainer(api.CalibratedMechanism):
 
     in_canaries = out_canaries = {}
     if canaries is not None:
-      data, in_canaries, out_canaries = _setup_canaries(data, canaries, rng)
+      data, in_canaries, out_canaries = _setup_canaries(
+          data, canaries, rng, self.canary_repeats
+      )
 
     perf = self.performance_flags or execution_plan.PerformanceFlags()
     if perf.noise_seed is None:

@@ -65,6 +65,8 @@ class DPTrainerTest(absltest.TestCase):
     self.assertEqual(config.learning_rate, 1e-3)
     with self.assertRaises(ValueError):
       dataclasses.replace(config, log_every=3, checkpoint_every=10)
+    with self.assertRaises(ValueError):
+      dataclasses.replace(config, canary_repeats=0)
 
   def test_calibrate_sets_noise_multiplier(self):
     params, loss_fn = _dummy_params_and_loss()
@@ -82,6 +84,8 @@ class DPTrainerTest(absltest.TestCase):
     self.assertIsNotNone(trainer.dp_event)
     with self.assertRaises(ValueError):
       dataclasses.replace(trainer, log_every=3, checkpoint_every=10)
+    with self.assertRaises(ValueError):
+      dataclasses.replace(trainer, canary_repeats=0)
     with self.assertRaisesRegex(ValueError, 'noise_multiplier is not set'):
       dataclasses.replace(trainer, mechanism_config=self.dpsgd_config)
 
@@ -324,8 +328,9 @@ class DPTrainerTest(absltest.TestCase):
         loss_fn=loss_fn,
         mechanism_config=config,
         optimizer=optax.sgd(0.1),
+        canary_repeats=2,
     )
-    canaries = {'x': jnp.eye(8)}
+    canaries = {'x': jnp.eye(9, 8)}
     result = trainer(
         rng=np.random.default_rng(0),
         data={'x': jnp.zeros((8, 8))},
@@ -333,11 +338,13 @@ class DPTrainerTest(absltest.TestCase):
     )
     self.assertIsInstance(result, dp_trainer.TrainingResult)
     assert result.auditor is not None
+    self.assertEqual(result.auditor.num_canaries, (5, 4))
     self.assertAlmostEqual(result.auditor.attack_auroc(), 1.0, places=5)
 
     data = grain.MapDataset.source([{'x': np.zeros(8, dtype=np.float32)}] * 8)
     result = trainer(rng=np.random.default_rng(0), data=data, canaries=canaries)
     assert result.auditor is not None
+    self.assertEqual(result.auditor.num_canaries, (5, 4))
     self.assertAlmostEqual(result.auditor.attack_auroc(), 1.0, places=5)
 
     with self.assertRaises(ValueError):

@@ -108,6 +108,7 @@ class DPFineTunerConfig(api.MechanismConfig):
     microbatch_size: Physical microbatch size for per-example gradient clipping.
     log_every: Optional step interval for logging un-noised training metrics.
     checkpoint_every: Step interval for saving mid-training Orbax checkpoints.
+    canary_repeats: Held-in canary repetitions for empirical group privacy.
   """
 
   model: model.ModelName
@@ -121,11 +122,14 @@ class DPFineTunerConfig(api.MechanismConfig):
   microbatch_size: int | None = None
   log_every: int | None = None
   checkpoint_every: int = 500
+  canary_repeats: int = 1
 
   def __post_init__(self):
     model.validate_model_name(self.model)
     if self.log_every and self.checkpoint_every % self.log_every != 0:
       raise ValueError('checkpoint_every must be a multiple of log_every.')
+    if self.canary_repeats < 1:
+      raise ValueError('canary_repeats must be >= 1.')
 
   def configure(self, _=None, *, budget, delta=0.0) -> DPFineTuner:
     """Returns a copy with noise_multiplier calibrated to the zCDP budget.
@@ -173,6 +177,7 @@ class DPFineTunerConfig(api.MechanismConfig):
         microbatch_size=self.microbatch_size,
         log_every=self.log_every,
         checkpoint_every=self.checkpoint_every,
+        canary_repeats=self.canary_repeats,
     )
 
 
@@ -187,10 +192,13 @@ class DPFineTuner(api.CalibratedMechanism):
   microbatch_size: int | None = None
   log_every: int | None = None
   checkpoint_every: int = 500
+  canary_repeats: int = 1
 
   def __post_init__(self):
     if self.log_every and self.checkpoint_every % self.log_every != 0:
       raise ValueError('checkpoint_every must be a multiple of log_every.')
+    if self.canary_repeats < 1:
+      raise ValueError('canary_repeats must be >= 1.')
     if getattr(self.mechanism_config, 'noise_multiplier', 0.0) is None:
       raise ValueError('noise_multiplier is not set on mechanism_config.')
 
@@ -211,8 +219,8 @@ class DPFineTuner(api.CalibratedMechanism):
     """Tokenizes text, loads the model, and runs DP-SGD fine-tuning.
 
     When ``canaries`` are provided, they are treated as public data and split
-    50/50 at random into held-in examples (appended to ``data``) and held-out
-    examples for empirical privacy auditing.
+    50/50 at random into held-in examples (appended to ``data``, potentially
+    with repetition) and held-out examples for empirical privacy auditing.
 
     When ``target_prompts`` are provided, ``GemmaSampler`` generates synthetic
     responses at the end of training using default sampling settings. This is
@@ -276,6 +284,7 @@ class DPFineTuner(api.CalibratedMechanism):
         performance_flags=perf,
         log_every=self.log_every,
         checkpoint_every=self.checkpoint_every,
+        canary_repeats=self.canary_repeats,
     )
     del trainable_params
     state = trainer(rng, dataset, metrics_fn=metrics_fn, canaries=canary_data)

@@ -285,6 +285,8 @@ class DPFineTunerTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       dataclasses.replace(config, log_every=3, checkpoint_every=10)
     with self.assertRaises(ValueError):
+      dataclasses.replace(config, canary_repeats=0)
+    with self.assertRaises(ValueError):
       dp_sft.DPFineTunerConfig(
           model=typing.cast(model.ModelName, 'nonexistent'),
           iterations=100,
@@ -311,6 +313,8 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertIsNotNone(mechanism.dp_event)
     with self.assertRaises(ValueError):
       dataclasses.replace(mechanism, log_every=3, checkpoint_every=10)
+    with self.assertRaises(ValueError):
+      dataclasses.replace(mechanism, canary_repeats=0)
 
   def test_calibrate_sets_noise_multiplier(self):
     mechanism = dp_sft.DPFineTunerConfig(
@@ -454,11 +458,12 @@ class DPFineTunerTest(parameterized.TestCase):
         mechanism_config=config,
         optimizer=optax.adamw(0.1),
         max_seq_length=4,
+        canary_repeats=2,
     )
     num_examples = 8
     examples = [('p', '1')] * num_examples
     data = grain.MapDataset.source(examples) if use_map_dataset else examples
-    canaries = [('c', str(2 + i)) for i in range(num_examples)]
+    canaries = [('c', str(2 + i)) for i in range(9)]
     tiny_model = _make_tiny_lora_model(vocab_size=16, embed_dim=8, lora_rank=4)
     with (
         mock.patch.object(model, 'load_gemma', return_value=tiny_model),
@@ -468,6 +473,7 @@ class DPFineTunerTest(parameterized.TestCase):
 
     self.assertIsNotNone(result.auditor)
     assert result.auditor is not None
+    self.assertEqual(result.auditor.num_canaries, (5, 4))
     self.assertAlmostEqual(result.auditor.attack_auroc(), 1.0, places=5)
 
   def test_yaml_round_trip(self):
