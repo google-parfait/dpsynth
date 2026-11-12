@@ -100,6 +100,11 @@ class DPFineTunerConfig(api.MechanismConfig):
     epochs: Expected number of times each example participates across training.
     num_bands: Number of bands in the BandMF strategy matrix.
     clipping_norm: Maximum L2 norm of per-example gradients.
+    rescale_to_unit_norm: If True, divides clipped per-example gradients by
+      ``clipping_norm`` (sensitivity 1). If False, the sensitivity is
+      ``clipping_norm``.
+    loss_normalization: How each example's loss is normalized (see
+      ``SequenceModel.loss_fn``).
     lora_rank: Rank of the LoRA adapter matrices.
     max_seq_length: Maximum token sequence length (including special tokens).
     learning_rate: Learning rate for the default optimizer. To use a custom
@@ -115,6 +120,8 @@ class DPFineTunerConfig(api.MechanismConfig):
   epochs: float
   num_bands: int = 1
   clipping_norm: float = 1.0
+  rescale_to_unit_norm: bool = True
+  loss_normalization: _sequence_model.LossNormalization = 'per_example_tokens'
   lora_rank: int = 16
   max_seq_length: int = 512
   learning_rate: float = 1e-3
@@ -158,6 +165,7 @@ class DPFineTunerConfig(api.MechanismConfig):
         iterations=self.iterations,
         expected_participations=self.epochs,
         l2_clip_norm=self.clipping_norm,
+        rescale_to_unit_norm=self.rescale_to_unit_norm,
         noise_multiplier=noise_multiplier,
     )
     # Defer loading until __call__ so calibration binary search does not
@@ -170,6 +178,7 @@ class DPFineTunerConfig(api.MechanismConfig):
         mechanism_config=mechanism_config,
         optimizer=_optimizers.denoised_adamw(self.learning_rate),
         max_seq_length=self.max_seq_length,
+        loss_normalization=self.loss_normalization,
         microbatch_size=self.microbatch_size,
         log_every=self.log_every,
         checkpoint_every=self.checkpoint_every,
@@ -184,6 +193,7 @@ class DPFineTuner(api.CalibratedMechanism):
   mechanism_config: execution_plan.ExecutionPlanConfig
   optimizer: optax.GradientTransformation
   max_seq_length: int = 512
+  loss_normalization: _sequence_model.LossNormalization = 'per_example_tokens'
   microbatch_size: int | None = None
   log_every: int | None = None
   checkpoint_every: int = 500
@@ -270,7 +280,9 @@ class DPFineTuner(api.CalibratedMechanism):
 
     trainer = dp_trainer.DPTrainer(
         init_params=trainable_params,
-        loss_fn=seq_model.loss_fn,
+        loss_fn=functools.partial(
+            seq_model.loss_fn, loss_normalization=self.loss_normalization
+        ),
         mechanism_config=self.mechanism_config,
         optimizer=self.optimizer,
         performance_flags=perf,

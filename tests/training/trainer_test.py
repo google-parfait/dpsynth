@@ -74,11 +74,13 @@ class DPTrainerTest(absltest.TestCase):
         iterations=100,
         epochs=4,
         microbatch_size=2,
+        rescale_to_unit_norm=False,
     ).configure(budget=0.5)
     # Single band: sigma = sqrt(T / (2 * rho)) = 10.
     sigma = trainer.mechanism_config.noise_multiplier
     self.assertAlmostEqual(sigma, 10.0)
     self.assertEqual(trainer.performance_flags.microbatch_size, 2)
+    self.assertFalse(trainer.mechanism_config.rescale_to_unit_norm)
     self.assertIsNotNone(trainer.dp_event)
     with self.assertRaises(ValueError):
       dataclasses.replace(trainer, log_every=3, checkpoint_every=10)
