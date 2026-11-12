@@ -32,6 +32,7 @@ from dpsynth import serialize
 from dpsynth import training as dp_sft
 from dpsynth.training import _gemma as model
 from dpsynth.training import _sequence_model
+from dpsynth.training import _sft
 from flax import nnx
 import grain.python as grain
 import jax
@@ -64,6 +65,28 @@ def _make_tiny_model(vocab_size=8, embed_dim=4):
       return self.dense(self.embed(tokens)), None
 
   return TinyModel(nnx.Rngs(0))
+
+
+_VOCAB_SIZE = 8
+
+
+def _uniform_sequence_model():
+  """Returns a ``SequenceModel`` whose per-token loss is log(_VOCAB_SIZE)."""
+  return dp_sft.SequenceModel(
+      params={},
+      forward_fn=lambda params, tokens: jnp.zeros((*tokens.shape, _VOCAB_SIZE)),
+      tokenize_fn=lambda example: {
+          'input_tokens': np.array([1, 2, 3, 4, 0], dtype=np.int32),
+          'loss_mask': np.array([0, 1, 1, 0, 0], dtype=np.int32),
+      },
+  )
+
+
+# Two of the four next-token targets are loss-bearing.
+_HALF_MASKED_BATCH = {
+    'input_tokens': np.array([[1, 2, 3, 4, 0]], dtype=np.int32),
+    'loss_mask': np.array([[0, 1, 1, 0, 0]], dtype=np.int32),
+}
 
 
 def _make_tiny_lora_model(vocab_size=8, embed_dim=4, lora_rank=2):
@@ -138,6 +161,33 @@ class SftLossFnTest(absltest.TestCase):
     )
     # Different masks should give different losses.
     self.assertNotAlmostEqual(loss_short, loss_full, places=3)
+
+
+class SequenceModelLossFnTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ('per_example_tokens', 'per_example_tokens', 1.0),
+      ('sequence_length', 'sequence_length', 0.5),
+  )
+  def test_loss_normalization(self, loss_normalization, scale):
+    loss, _ = _uniform_sequence_model().loss_fn(
+        {},
+        _HALF_MASKED_BATCH,
+        jax.random.key(0),
+        loss_normalization=loss_normalization,
+    )
+    self.assertAlmostEqual(float(loss), scale * math.log(_VOCAB_SIZE), places=5)
+
+  def test_unknown_loss_normalization_raises(self):
+    with self.assertRaisesRegex(ValueError, 'Unknown loss_normalization'):
+      _uniform_sequence_model().loss_fn(
+          {},
+          _HALF_MASKED_BATCH,
+          jax.random.key(0),
+          loss_normalization=typing.cast(
+              _sequence_model.LossNormalization, 'batch_tokens'
+          ),
+      )
 
 
 class GemmaModelTest(absltest.TestCase):
@@ -332,6 +382,33 @@ class DPFineTunerTest(parameterized.TestCase):
     sigma = mechanism.mechanism_config.noise_multiplier
     self.assertAlmostEqual(sigma, expected)
 
+  def test_configure_passes_rescaling_and_loss_normalization(self):
+    mechanism = dp_sft.DPFineTunerConfig(
+        model='gemma4_e2b_it',
+        iterations=100,
+        epochs=1.0,
+        rescale_to_unit_norm=False,
+        loss_normalization='sequence_length',
+    ).configure(budget=0.5)
+    self.assertFalse(mechanism.mechanism_config.rescale_to_unit_norm)
+    self.assertEqual(mechanism.loss_normalization, 'sequence_length')
+
+  def test_call_trains_with_loss_normalization(self):
+    mechanism = dataclasses.replace(
+        dp_sft.DPFineTunerConfig(
+            model='gemma4_e2b_it',
+            iterations=2,
+            epochs=1.0,
+            loss_normalization='sequence_length',
+        ).configure(budget=1.0),
+        model=_uniform_sequence_model(),
+    )
+    with mock.patch.object(_sft.dp_trainer, 'DPTrainer') as mock_trainer:
+      mechanism(rng=np.random.default_rng(0), data=[('p', 'r')])
+    loss_fn = mock_trainer.call_args.kwargs['loss_fn']
+    loss, _ = loss_fn({}, _HALF_MASKED_BATCH, jax.random.key(0))
+    self.assertAlmostEqual(float(loss), 0.5 * math.log(_VOCAB_SIZE), places=5)
+
   def test_dp_event_after_calibration(self):
     mechanism = dp_sft.DPFineTunerConfig(
         model='gemma4_e2b_it',
@@ -477,6 +554,8 @@ class DPFineTunerTest(parameterized.TestCase):
         epochs=1.0,
         learning_rate=2e-3,
         lora_rank=8,
+        rescale_to_unit_norm=False,
+        loss_normalization='sequence_length',
     )
     restored = serialize.from_yaml(
         serialize.to_yaml(config), dp_sft.DPFineTunerConfig
@@ -486,6 +565,8 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertEqual(restored.lora_rank, 8)
     self.assertEqual(restored.iterations, 100)
     self.assertEqual(restored.epochs, 1.0)
+    self.assertFalse(restored.rescale_to_unit_norm)
+    self.assertEqual(restored.loss_normalization, 'sequence_length')
 
   def test_pad_and_truncate(self):
     rng = np.random.default_rng(42)

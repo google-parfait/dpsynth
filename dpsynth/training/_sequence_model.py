@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 import dataclasses
-from typing import Any
+from typing import Any, Literal
 
 import jax
 import jax.numpy as jnp
@@ -38,6 +38,21 @@ TokenizedExample = dict[str, np.typing.NDArray[np.int32]]
 ForwardFn = Callable[[Params, TokenBatch], Logits]
 TokenizeFn = Callable[[tuple[Prompt, Response]], TokenizedExample]
 SampleFn = Callable[[Params, Sequence[Prompt], MaxSeqLength], list[Response]]
+
+# How each example's summed next-token loss is normalized. Only positions where
+# ``loss_mask`` is set (response tokens, not prompt or padding) contribute to
+# the loss; "loss-bearing tokens" below means those positions.
+#
+# - ``'per_example_tokens'``: Divide by the example's number of loss-bearing
+#   tokens. Even without clipping, every example has equal weight regardless of
+#   length.
+# - ``'sequence_length'``: Divide by the padded sequence length. Without
+#   clipping, every loss-bearing token has equal weight regardless of which
+#   example it is in, as in non-private training; tokens in examples that are
+#   clipped may have lower effective weight. Per-example losses and gradients
+#   shrink by the example's fraction of loss-bearing tokens, so a smaller
+#   clipping norm may be appropriate.
+LossNormalization = Literal['per_example_tokens', 'sequence_length']
 
 
 def pad_and_truncate(tree: Any, length: int) -> Any:
@@ -71,8 +86,21 @@ class SequenceModel:
       params: training.Params,
       data: Any,
       prng: jax.Array,
+      *,
+      loss_normalization: LossNormalization = 'per_example_tokens',
   ) -> tuple[jax.Array, dict[str, jax.Array]]:
-    """Cross-entropy next-token-prediction loss compatible with ``DPTrainer``."""
+    """Cross-entropy next-token-prediction loss compatible with ``DPTrainer``.
+
+    Args:
+      params: Trainable parameter pytree.
+      data: Dict with ``'input_tokens'`` and ``'loss_mask'`` (int32 ``[B, L]``).
+      prng: Unused random key.
+      loss_normalization: How the summed loss is normalized (see
+        ``LossNormalization``).
+
+    Returns:
+      ``(loss, aux)`` where ``aux`` contains ``'loss'``.
+    """
     del prng  # Deterministic forward pass (no dropout during DP training).
     input_tokens = data['input_tokens']
     loss_mask = data['loss_mask']
@@ -80,5 +108,12 @@ class SequenceModel:
     targets = input_tokens[:, 1:]
     mask = loss_mask[:, 1:]
     pt_losses = optax.softmax_cross_entropy_with_integer_labels(logits, targets)
-    loss = jnp.sum(pt_losses * mask) / jnp.maximum(jnp.sum(mask), 1.0)
+    match loss_normalization:
+      case 'per_example_tokens':
+        num_tokens = jnp.maximum(jnp.sum(mask), 1.0)
+      case 'sequence_length':
+        num_tokens = mask.size
+      case _:
+        raise ValueError(f'Unknown loss_normalization: {loss_normalization!r}')
+    loss = jnp.sum(pt_losses * mask) / num_tokens
     return loss, {'loss': loss}

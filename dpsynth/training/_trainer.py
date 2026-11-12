@@ -117,6 +117,9 @@ class DPTrainerConfig(api.MechanismConfig):
     epochs: Expected number of times each example participates across training.
     num_bands: Number of bands in the BandMF strategy matrix.
     clipping_norm: Maximum L2 norm of per-example gradients.
+    rescale_to_unit_norm: If True, divides clipped per-example gradients by
+      ``clipping_norm`` (sensitivity 1). If False, the sensitivity is
+      ``clipping_norm``.
     learning_rate: Learning rate for the default optimizer. To use a custom
       optimizer, call ``dataclasses.replace(mechanism, optimizer=...)`` on the
       calibrated mechanism returned by ``configure`` or ``dpsynth.calibrate``.
@@ -131,6 +134,7 @@ class DPTrainerConfig(api.MechanismConfig):
   epochs: float
   num_bands: int = 1
   clipping_norm: float = 1.0
+  rescale_to_unit_norm: bool = True
   learning_rate: float = 1e-3
   microbatch_size: int | None = None
   log_every: int | None = None
@@ -162,6 +166,7 @@ class DPTrainerConfig(api.MechanismConfig):
         iterations=self.iterations,
         expected_participations=self.epochs,
         l2_clip_norm=self.clipping_norm,
+        rescale_to_unit_norm=self.rescale_to_unit_norm,
         noise_multiplier=noise_multiplier,
     )
     perf = execution_plan.PerformanceFlags(microbatch_size=self.microbatch_size)
