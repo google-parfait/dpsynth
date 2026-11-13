@@ -207,7 +207,7 @@ class NumericalAttribute:
     # the checks below mirror the former attrs validators (run in field order).
     object.__setattr__(self, 'min_value', float(self.min_value))
     object.__setattr__(self, 'max_value', float(self.max_value))
-    if self.min_value >= self.max_value:
+    if not self.min_value < self.max_value:
       raise ValueError(
           f'min_value ({self.min_value}) must be strictly less than'
           f' max_value ({self.max_value}).'
