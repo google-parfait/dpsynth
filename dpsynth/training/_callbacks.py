@@ -47,15 +47,15 @@ def summarize_aux(aux: PerExampleAux) -> dict[str, float]:
   """Computes exact (non-DP) summary metrics from per-example outputs."""
   n = len(aux.values)
   metrics = {
-      'loss': np.mean(aux.values) if n else np.nan,
+      'loss': np.mean(aux.values, dtype=np.float64) if n else np.nan,
       'batch_size': n,
   }
   for path, val in jax.tree_util.tree_leaves_with_path(aux.aux):
     key = jax.tree_util.keystr(path, simple=True, separator='/') or 'aux'
-    metrics[key] = np.mean(val) if n else np.nan
+    metrics[key] = np.mean(val, dtype=np.float64) if n else np.nan
   if aux.grad_norms is not None and n:
     norms = aux.grad_norms
-    metrics['grad_norm_mean'] = np.mean(norms)
+    metrics['grad_norm_mean'] = np.mean(norms, dtype=np.float64)
     metrics['grad_norm_min'] = np.min(norms)
     metrics['grad_norm_median'] = np.median(norms)
     metrics['grad_norm_max'] = np.max(norms)

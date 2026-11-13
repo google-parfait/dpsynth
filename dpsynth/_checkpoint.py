@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 import contextlib
 import contextvars
+import io
 from typing import Any, TypeAlias, TypeVar
 
 from absl import logging
@@ -144,10 +145,12 @@ def get_or_compute(
   path = dir_path / f"{name}.npz"
   if path.exists():
     logging.info("[DPSynth Checkpoint]: Loading %s from %s", name, path)
-    return mbi.load(path)
+    return mbi.load(io.BytesIO(path.read_bytes()))
 
   result = compute_fn(*args, **kwargs)
-  mbi.save(result, path)
+  buf = io.BytesIO()
+  mbi.save(result, buf)
+  path.write_bytes(buf.getvalue())
   logging.info("[DPSynth Checkpoint]: Saved %s to %s", name, path)
   return result
 
@@ -220,6 +223,7 @@ def orbax_session(
   )
   with ocp.CheckpointManager(ckpt_dir / "train_state", options=options) as mgr:
     initial_state = init_fn(init_params)
+    del init_params
     latest_step = mgr.latest_step()
     if latest_step is not None:
       logging.info("[DPSynth Checkpoint]: Restoring step %d", latest_step)

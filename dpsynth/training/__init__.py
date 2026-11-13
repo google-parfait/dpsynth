@@ -20,6 +20,7 @@ from dpsynth.training._gemma import GemmaSampler
 from dpsynth.training._gemma import load_gemma_sequence_model
 from dpsynth.training._gemma import make_mesh
 from dpsynth.training._gemma import ModelName
+from dpsynth.training._gemma import RematConfig
 from dpsynth.training._sequence_model import SequenceModel
 from dpsynth.training._sft import DPFineTuner
 from dpsynth.training._sft import DPFineTunerConfig
@@ -38,6 +39,7 @@ __all__ = [
     'FineTuneResult',
     'GemmaSampler',
     'ModelName',
+    'RematConfig',
     'SequenceModel',
     'TabularTransformer',
     'TabularTransformerConfig',

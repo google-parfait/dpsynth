@@ -51,6 +51,7 @@ ModelName = Literal[
     'gemma4_e4b_it',
     'gemma4_31b_it',
 ]
+RematConfig = gemma4_model.RematConfig
 
 _DEFAULT_LORA_TARGETS = (
     r'.*q_einsum|.*k_einsum|.*kv_einsum|.*qkv_einsum|.*attn_vec_einsum'
@@ -107,6 +108,7 @@ def load_gemma(
     lora_rank: int = 16,
     checkpoint_path: epath.PathLike | None = None,
     mesh: jax.sharding.Mesh | None = None,
+    remat: RematConfig = RematConfig.BLOCK,
 ) -> nnx.Module:
   """Loads a Gemma model with LoRA adapters.
 
@@ -117,6 +119,7 @@ def load_gemma(
       weights for ``model`` and initializes fresh LoRA adapters. If a checkpoint
       is provided, restores LoRA params.
     mesh: Optional sharding mesh to constrain parameters across devices.
+    remat: Gradient checkpointing granularity.
 
   Returns:
     The LoRA-wrapped ``nnx.Module``.
@@ -172,7 +175,10 @@ def load_gemma(
 
   lora_model = _init_lora(lora_model, warm_tokens, warm_mask)
   lora_model.set_attributes(qwix_rngs=None)
-  lora_model.config.remat_config = gemma4_model.RematConfig.BLOCK
+  # Apply remat after LoRA init so inner layers stay visible to qwix.
+  for _, mod in nnx.iter_modules(lora_model):
+    if hasattr(mod, 'config') and hasattr(mod.config, 'remat_config'):
+      mod.config.remat_config = remat
   if checkpoint_path is not None:
     load_lora_params(lora_model, checkpoint_path)
 
@@ -374,10 +380,15 @@ def load_gemma_sequence_model(
     lora_rank: int = 16,
     checkpoint_path: epath.PathLike | None = None,
     mesh: jax.sharding.Mesh | None = None,
+    remat: RematConfig = RematConfig.BLOCK,
 ) -> _sequence_model.SequenceModel:
   """Loads a LoRA-wrapped Gemma 4 model as a ``SequenceModel``."""
   loaded = load_gemma(
-      model, lora_rank=lora_rank, checkpoint_path=checkpoint_path, mesh=mesh
+      model,
+      lora_rank=lora_rank,
+      checkpoint_path=checkpoint_path,
+      mesh=mesh,
+      remat=remat,
   )
   graphdef, trainable_params, frozen_params = nnx.split(
       loaded, nnx.LoRAParam, ...

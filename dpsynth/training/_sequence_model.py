@@ -76,7 +76,8 @@ class SequenceModel:
     del prng  # Deterministic forward pass (no dropout during DP training).
     input_tokens = data['input_tokens']
     loss_mask = data['loss_mask']
-    logits = self.forward_fn(params, input_tokens)[:, :-1, :]
+    # Compute cross-entropy in float32 to avoid bfloat16 logsumexp/loss issues.
+    logits = self.forward_fn(params, input_tokens)[:, :-1].astype(jnp.float32)
     targets = input_tokens[:, 1:]
     mask = loss_mask[:, 1:]
     pt_losses = optax.softmax_cross_entropy_with_integer_labels(logits, targets)
