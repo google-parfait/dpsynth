@@ -56,6 +56,23 @@ class TestDomain(parameterized.TestCase):
     with self.assertRaises(ValueError):
       dpsynth.NumericalAttribute(min_value=10, max_value=0)
 
+  @parameterized.parameters(
+      (math.nan, 10), (0, math.nan), (math.nan, math.nan)
+  )
+  def test_nan_range_rejected(self, min_value, max_value):
+    with self.assertRaisesRegex(ValueError, 'must be strictly less than'):
+      dpsynth.NumericalAttribute(min_value=min_value, max_value=max_value)
+
+  @parameterized.parameters(
+      (-math.inf, 10), (0, math.inf), (-math.inf, math.inf)
+  )
+  def test_infinite_range_endpoints_remain_supported(self, min_value, max_value):
+    attribute = dpsynth.NumericalAttribute(
+        min_value=min_value, max_value=max_value
+    )
+    self.assertEqual(attribute.min_value, min_value)
+    self.assertEqual(attribute.max_value, max_value)
+
   def test_to_from_yaml_roundtrip(self):
     original_domain = {
         'cat': dpsynth.CategoricalAttribute(possible_values=['A', 'B', 'C']),
