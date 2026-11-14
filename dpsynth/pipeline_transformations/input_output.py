@@ -13,19 +13,20 @@
 # limitations under the License.
 
 """Library for input/output transformations for data generation pipelines."""
-
+from __future__ import annotations
 from collections.abc import Iterable, Mapping
 import csv
 import glob
 import os
 import pickle
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import apache_beam as beam
 from dpsynth.pipeline_transformations import types
 import pandas as pd
-import tensorflow as tf
 
+if TYPE_CHECKING:
+  import tensorflow as tf
 
 def load_csv(pipeline: beam.Pipeline, path: str) -> beam.PCollection:
   """Loads the data to generate synthetic data for."""
@@ -79,6 +80,7 @@ def save_data_local(
     case types.DataFormat.CSV:
       save_csv(data, path, attributes)
     case types.DataFormat.TFRECORD:
+      import tensorflow as tf
       os.makedirs(os.path.dirname(path), exist_ok=True)
       with tf.io.TFRecordWriter(path) as writer:
         for record in data:
@@ -168,6 +170,7 @@ def load_data_for_beam(
     case types.DataFormat.CSV:
       return load_csv(pipeline, path)
     case types.DataFormat.TFRECORD:
+      import tensorflow as tf
       return pipeline | 'ReadTFRecord' >> beam.io.ReadFromTFRecord(
           path, coder=beam.coders.ProtoCoder(tf.train.Example)
       )
@@ -184,6 +187,7 @@ def save_beam_data(
   """Saves the synthetic data to a file(s) using Beam."""
   match data_format:
     case types.DataFormat.TFRECORD:
+      import tensorflow as tf
       _ = data | 'WriteTFRecord' >> beam.io.WriteToTFRecord(
           path, coder=beam.coders.ProtoCoder(tf.train.Example)
       )
