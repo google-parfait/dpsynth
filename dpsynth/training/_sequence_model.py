@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 import dataclasses
-from typing import Any
+from typing import Any, Literal
 
 import jax
 import jax.numpy as jnp
@@ -38,6 +38,8 @@ TokenizedExample = dict[str, np.typing.NDArray[np.int32]]
 ForwardFn = Callable[[Params, TokenBatch], Logits]
 TokenizeFn = Callable[[tuple[Prompt, Response]], TokenizedExample]
 SampleFn = Callable[[Params, Sequence[Prompt], MaxSeqLength], list[Response]]
+
+LossNormalization = Literal['per_example_tokens', 'sequence_length']
 
 
 def pad_and_truncate(tree: Any, length: int) -> Any:
@@ -71,8 +73,27 @@ class SequenceModel:
       params: training.Params,
       data: Any,
       prng: jax.Array,
+      *,
+      loss_normalization: LossNormalization = 'per_example_tokens',
   ) -> tuple[jax.Array, dict[str, jax.Array]]:
-    """Cross-entropy next-token-prediction loss compatible with ``DPTrainer``."""
+    """Cross-entropy next-token-prediction loss compatible with ``DPTrainer``.
+
+    Args:
+      params: Trainable parameter pytree.
+      data: Dict with ``'input_tokens'`` and ``'loss_mask'`` (int32 ``[B, L]``).
+      prng: Unused random key.
+      loss_normalization: How the summed loss over loss-bearing tokens (where
+        ``loss_mask`` is set, i.e. response tokens) is normalized.
+        ``'per_example_tokens'`` divides by the example's number of loss-bearing
+        tokens, so every example has equal weight regardless of length.
+        ``'sequence_length'`` divides by the padded sequence length, so without
+        clipping every loss-bearing token has equal weight, as in non-private
+        training; losses and gradients then shrink with the example's fraction
+        of loss-bearing tokens, so a smaller clipping norm may be appropriate.
+
+    Returns:
+      ``(loss, aux)`` where ``aux`` contains ``'loss'``.
+    """
     del prng  # Deterministic forward pass (no dropout during DP training).
     input_tokens = data['input_tokens']
     loss_mask = data['loss_mask']
@@ -81,5 +102,8 @@ class SequenceModel:
     targets = input_tokens[:, 1:]
     mask = loss_mask[:, 1:]
     pt_losses = optax.softmax_cross_entropy_with_integer_labels(logits, targets)
-    loss = jnp.sum(pt_losses * mask) / jnp.maximum(jnp.sum(mask), 1.0)
+    num_tokens = mask.size
+    if loss_normalization == 'per_example_tokens':
+      num_tokens = jnp.maximum(jnp.sum(mask), 1.0)
+    loss = jnp.sum(pt_losses * mask) / num_tokens
     return loss, {'loss': loss}

@@ -167,6 +167,7 @@ class DPTrainerConfig(api.MechanismConfig):
         iterations=self.iterations,
         expected_participations=self.epochs,
         l2_clip_norm=self.clipping_norm,
+        rescale_to_unit_norm=True,
         noise_multiplier=noise_multiplier,
     )
     perf = execution_plan.PerformanceFlags(microbatch_size=self.microbatch_size)
