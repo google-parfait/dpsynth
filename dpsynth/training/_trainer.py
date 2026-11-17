@@ -33,6 +33,7 @@ Example usage::
 from __future__ import annotations
 
 import dataclasses
+import functools
 import json
 import math
 import typing
@@ -252,8 +253,8 @@ class DPTrainer(api.CalibratedMechanism):
     else:
       seed = 0  # Dummy placeholder; overwritten by broadcast_one_to_all below.
     seed = multihost_utils.broadcast_one_to_all(np.asarray(seed, np.int32))
-    # Seed a deterministic PRNG from rng so multi-host and resumed runs replay
-    # identical batch-selection and noise streams even for seedless CSPRNGs.
+    # Persist and broadcast seed so multi-host and resumed runs share the same
+    # canary split, audit key, and pre-first-checkpoint seed.
     rng = np.random.default_rng(int(seed))
 
     in_canaries = out_canaries = {}
@@ -263,9 +264,6 @@ class DPTrainer(api.CalibratedMechanism):
       )
 
     perf = self.performance_flags or execution_plan.PerformanceFlags()
-    if perf.noise_seed is None:
-      perf = dataclasses.replace(perf, noise_seed=int(rng.integers(2**31)))
-
     trainer = training.DPTrainer(
         config=self.mechanism_config,
         performance_flags=perf,
@@ -276,17 +274,12 @@ class DPTrainer(api.CalibratedMechanism):
     # auditing below.
     init_params = jax.tree.map(jax.numpy.copy, self.init_params)
     with _checkpoint.orbax_session(
-        trainer.init,
+        functools.partial(trainer.init, rng=rng),
         init_params,
         checkpoint_every=self.checkpoint_every,
         callback=callback,
     ) as (initial_state, step_callback):
-      state = trainer.fit(
-          data,
-          initial_state,
-          callback=step_callback,
-          rng_or_seed=rng,
-      )
+      state = trainer.fit(data, initial_state, callback=step_callback)
 
     auditor = None
     if canaries is not None:
