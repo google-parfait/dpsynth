@@ -25,7 +25,7 @@ dependencies = [
     "pydantic>=2.0",
     "pyyaml",
     "dp_accounting @ git+https://github.com/google/differential-privacy.git#subdirectory=python/dp_accounting",
-    "jax[cpu]==0.11.0",
+    "jax[cpu]>=0.11.0,<=0.11.1",
     "more-itertools",
     "networkx",
     "scipy",
