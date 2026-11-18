@@ -142,7 +142,7 @@ class MockDataRecordConverter(dataset_descriptor.DataRecordConverter):
     return record
 
 
-class DatasetDescriptorTest(absltest.TestCase):
+class DatasetDescriptorTest(parameterized.TestCase):
 
   def test_encoded_shape(self):
     attributes = [
@@ -396,7 +396,11 @@ class DatasetDescriptorTest(absltest.TestCase):
         data_descriptor.attribute_names, ("test_attr1", "test_attr2")
     )
 
-  def test_update_from_domain_specification(self):
+  @parameterized.named_parameters(
+      ("mapping", lambda d: d),
+      ("schema", domain.Schema),
+  )
+  def test_update_from_domain_specification(self, wrap_fn):
     attributes = [
         dataset_descriptor.AttributeDescriptor(
             name="attr1",
@@ -410,10 +414,10 @@ class DatasetDescriptorTest(absltest.TestCase):
     desc = dataset_descriptor.DatasetDescriptor(
         attributes=attributes, data_record_converter=MockDataRecordConverter()
     )
-    domain_spec = {
+    domain_spec = wrap_fn({
         "attr1": domain.CategoricalAttribute(possible_values=[1, 2]),
         "attr2": domain.NumericalAttribute(min_value=0.0, max_value=10.0),
-    }
+    })
     desc.update_from_domain_specification(domain_spec)
     self.assertEqual(
         desc.attributes[0].categorical_attribute,

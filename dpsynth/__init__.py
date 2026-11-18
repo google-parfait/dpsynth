@@ -68,9 +68,9 @@ MultiDataGenerationResult = relational.MultiDataGenerationResult
 MultiTableConfig = relational.MultiTableConfig
 MultiTableMechanism = relational.MultiTableMechanism
 
-# Subpackages with optional heavyweight dependencies (such as dpsynth.training
-# and dpsynth.adapters) are intentionally not imported here so they are loaded
-# lazily only when explicitly imported by the caller.
+# Subpackages with optional heavyweight dependencies (such as dpsynth.pipeline,
+# dpsynth.training, and dpsynth.adapters) are intentionally not imported here
+# so they are loaded lazily only when explicitly imported by the caller.
 
 # Route MBI callback logs (which use print-style formatting) to
 # absl.logging.info.

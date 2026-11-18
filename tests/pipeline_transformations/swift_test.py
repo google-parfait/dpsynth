@@ -15,8 +15,8 @@
 """Tests for SWIFT pipeline transformations."""
 
 from absl.testing import absltest
-from dpsynth import data_generation
 from dpsynth.dataset_descriptors import dataset_descriptor
+from dpsynth.pipeline import _data_generation
 from dpsynth.pipeline_transformations import diagnostic_info
 from dpsynth.pipeline_transformations import swift
 import mbi
@@ -65,7 +65,7 @@ class SwiftTest(absltest.TestCase):
     budget_accountant = pipeline_dp.PLDBudgetAccountant(1.0, 1e-5)
 
     # Setup additional output
-    additional_output = data_generation.AdditionalOutput()
+    additional_output = _data_generation.AdditionalOutput()
     diag_info_proto = diagnostic_info.DiagnosticInformation()
     additional_output.diagnostic_info = backend.to_collection(
         [diag_info_proto], data, "create diag info"
@@ -104,7 +104,7 @@ class SwiftTest(absltest.TestCase):
     num_runs = 10
     for _ in range(num_runs):
       acc = pipeline_dp.PLDBudgetAccountant(1.0, 1e-5)
-      out = data_generation.AdditionalOutput()
+      out = _data_generation.AdditionalOutput()
       out.diagnostic_info = backend.to_collection(
           [diagnostic_info.DiagnosticInformation()], data, "create diag info"
       )

@@ -18,7 +18,6 @@ mechanisms from distributed execution transformations.
 
 ```
 dpsynth/
- ├── bin/                         <-- Executable binaries (`main.py`, `run_data_generation.py`, `run_tabular_eval.py`)
  ├── data_generation.py           <-- Core Library API for distributed generation
  ├── dataset_descriptors/         <-- Format descriptors & schema converters (CSV, TFRecord)
  ├── discrete_mechanisms/         <-- Core mechanism implementations defined over integer-coded data represented as numpy arrays.  Also works with pre-computed marginal histograms instead of raw data
@@ -231,8 +230,8 @@ message DiagnosticInformation {
 }
 ```
 
-When launching jobs via `bin/run_data_generation.py`, passing
-`--diagnostic_information_path` outputs this proto. It tracks:
+Passing `AdditionalOutput` to `data_generation.generate` populates this proto.
+It tracks:
 
 *   **`compressed_attribute_sizes`**: The exact domain state space size after
     rare-category compression.
@@ -316,9 +315,7 @@ in [`mbi.estimation.MirrorDescent`](https://github.com/ryan112358/mbi/blob/maste
 To rigorously evaluate the quality and statistical fidelity of generated
 synthetic data compared to real sensitive data, DPSynth includes a comprehensive
 evaluation engine located
-in [`eval/`](../eval/BUILD)
-and executable
-via [`bin/run_tabular_eval.py`](../bin/run_tabular_eval.py).
+in [`eval/`](../eval/).
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -357,14 +354,3 @@ It computes:
     `(col_A, col_B)` in both datasets and derives Cramer's V correlation
     matrices to verify that multi-column dependencies were correctly preserved
     by graphical model inference.
-
-### Running Evaluation (CLI)
-
-```bash
-python3 bin/run_tabular_eval.py \
-  --original_data_path=/path/to/real_data.csv \
-  --synthetic_data_path=/path/to/synthetic_data.csv \
-  --eval_report_path=/tmp/eval_report.pb \
-  --data_format=csv \
-  --use_beam=false
-```

@@ -151,7 +151,7 @@ number of attributes and domain sizes. This code path:
     not yet ported to the pipeline mode.
 *   Has limited scalability compared to the pipeline mode.
 
-**CLI binary:** [`bin/main.py`](dpsynth/bin/README.md)
+**Example script:** [`examples/tabular_synthesis.py`](examples/tabular_synthesis.py)
 
 ### 2. Scalable Pipeline Mode
 
@@ -172,8 +172,7 @@ path:
 *   Also works in local settings (`pipeline_dp.LocalBackend`), but follows a
     different code path than the in-memory mode above.
 
-**CLI binary:**
-[`bin/run_data_generation.py`](dpsynth/bin/README.md)
+**Example script:** `examples/pipeline_tabular_synthesis.py` (see [`examples/`](examples/))
 
 ### 3. Post-Processing Mode
 
@@ -257,10 +256,11 @@ These modules are used by both the in-memory and pipeline code paths:
     post-processing pre-computed noisy marginals into synthetic data via
     Private-PGM, without running DPSynth's own DP measurement step.
 
-### Binaries & Tools
+### Examples & Tools
 
-*   **[`bin/`](dpsynth/bin/README.md)**: Entry points for local prototyping
-    (`main.py`) and distributed production jobs (`run_data_generation.py`).
+*   **[`examples/`](examples/)**: Runnable example scripts for in-memory
+    synthesis, distributed Beam pipelines, marginal post-processing, and text
+    workflows.
 *   **[`eval/`](dpsynth/eval/)**: Tabular evaluation engine for comparing real
     and synthetic data distributions.
 

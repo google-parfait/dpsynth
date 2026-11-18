@@ -22,9 +22,9 @@ import apache_beam as beam
 from apache_beam.testing import test_pipeline
 from apache_beam.testing import util as beam_test_util
 import chex
-from dpsynth import data_generation
 from dpsynth.dataset_descriptors import csv_descriptor
 from dpsynth.dataset_descriptors import dataset_descriptor
+from dpsynth.pipeline import _data_generation as data_generation
 from dpsynth.pipeline_transformations import types
 import jax.numpy as jnp
 import mbi
@@ -192,7 +192,7 @@ class DataGenerationTest(parameterized.TestCase):
         data_generation._format_output_data(
             generated_synthetic_data=input_data,
             input_data=input_data,
-            output_format=config.output_format,
+            output_format=config.output_format or config.data_format,
             backend=backend,
             descriptor_col=backend.to_collection([descriptor], [], "desc"),
         )
@@ -358,7 +358,7 @@ class DataGenerationTest(parameterized.TestCase):
         side_effect=lambda x: x,
     ):
       output_data = data_generation.generate_from_model(
-          models, descriptors, 10, config.output_format
+          models, descriptors, 10, config.output_format or config.data_format
       )
       self.assertLen(list(output_data), 10)
 
@@ -411,7 +411,7 @@ class DataGenerationTest(parameterized.TestCase):
         side_effect=lambda x: x,
     ):
       output_data = data_generation.generate_from_model(
-          models, descriptors, 10, config.output_format
+          models, descriptors, 10, config.output_format or config.data_format
       )
       self.assertLen(list(output_data), 10)
       self.assertIsInstance(list(output_data)[0], tf.train.Example)
