@@ -13,11 +13,12 @@
 # limitations under the License.
 
 import math
+from typing import Any
 
 from absl.testing import absltest
 from absl.testing import parameterized
 import dpsynth
-from dpsynth import domain
+from dpsynth.core import domain
 import numpy as np
 
 
@@ -49,8 +50,9 @@ class TestDomain(parameterized.TestCase):
   def test_mixed_types_rejected(self):
     with self.assertRaises(ValueError):
       dpsynth.CategoricalAttribute(possible_values=['a', 1])
+    invalid_values: Any = [None, 'a']
     with self.assertRaises(ValueError):
-      dpsynth.CategoricalAttribute(possible_values=[None, 'a'])
+      dpsynth.CategoricalAttribute(possible_values=invalid_values)
 
   def test_invalid_range(self):
     with self.assertRaises(ValueError):
@@ -165,7 +167,9 @@ class TestDomain(parameterized.TestCase):
     temp_file = self.create_tempfile('temp.yaml', mode='w+')
     domain.to_yaml_file(original, temp_file.full_path)
     loaded = domain.from_yaml_file(temp_file.full_path)
-    self.assertEqual(loaded['num'].sentinel, -1)
+    num_attr = loaded['num']
+    assert isinstance(num_attr, dpsynth.NumericalAttribute)
+    self.assertEqual(num_attr.sentinel, -1)
 
   def test_string_sentinel_allowed_with_interval_handling(self):
     attr = dpsynth.NumericalAttribute(
@@ -190,10 +194,13 @@ class TestDomain(parameterized.TestCase):
       )
 
   def test_numpy_numeric_sentinel_accepted(self):
-    attr = dpsynth.NumericalAttribute(0, 10, sentinel=np.int32(-1))
+    int_sentinel: Any = np.int32(-1)
+    attr = dpsynth.NumericalAttribute(0, 10, sentinel=int_sentinel)
     self.assertEqual(attr.sentinel, -1)
-    attr = dpsynth.NumericalAttribute(0, 10, sentinel=np.float32(0.5))
-    self.assertAlmostEqual(attr.sentinel, 0.5, places=5)
+    float_sentinel: Any = np.float32(0.5)
+    attr = dpsynth.NumericalAttribute(0, 10, sentinel=float_sentinel)
+    assert isinstance(attr.sentinel, (float, np.floating))
+    self.assertAlmostEqual(float(attr.sentinel), 0.5, places=5)
 
   def test_freeform_text_defaults(self):
     attribute = dpsynth.FreeFormTextAttribute()

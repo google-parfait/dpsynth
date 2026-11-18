@@ -21,7 +21,7 @@ import math
 import typing
 
 import dp_accounting
-from dpsynth import api
+from dpsynth.core import _mechanism as api
 from dpsynth.discrete_mechanisms import common as dm_common
 from dpsynth.training import _trainer as dp_trainer
 from dpsynth.training import _transformer_model as transformer_model

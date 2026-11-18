@@ -20,7 +20,7 @@ import math
 from typing import Any, Generic, TypeAlias, TypeVar
 
 import attr
-from dpsynth import domain
+from dpsynth.core import domain
 import numpy as np
 import pandas as pd
 

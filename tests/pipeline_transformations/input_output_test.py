@@ -19,7 +19,7 @@ from absl.testing import absltest
 import apache_beam as beam
 from apache_beam.testing import util as beam_testing_util
 import chex
-from dpsynth import domain
+from dpsynth.core import domain
 from dpsynth.dataset_descriptors import csv_descriptor
 from dpsynth.dataset_descriptors import dataset_descriptor
 from dpsynth.pipeline_transformations import input_output

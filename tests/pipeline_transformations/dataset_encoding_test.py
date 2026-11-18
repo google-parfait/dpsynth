@@ -16,7 +16,7 @@ from typing import Any
 from unittest import mock
 
 from absl.testing import absltest
-from dpsynth import domain
+from dpsynth.core import domain
 from dpsynth.dataset_descriptors import dataset_descriptor
 from dpsynth.pipeline_transformations import dataset_encoding
 from dpsynth.pipeline_transformations import numerical_values_derivation

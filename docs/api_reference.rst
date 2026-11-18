@@ -29,10 +29,10 @@ into three layers:
 
 ----
 
-Domain Specification (``dpsynth.domain``)
-==========================================
+Domain Specification (``dpsynth``)
+==================================
 
-.. currentmodule:: dpsynth.domain
+.. currentmodule:: dpsynth
 
 The ``domain`` module provides dataclasses for describing the schema of a
 tabular dataset.  Each column is represented by one of the attribute types
@@ -51,14 +51,14 @@ argument to :class:`~dpsynth.TabularConfig`.
 
 ----
 
-Cross-Attribute Constraints (``dpsynth.constraints``)
-======================================================
+Cross-Attribute Constraints (``dpsynth``)
+=========================================
 
-.. currentmodule:: dpsynth.constraints
+.. currentmodule:: dpsynth
 
 The ``constraints`` module lets you express known relationships between columns
 so that the synthetic data honours them.  Pass a list of
-:class:`~dpsynth.constraints.Constraint` objects as
+:class:`~dpsynth.Constraint` objects as
 ``constraints`` to :class:`~dpsynth.Schema`.
 
 .. autosummary::
@@ -70,10 +70,10 @@ so that the synthetic data honours them.  Pass a list of
 
 ----
 
-Mechanism Abstractions (``dpsynth.api``)
-=========================================
+Mechanism Abstractions (``dpsynth``)
+====================================
 
-.. currentmodule:: dpsynth.api
+.. currentmodule:: dpsynth
 
 These abstract base classes define the three-phase *construct → calibrate → run*
 protocol shared by all DPSynth mechanisms.
@@ -93,7 +93,7 @@ Privacy Calibration & Reporting (``dpsynth``)
 
 .. currentmodule:: dpsynth
 
-Top-level utilities for calibrating a :class:`~dpsynth.api.MechanismConfig` to
+Top-level utilities for calibrating a :class:`~dpsynth.MechanismConfig` to
 a target ``(epsilon, delta)``-DP guarantee and summarizing the resulting
 privacy profile across evaluation points.
 

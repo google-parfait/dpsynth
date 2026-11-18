@@ -31,10 +31,10 @@ import dataclasses
 
 from absl import logging
 import dp_accounting
-from dpsynth import api
 from dpsynth import data_generation_v3
 from dpsynth import discrete_mechanisms
-from dpsynth import domain
+from dpsynth.core import _mechanism as api
+from dpsynth.core import domain
 import numpy as np
 import pandas as pd
 
@@ -210,7 +210,7 @@ class NestedTabularConfig(api.MechanismConfig):
 
   >>> import numpy as np
   >>> import pandas as pd
-  >>> from dpsynth import domain
+  >>> from dpsynth.core import domain
   >>> from dpsynth.experimental import nested
   >>> Cat = domain.CategoricalAttribute
   >>> schema = nested.NestedSchema(

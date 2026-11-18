@@ -23,11 +23,11 @@ from typing import Any, Literal
 
 from absl import logging
 import dp_accounting
-from dpsynth import _calibration
-from dpsynth import api
 from dpsynth import data_generation_v3
 from dpsynth import discrete_mechanisms
-from dpsynth import domain
+from dpsynth.core import _calibration
+from dpsynth.core import _mechanism as api
+from dpsynth.core import domain
 from dpsynth.discrete_mechanisms import common as dm_common
 from dpsynth.relational import domain as rel_domain
 from dpsynth.relational import post_processing

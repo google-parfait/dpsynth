@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from absl import logging
-from dpsynth import domain
+from dpsynth.core import domain
 import pandas as pd
 
 

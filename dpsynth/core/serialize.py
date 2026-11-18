@@ -22,9 +22,9 @@ from typing import Any
 
 import cattrs
 import dp_accounting
-from dpsynth import api
-from dpsynth import domain
-from dpsynth import reporting
+from dpsynth.core import _mechanism as api
+from dpsynth.core import domain
+from dpsynth.core import reporting
 from dpsynth.relational import domain as relational_domain
 from etils import epath
 import mbi

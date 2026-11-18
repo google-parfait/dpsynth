@@ -24,9 +24,9 @@ import collections
 from collections.abc import Sequence
 from typing import Any
 
-from dpsynth import constraints
-from dpsynth import domain
 from dpsynth import transformations
+from dpsynth.core import constraints
+from dpsynth.core import domain
 import mbi
 import numpy as np
 import pandas as pd

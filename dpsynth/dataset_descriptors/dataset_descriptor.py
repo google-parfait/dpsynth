@@ -28,8 +28,8 @@ import enum
 import functools
 from typing import Any
 
-from dpsynth import domain
 from dpsynth import transformations
+from dpsynth.core import domain
 from dpsynth.discrete_mechanisms import common
 import mbi
 

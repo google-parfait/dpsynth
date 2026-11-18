@@ -28,7 +28,7 @@ import dataclasses
 
 from absl import logging
 import dp_accounting
-from dpsynth import api
+from dpsynth.core import _mechanism as api
 from dpsynth.discrete_mechanisms import accounting
 from dpsynth.discrete_mechanisms import common
 from dpsynth.discrete_mechanisms import mst

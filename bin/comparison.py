@@ -21,7 +21,7 @@ from typing import Any
 from absl import app
 from absl import flags
 from absl import logging
-from dpsynth import domain
+from dpsynth.core import domain
 import pandas as pd
 import sdmetrics
 

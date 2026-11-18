@@ -40,8 +40,8 @@ import typing
 
 from absl import logging
 import dp_accounting
-from dpsynth import _checkpoint
-from dpsynth import api
+from dpsynth.core import _checkpoint
+from dpsynth.core import _mechanism as api
 from dpsynth.training import _callbacks as callbacks
 from dpsynth.training import _optimizers
 import grain.python as grain

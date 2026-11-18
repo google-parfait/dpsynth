@@ -17,7 +17,7 @@
 from collections.abc import Sequence
 import dataclasses
 import dp_accounting
-from dpsynth import api
+from dpsynth.core import _mechanism as api
 from dpsynth.discrete_mechanisms import common
 import mbi
 import numpy as np

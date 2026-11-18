@@ -17,13 +17,13 @@ from __future__ import annotations
 from absl.testing import absltest
 from absl.testing import parameterized
 import dp_accounting
-from dpsynth import _calibration
+import dpsynth
 
 
 class CalibrationTest(parameterized.TestCase):
 
   def test_with_group_size(self):
-    with_group_size = _calibration.with_group_size
+    with_group_size = dpsynth.with_group_size
 
     g = dp_accounting.GaussianDpEvent(noise_multiplier=6.0)
     self.assertEqual(

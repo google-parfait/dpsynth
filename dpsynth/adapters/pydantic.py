@@ -32,7 +32,7 @@ import types
 import typing  # for typing.get_origin and typing.get_args
 from typing import Any, Literal, TypeVar
 
-from dpsynth import domain
+from dpsynth.core import domain
 import pydantic
 from pydantic.fields import annotated_types
 from pydantic.fields import FieldInfo  # pylint: disable=g-importing-member
