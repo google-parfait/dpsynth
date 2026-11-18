@@ -22,12 +22,12 @@ import warnings
 
 from absl import logging
 import dp_accounting
-from dpsynth import discrete_mechanisms
 from dpsynth.core import _checkpoint
-from dpsynth.core import _mechanism as api
+from dpsynth.core import _mechanism
 from dpsynth.core import constraints
 from dpsynth.core import domain
 from dpsynth.discrete_mechanisms import common as dm_common
+from dpsynth.discrete_mechanisms import mst
 from dpsynth.statistical import initialization
 from dpsynth.statistical import vectorized_transformations as vtx
 import mbi
@@ -39,7 +39,7 @@ def create_initializers(
     domains: domain.Schema | Mapping[str, domain.AttributeType],
     numerical_bins: int,
     numerical_epsilon_ratio: float = 1.0,
-) -> dict[str, api.MechanismConfig]:
+) -> dict[str, _mechanism.MechanismConfig]:
   """Creates per-column initializers from the domain specification.
 
   Args:
@@ -92,8 +92,8 @@ class ColumnCodec:
   def encode(self, values: np.ndarray) -> np.ndarray:
     """Encodes raw column values to discrete integer ids."""
     if isinstance(self.column_measurement, initialization.NumericalMeasurement):
+      assert isinstance(self.attribute, domain.NumericalAttribute)
       return vtx.discretize(
-          # pyrefly: ignore[bad-argument-type]
           values, self.column_measurement.bin_edges, self.attribute
       )
     return vtx.discrete_encode(
@@ -103,8 +103,8 @@ class ColumnCodec:
   def decode(self, ids: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     """Decodes synthetic discrete ids back to the original domain."""
     if isinstance(self.column_measurement, initialization.NumericalMeasurement):
+      assert isinstance(self.attribute, domain.NumericalAttribute)
       return vtx.undiscretize(
-          # pyrefly: ignore[bad-argument-type]
           ids, self.column_measurement.bin_edges, self.attribute, rng=rng
       )
     return vtx.discrete_decode(
@@ -197,7 +197,7 @@ class DataGenerationResult:
 
 
 @dataclasses.dataclass
-class TabularMechanism(api.CalibratedMechanism):
+class TabularMechanism(_mechanism.CalibratedMechanism):
   """End-to-end DP synthetic tabular data generation, calibrated and runnable.
 
   Attributes:
@@ -209,8 +209,8 @@ class TabularMechanism(api.CalibratedMechanism):
 
   config: TabularConfig
   schema: domain.Schema
-  base_mechanism: discrete_mechanisms.CalibratedMechanism
-  initializers: dict[str, api.CalibratedMechanism]
+  base_mechanism: _mechanism.CalibratedMechanism
+  initializers: dict[str, _mechanism.CalibratedMechanism]
 
   @property
   def dp_event(self) -> dp_accounting.DpEvent:
@@ -376,7 +376,7 @@ class TabularMechanism(api.CalibratedMechanism):
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class TabularConfig(api.MechanismConfig):
+class TabularConfig(_mechanism.MechanismConfig):
   """Configures end-to-end DP synthetic data generation.
 
   Usage::
@@ -406,7 +406,7 @@ class TabularConfig(api.MechanismConfig):
   """
 
   domains: Mapping[str, domain.AttributeType] | None = None
-  discrete_mechanism: api.MechanismConfig = discrete_mechanisms.MSTConfig()
+  discrete_mechanism: _mechanism.MechanismConfig = mst.MSTConfig()
   numerical_bins: int = 32
   numerical_epsilon_ratio: float = 1.0
   init_budget_fraction: float = 0.1
@@ -487,7 +487,7 @@ class TabularConfig(api.MechanismConfig):
     per_col_rho = init_rho / len(inits)
     discrete_rho = (1 - self.init_budget_fraction) * budget
 
-    calibrated_inits: dict[str, api.CalibratedMechanism]
+    calibrated_inits: dict[str, _mechanism.CalibratedMechanism]
 
     calibrated_inits = {
         col: init.configure(

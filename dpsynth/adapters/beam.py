@@ -38,8 +38,8 @@ import uuid
 from absl import logging
 import apache_beam as beam
 from apache_beam.io.filesystems import FileSystems
-from dpsynth import data_generation_v3
 from dpsynth.core import _checkpoint
+from dpsynth.statistical import _tabular
 from dpsynth.statistical import initialization
 import mbi
 import numpy as np
@@ -247,7 +247,7 @@ class _EncodeAndProject(beam.DoFn):
     # Reuse the shared per-column codec so Beam encoding matches the in-memory
     # path exactly, for both numerical binning and categorical lookups.
     self._codecs = {
-        col: data_generation_v3.ColumnCodec(cm, domains[col])
+        col: _tabular.ColumnCodec(cm, domains[col])
         for col, cm in column_measurements.items()
     }
     self._clique_meta: list[tuple[int, mbi.Clique, tuple[int, ...]]] = []
@@ -312,7 +312,7 @@ class ComputeMarginals(beam.PTransform):
     self._column_measurements = column_measurements
     self._domains = domains
     self._workload = workload
-    self._mbi_domain = data_generation_v3.TabularCodec.from_measurements(
+    self._mbi_domain = _tabular.TabularCodec.from_measurements(
         column_measurements, domains
     ).mbi_domain
 
@@ -393,7 +393,7 @@ def _copy_pipeline_options(options, pass_suffix: str):
 
 
 def execute(
-    mechanism: data_generation_v3.TabularMechanism,
+    mechanism: _tabular.TabularMechanism,
     rng: np.random.Generator,
     create_rows_fn: Callable[[beam.Pipeline], beam.PCollection[Row]],
     *,
@@ -402,7 +402,7 @@ def execute(
         beam.options.pipeline_options.PipelineOptions | None
     ) = None,
     num_rows: int | None = None,
-) -> data_generation_v3.DataGenerationResult:
+) -> _tabular.DataGenerationResult:
   """Executes a calibrated TabularMechanism over a two-pass Beam pipeline.
 
   Usage::
@@ -470,7 +470,7 @@ def execute(
     logging.info('[DPSynth/Beam]: Pass 1 complete.')
 
     # Ask the configured discrete mechanism which marginals it needs.
-    mbi_domain = data_generation_v3.TabularCodec.from_measurements(
+    mbi_domain = _tabular.TabularCodec.from_measurements(
         column_measurements, mechanism.schema
     ).mbi_domain
 

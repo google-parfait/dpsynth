@@ -23,7 +23,6 @@ from typing import Any, Literal
 
 from absl import logging
 import dp_accounting
-from dpsynth import data_generation_v3
 from dpsynth import discrete_mechanisms
 from dpsynth.core import _calibration
 from dpsynth.core import _mechanism as api
@@ -32,6 +31,7 @@ from dpsynth.discrete_mechanisms import common as dm_common
 from dpsynth.relational import domain as rel_domain
 from dpsynth.relational import post_processing
 from dpsynth.relational import transformations
+from dpsynth.statistical import _tabular
 from dpsynth.statistical import initialization
 from dpsynth.statistical import primitives
 from dpsynth.statistical import vectorized_transformations as vtx
@@ -265,7 +265,7 @@ def _encode_and_compress_tables(
     weights: Mapping[str, np.ndarray],
     compress_columns: bool = True,
 ) -> tuple[
-    dict[str, data_generation_v3.TabularCodec],
+    dict[str, _tabular.TabularCodec],
     dict[str, mbi.Dataset],
     dict[str, dict[str, np.ndarray]],
     dict[str, list[mbi.LinearMeasurement]],
@@ -292,13 +292,13 @@ def _encode_and_compress_tables(
     A tuple of (codecs, compressed_datasets, compression_mappings,
     one_ways_by_table).
   """
-  codecs: dict[str, data_generation_v3.TabularCodec] = {}
+  codecs: dict[str, _tabular.TabularCodec] = {}
   compressed_datasets: dict[str, mbi.Dataset] = {}
   compression_mappings: dict[str, dict[str, np.ndarray]] = {}
   one_ways_by_table: dict[str, list[mbi.LinearMeasurement]] = {}
 
   for table_name, schema in domains.items():
-    codec = data_generation_v3.TabularCodec.from_measurements(
+    codec = _tabular.TabularCodec.from_measurements(
         table_measurements[table_name], schema
     )
     raw_dataset = codec.encode(tables[table_name])
@@ -342,7 +342,7 @@ class PreprocessedTables:
 
   compressed_datasets: Mapping[str, mbi.Dataset]
   table_keys: Mapping[str, Mapping[str, np.ndarray]]
-  column_codecs: Mapping[str, data_generation_v3.TabularCodec]
+  column_codecs: Mapping[str, _tabular.TabularCodec]
   compression_mappings: Mapping[str, Mapping[str, np.ndarray]]
   noisy_root_total: float
   root_total_measurement: mbi.LinearMeasurement
@@ -415,7 +415,7 @@ def _create_table_initializers(
 ) -> dict[str, dict[str, api.MechanismConfig]]:
   """Creates per-table and per-column initializers from relational schemas."""
   return {
-      table: data_generation_v3.create_initializers(schema, numerical_bins)
+      table: _tabular.create_initializers(schema, numerical_bins)
       for table, schema in domains.items()
   }
 
@@ -830,7 +830,7 @@ def _decompress_synthetic_datasets(
 
 def _decode_synthetic_tables(
     decompressed_datasets: Mapping[str, mbi.Dataset],
-    column_codecs: Mapping[str, data_generation_v3.TabularCodec],
+    column_codecs: Mapping[str, _tabular.TabularCodec],
     domains: Mapping[str, domain.Schema],
     rng: np.random.Generator,
 ) -> dict[str, pd.DataFrame]:

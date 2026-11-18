@@ -57,9 +57,9 @@ from dpsynth.discrete_mechanisms.mst import MSTConfig
 from dpsynth.discrete_mechanisms.swift import SWIFTConfig
 
 # Single-table tabular synthesis.
-from dpsynth.data_generation_v3 import DataGenerationResult
-from dpsynth.data_generation_v3 import TabularConfig
-from dpsynth.data_generation_v3 import TabularMechanism
+from dpsynth.statistical._tabular import DataGenerationResult
+from dpsynth.statistical._tabular import TabularConfig
+from dpsynth.statistical._tabular import TabularMechanism
 from dpsynth.statistical.postprocessing import generate_synthetic_data_from_marginals
 
 # Multi-table relational synthesis.

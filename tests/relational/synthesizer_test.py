@@ -24,6 +24,7 @@ from dpsynth.relational import domain as rel_domain
 from dpsynth.relational import post_processing
 from dpsynth.relational import synthesizer
 from dpsynth.relational import transformations
+from dpsynth.statistical import _tabular
 from dpsynth.statistical import initialization
 import mbi
 import numpy as np
@@ -1418,12 +1419,10 @@ class SynthesizerTest(absltest.TestCase):
         ),
     }
     codecs = {
-        'Household': (
-            synthesizer.data_generation_v3.TabularCodec.from_measurements(
-                h_measurements, domains['Household']
-            )
+        'Household': _tabular.TabularCodec.from_measurements(
+            h_measurements, domains['Household']
         ),
-        'Person': synthesizer.data_generation_v3.TabularCodec.from_measurements(
+        'Person': _tabular.TabularCodec.from_measurements(
             p_measurements, domains['Person']
         ),
     }

@@ -31,10 +31,10 @@ import dataclasses
 
 from absl import logging
 import dp_accounting
-from dpsynth import data_generation_v3
 from dpsynth import discrete_mechanisms
 from dpsynth.core import _mechanism as api
 from dpsynth.core import domain
+from dpsynth.statistical import _tabular
 import numpy as np
 import pandas as pd
 
@@ -43,8 +43,8 @@ import pandas as pd
 class NestedSynthesisResult:
   """Synthetic models and per-type data resulting from DP measurement."""
 
-  shared_result: data_generation_v3.DataGenerationResult
-  detail_results: Mapping[str, data_generation_v3.DataGenerationResult]
+  shared_result: _tabular.DataGenerationResult
+  detail_results: Mapping[str, _tabular.DataGenerationResult]
   synthetic_data: Mapping[str, pd.DataFrame]
 
 
@@ -114,8 +114,8 @@ class NestedTabularMechanism(api.CalibratedMechanism):
 
   schema: NestedSchema
   type_vocabulary: Sequence[str]
-  shared_synth: data_generation_v3.TabularMechanism
-  detail_synths: Mapping[str, data_generation_v3.TabularMechanism]
+  shared_synth: _tabular.TabularMechanism
+  detail_synths: Mapping[str, _tabular.TabularMechanism]
 
   # Note: `detail_rho` must exactly match the zCDP guarantee of the individual
   # mechanisms in `detail_synths`. This is because NestedTabularMechanism
@@ -168,7 +168,7 @@ class NestedTabularMechanism(api.CalibratedMechanism):
     shared_result = self.shared_synth(rng, shared_df, num_rows=num_rows)
 
     synthetic_details: dict[str, pd.DataFrame] = {}
-    detail_results: dict[str, data_generation_v3.DataGenerationResult] = {}
+    detail_results: dict[str, _tabular.DataGenerationResult] = {}
     for type_name, synth in self.detail_synths.items():
       detail_cols = list(self.schema.per_type_schemas[type_name].attributes)
       sub_df = data[type_name].reindex(columns=detail_cols)
@@ -271,7 +271,7 @@ class NestedTabularConfig(api.MechanismConfig):
     shared_domains["_type"] = domain.CategoricalAttribute(
         possible_values=schema.type_vocabulary
     )
-    shared_config = data_generation_v3.TabularConfig(
+    shared_config = _tabular.TabularConfig(
         domains=shared_domains,
         discrete_mechanism=self.shared_mechanism,
         init_budget_fraction=self.init_budget_fraction,
@@ -286,7 +286,7 @@ class NestedTabularConfig(api.MechanismConfig):
     for type_name, type_schema in schema.per_type_schemas.items():
       if not type_schema.attributes:
         continue
-      config = data_generation_v3.TabularConfig(
+      config = _tabular.TabularConfig(
           domains=type_schema.attributes,
           discrete_mechanism=self.detail_mechanism,
           init_budget_fraction=self.init_budget_fraction,

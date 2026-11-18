@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import functools
 import os
+from typing import Any
 
 from absl.testing import absltest
 from absl.testing import parameterized
 import dp_accounting
 import dpsynth
-from dpsynth import data_generation_v3
+from dpsynth.statistical import _tabular
+from dpsynth.statistical import initialization
 import mbi
 import numpy as np
 import pandas as pd
@@ -200,7 +202,7 @@ class DataGenerationV3Test(parameterized.TestCase):
   def test_raises_when_not_calibrated(self):
     df = pd.DataFrame({'A': ['a', 'b', 'c']})
     rng = np.random.default_rng(0)
-    v3 = TabularConfig()
+    v3: Any = TabularConfig()
     with self.assertRaises(Exception):
       v3(rng, df)
 
@@ -382,6 +384,7 @@ class DataGenerationV3Test(parameterized.TestCase):
     config = TabularConfig(numerical_epsilon_ratio=1.414)
     calibrated = config.configure(domains, budget=10.0)
     init_mech = calibrated.initializers['A']
+    assert isinstance(init_mech, initialization.NumericalInitializer)
     self.assertEqual(init_mech.config.epsilon_ratio, 1.414)
 
   def test_poisson_calibrate_with_categorical_domains_and_gdp_mech(self):
@@ -477,7 +480,7 @@ class DataGenerationV3Test(parameterized.TestCase):
         'TabularSynthesizer is deprecated. Use TabularConfig for configuration '
         'and TabularMechanism for the calibrated runnable mechanism.',
     ):
-      data_generation_v3.TabularSynthesizer(domains={})
+      _tabular.TabularSynthesizer(domains={})
 
   def test_compress_columns(self):
     domains = {
@@ -588,6 +591,7 @@ class GroupSizeTest(parameterized.TestCase):
         places=4,
     )
     lifted = dpsynth.with_group_size(cal_scaled.initializers['A'].dp_event, k)
+    assert isinstance(lifted, dp_accounting.GaussianDpEvent)
     self.assertAlmostEqual(
         lifted.noise_multiplier,
         cal_base.initializers['A'].dp_event.noise_multiplier,

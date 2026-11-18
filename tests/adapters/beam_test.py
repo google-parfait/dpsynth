@@ -25,8 +25,8 @@ from absl.testing import parameterized
 import apache_beam as beam
 from apache_beam.options import pipeline_options
 import dpsynth
-from dpsynth import data_generation_v3
 from dpsynth.adapters import beam as beam_adapter
+from dpsynth.statistical import _tabular
 from dpsynth.statistical import initialization
 import mbi
 import numpy as np
@@ -342,7 +342,7 @@ class ComputeMarginalsTest(absltest.TestCase):
         [2, 2, 2],
     )
     # 1-way and 2-way: exact bin counts match ColumnCodec encoding.
-    size_codec = data_generation_v3.ColumnCodec(cms['size'], num_attr)
+    size_codec = _tabular.ColumnCodec(cms['size'], num_attr)
     size_bins = size_codec.encode(np.array([r[1] for r in rows]))
     num_size_bins = cms['size'].categorical_attribute.size
     expected_size = np.bincount(size_bins, minlength=num_size_bins)

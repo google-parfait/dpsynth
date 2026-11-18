@@ -50,7 +50,7 @@ DP mechanisms that naturally compose and build on top of each other:
         ([`DiscreteConfig`](dpsynth/discrete_mechanisms/discrete.py),
         [`discrete_mechanisms/`](dpsynth/discrete_mechanisms/README.md)).
     *   **Tabular (Single-Table)**: Categorical, numerical, and open-set
-        attributes ([`TabularConfig`](dpsynth/data_generation_v3.py)).
+        attributes ([`TabularConfig`](dpsynth/statistical/_tabular.py)).
     *   **Relational (Multi-Table)**: Multi-table databases with foreign-key
         hierarchies and referential integrity
         ([`dpsynth.relational`](dpsynth/relational/synthesizer.py)).
@@ -137,7 +137,7 @@ inference), they were developed independently and have different trade-offs:
 ### 1. In-Memory (Local) Mode
 
 **Entry point:** [`dpsynth.TabularConfig`](dpsynth/__init__.py) (backed by
-[`data_generation_v3.py`](dpsynth/data_generation_v3.py))
+[`statistical/_tabular.py`](dpsynth/statistical/_tabular.py))
 
 Designed for **datasets that fit in memory** (e.g., Pandas DataFrames). We have
 tested this on datasets up to ~100M rows, though performance will depend on the
@@ -228,7 +228,7 @@ These modules are used by both the in-memory and pipeline code paths:
 *   **[`discrete_mechanisms/`](dpsynth/discrete_mechanisms/README.md)**: Local,
     single-machine DP mechanisms (AIM, MST, etc.) and shared mathematical
     utilities like domain compression.
-*   **[`data_generation_v3.py`](dpsynth/data_generation_v3.py)**: The
+*   **[`statistical/_tabular.py`](dpsynth/statistical/_tabular.py)**: The
     end-to-end in-memory generation pipeline. This is what
     `dpsynth.TabularConfig` exposes.
 *   **[`statistical/`](dpsynth/statistical/)**: Locally-optimized DP primitives
