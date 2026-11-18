@@ -354,6 +354,32 @@ class DPTrainerTest(absltest.TestCase):
           canaries={'x': jnp.ones((1, 8))},
       )
 
+  def test_preserves_bfloat16_param_dtypes_and_auditing(self):
+    def loss_fn(params, batch, prng):
+      del prng
+      self.assertEqual(params['w'].dtype, jnp.bfloat16)
+      return jnp.mean((params['w'].astype(jnp.float32) - batch['x']) ** 2), ()
+
+    config = jax_privacy.execution_plan.BandMFConfig.default(
+        num_bands=1,
+        iterations=3,
+        expected_participations=3,
+        l2_clip_norm=1.0,
+        noise_multiplier=0.0,
+    )
+    trainer = dp_trainer.DPTrainer(
+        init_params={'w': jnp.zeros(4, dtype=jnp.bfloat16)},
+        loss_fn=loss_fn,
+        mechanism_config=config,
+        optimizer=optax.adamw(0.1),
+    )
+    data = {'x': jnp.zeros((4, 4), dtype=jnp.float32)}
+    canaries = {'x': jnp.ones((4, 4), dtype=jnp.float32)}
+    result = trainer(np.random.default_rng(0), data, canaries=canaries)
+    self.assertEqual(result.params['w'].dtype, jnp.bfloat16)
+    self.assertIsNotNone(result.auditor)
+    loss_fn(result.params, data, jax.random.key(0))
+
 
 if __name__ == '__main__':
   absltest.main()

@@ -281,15 +281,19 @@ class DPTrainer(api.CalibratedMechanism):
     ) as (initial_state, step_callback):
       state = trainer.fit(data, initial_state, callback=step_callback)
 
+    # Restore init_params leaf dtypes (e.g. bfloat16) from float32 master params
+    # before canary auditing and returning TrainingResult.
+    params = jax.tree.map(jax.numpy.astype, state.params, state.param_dtypes)
+
     auditor = None
     if canaries is not None:
       auditor = training.audit(
           self.loss_fn,
-          state.params,
+          params,
           in_canaries,
           out_canaries,
           self.init_params,
           microbatch_size=perf.microbatch_size,
           prng_key=int(rng.integers(2**31)),
       )
-    return TrainingResult(params=state.params, auditor=auditor)
+    return TrainingResult(params=params, auditor=auditor)
