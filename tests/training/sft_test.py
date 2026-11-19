@@ -30,9 +30,9 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from dpsynth import training as dp_sft
 from dpsynth.core import serialize
-from dpsynth.training import _gemma as model
 from dpsynth.training import _sequence_model
 from dpsynth.training import _sft
+from dpsynth.training import gemma as model
 from flax import nnx
 import grain.python as grain
 import jax
@@ -258,7 +258,7 @@ class GemmaModelTest(absltest.TestCase):
         mock.patch.object(model, 'tokenize_example', return_value=fake_example),
         mock.patch.object(model, 'GemmaSampler', return_value=fake_sample),
     ):
-      seq_model = dp_sft.load_gemma_sequence_model('gemma4_e2b_it')
+      seq_model = model.load_gemma_sequence_model('gemma4_e2b_it')
       assert seq_model.sample_fn is not None
       samples = seq_model.sample_fn(seq_model.params, ['q1'], 512)
 
@@ -313,7 +313,7 @@ class LoraCheckpointTest(absltest.TestCase):
 class DPFineTunerTest(parameterized.TestCase):
 
   def test_creates_valid_mechanism_config(self):
-    config = dp_sft.DPFineTunerConfig(
+    config = model.DPFineTunerConfig(
         model='gemma4_e2b_it',
         iterations=100,
         epochs=1.0,
@@ -326,7 +326,7 @@ class DPFineTunerTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       dataclasses.replace(config, canary_repeats=0)
     with self.assertRaises(ValueError):
-      dp_sft.DPFineTunerConfig(
+      model.DPFineTunerConfig(
           model=typing.cast(model.ModelName, 'nonexistent'),
           iterations=100,
           epochs=1.0,
@@ -356,7 +356,7 @@ class DPFineTunerTest(parameterized.TestCase):
       dataclasses.replace(mechanism, canary_repeats=0)
 
   def test_calibrate_sets_noise_multiplier(self):
-    mechanism = dp_sft.DPFineTunerConfig(
+    mechanism = model.DPFineTunerConfig(
         model='gemma4_e2b_it',
         iterations=100,
         epochs=1.0,
@@ -365,7 +365,7 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertGreater(mechanism.mechanism_config.noise_multiplier, 0.0)
 
   def test_calibrate_noise_formula(self):
-    mechanism = dp_sft.DPFineTunerConfig(
+    mechanism = model.DPFineTunerConfig(
         model='gemma4_e2b_it',
         iterations=100,
         epochs=1.0,
@@ -376,7 +376,7 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertAlmostEqual(sigma, expected)
 
   def test_configure_passes_loss_normalization(self):
-    mechanism = dp_sft.DPFineTunerConfig(
+    mechanism = model.DPFineTunerConfig(
         model='gemma4_e2b_it',
         iterations=100,
         epochs=1.0,
@@ -386,7 +386,7 @@ class DPFineTunerTest(parameterized.TestCase):
 
   def test_call_trains_with_loss_normalization(self):
     mechanism = dataclasses.replace(
-        dp_sft.DPFineTunerConfig(
+        model.DPFineTunerConfig(
             model='gemma4_e2b_it',
             iterations=2,
             epochs=1.0,
@@ -401,7 +401,7 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertAlmostEqual(float(loss), 0.5 * math.log(_VOCAB_SIZE), places=5)
 
   def test_dp_event_after_calibration(self):
-    mechanism = dp_sft.DPFineTunerConfig(
+    mechanism = model.DPFineTunerConfig(
         model='gemma4_e2b_it',
         iterations=100,
         epochs=1.0,
@@ -415,7 +415,7 @@ class DPFineTunerTest(parameterized.TestCase):
         'input_tokens': jnp.array([1, 2, 3, 4], dtype=jnp.int32),
         'loss_mask': jnp.array([0, 1, 1, 1], dtype=jnp.int32),
     }
-    mechanism = dp_sft.DPFineTunerConfig(
+    mechanism = model.DPFineTunerConfig(
         model='gemma4_e2b_it',
         iterations=2,
         epochs=1.0,
@@ -456,7 +456,7 @@ class DPFineTunerTest(parameterized.TestCase):
         'input_tokens': jnp.array([1, 2, 3, 4], dtype=jnp.int32),
         'loss_mask': jnp.array([0, 1, 1, 1], dtype=jnp.int32),
     }
-    mechanism = dp_sft.DPFineTunerConfig(
+    mechanism = model.DPFineTunerConfig(
         model='gemma4_e2b_it',
         iterations=2,
         epochs=1.0,
@@ -541,7 +541,7 @@ class DPFineTunerTest(parameterized.TestCase):
     self.assertAlmostEqual(result.auditor.attack_auroc(), 1.0, places=5)
 
   def test_yaml_round_trip(self):
-    config = dp_sft.DPFineTunerConfig(
+    config = model.DPFineTunerConfig(
         model='gemma4_e2b_it',
         iterations=100,
         epochs=1.0,
@@ -550,7 +550,7 @@ class DPFineTunerTest(parameterized.TestCase):
         loss_normalization='sequence_length',
     )
     restored = serialize.from_yaml(
-        serialize.to_yaml(config), dp_sft.DPFineTunerConfig
+        serialize.to_yaml(config), model.DPFineTunerConfig
     )
     self.assertEqual(restored.model, config.model)
     self.assertEqual(restored.learning_rate, 2e-3)

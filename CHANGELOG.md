@@ -55,6 +55,15 @@ and this project adheres to
 -   **`compress_columns` in `TabularConfig`**: Automatically compresses rare
     categories (< 3σ) for categorical columns not present in constraints.
 
+### Changed
+
+-   **Gemma helpers moved to `dpsynth.training.gemma` (breaking)**:
+    `GemmaSampler`, `load_gemma_sequence_model`, `make_mesh`, `ModelName`,
+    `RematConfig`, and `DPFineTunerConfig` are no longer exported from
+    `dpsynth.training`; import them from the optional `dpsynth.training.gemma`
+    submodule instead. `dpsynth.training` (including `DPFineTuner` and
+    `DPTrainer`) no longer requires Tunix.
+
 ### Fixed
 
 -   **Checkpoint RNG isolation**: `_checkpoint.get_or_compute` now requires an

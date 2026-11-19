@@ -12,19 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Public API for differentially private model training and fine-tuning."""
+"""Public API for differentially private model training and fine-tuning.
+
+Gemma-specific helpers (model loading, sampling, and ``DPFineTunerConfig``)
+live in the optional ``dpsynth.training.gemma`` submodule, which requires Tunix.
+"""
 
 # pylint: disable=g-importing-member
 
-from dpsynth.training._gemma import GemmaSampler
-from dpsynth.training._gemma import load_gemma_sequence_model
-from dpsynth.training._gemma import make_mesh
-from dpsynth.training._gemma import ModelName
-from dpsynth.training._gemma import RematConfig
 from dpsynth.training._sequence_model import LossNormalization
 from dpsynth.training._sequence_model import SequenceModel
 from dpsynth.training._sft import DPFineTuner
-from dpsynth.training._sft import DPFineTunerConfig
 from dpsynth.training._sft import FineTuneResult
 from dpsynth.training._tabular_transformer import TabularTransformer
 from dpsynth.training._tabular_transformer import TabularTransformerConfig
@@ -34,18 +32,12 @@ from dpsynth.training._trainer import TrainingResult
 
 __all__ = [
     'DPFineTuner',
-    'DPFineTunerConfig',
     'DPTrainer',
     'DPTrainerConfig',
     'FineTuneResult',
-    'GemmaSampler',
     'LossNormalization',
-    'ModelName',
-    'RematConfig',
     'SequenceModel',
     'TabularTransformer',
     'TabularTransformerConfig',
     'TrainingResult',
-    'load_gemma_sequence_model',
-    'make_mesh',
 ]

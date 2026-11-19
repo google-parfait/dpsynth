@@ -18,17 +18,17 @@
 
 import warnings
 
-from dpsynth.training._gemma import GemmaSampler
-from dpsynth.training._gemma import make_mesh
-from dpsynth.training._gemma import ModelName
 from dpsynth.training._sft import DPFineTuner
-from dpsynth.training._sft import DPFineTunerConfig
 from dpsynth.training._sft import FineTuneResult
 from dpsynth.training._tabular_transformer import TabularTransformer
 from dpsynth.training._tabular_transformer import TabularTransformerConfig
 from dpsynth.training._trainer import DPTrainer
 from dpsynth.training._trainer import DPTrainerConfig
 from dpsynth.training._trainer import TrainingResult
+from dpsynth.training.gemma import DPFineTunerConfig
+from dpsynth.training.gemma import GemmaSampler
+from dpsynth.training.gemma import make_mesh
+from dpsynth.training.gemma import ModelName
 
 warnings.warn(
     'dpsynth.text is deprecated; use dpsynth.training instead.',

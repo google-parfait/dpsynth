@@ -12,15 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Differentially private fine-tuning for Gemma language models.
+"""Differentially private fine-tuning for language models.
 
 ``DPFineTuner`` is a ``DPMechanism`` that takes raw text strings and handles
 everything end-to-end: tokenization, model loading, LoRA application, and
-DP-SGD training via ``DPTrainer``.
+DP-SGD training via ``DPTrainer``. Gemma presets are configured with
+``dpsynth.training.gemma.DPFineTunerConfig``.
 
 Example usage::
 
-  fine_tuner = DPFineTunerConfig(
+  fine_tuner = dpsynth.training.gemma.DPFineTunerConfig(
       model='gemma4_e2b_it',
       iterations=100,
       epochs=1.0,
@@ -35,13 +36,10 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 import dataclasses
 import functools
-import math
 
 import dp_accounting
 from dpsynth.core import _mechanism as api
 from dpsynth.training import _callbacks as callbacks
-from dpsynth.training import _gemma as model
-from dpsynth.training import _optimizers
 from dpsynth.training import _sequence_model
 from dpsynth.training import _trainer as dp_trainer
 import grain.python as grain
@@ -78,112 +76,6 @@ class FineTuneResult:
   model: _sequence_model.SequenceModel
   auditor: jax_privacy.auditing.CanaryScoreAuditor | None = None
   samples: list[tuple[str, str]] | None = None
-
-
-@dataclasses.dataclass(frozen=True)
-class DPFineTunerConfig(api.MechanismConfig):
-  """Differentially private fine-tuning of Gemma models via DP-SGD.
-
-  A ``DPMechanism`` that wraps ``DPTrainer`` with tokenization, model loading,
-  and LoRA handling. All configuration is specified at construction time;
-  ``__call__`` takes ``(rng, data)`` where ``data`` is a sequence or
-  ``grain.MapDataset`` of ``(prompt, response)`` string pairs.
-
-  Note: Step-level metrics logged when ``log_every`` is set (such as loss,
-  batch size, and gradient norms) are un-noised and not accounted for in the
-  formal ``(epsilon, delta)`` privacy guarantee. Leave ``log_every=None`` when
-  strict end-to-end DP accounting of all outputs is required.
-
-  Attributes:
-    model: Gemma model preset name.
-    iterations: Total number of training iterations.
-    epochs: Expected number of times each example participates across training.
-    num_bands: Number of bands in the BandMF strategy matrix.
-    clipping_norm: Maximum L2 norm of per-example gradients.
-    loss_normalization: How each example's loss is normalized (see
-      ``SequenceModel.loss_fn``).
-    lora_rank: Rank of the LoRA adapter matrices.
-    max_seq_length: Maximum token sequence length (including special tokens).
-    learning_rate: Learning rate for the default optimizer. To use a custom
-      optimizer, call ``dataclasses.replace(mechanism, optimizer=...)`` on the
-      calibrated mechanism returned by ``configure`` or ``dpsynth.calibrate``.
-    microbatch_size: Physical microbatch size for per-example gradient clipping.
-    log_every: Optional step interval for logging un-noised training metrics.
-    checkpoint_every: Step interval for saving mid-training Orbax checkpoints.
-    canary_repeats: Held-in canary repetitions for empirical group privacy.
-  """
-
-  model: model.ModelName
-  iterations: int
-  epochs: float
-  num_bands: int = 1
-  clipping_norm: float = 1.0
-  loss_normalization: _sequence_model.LossNormalization = 'per_example_tokens'
-  lora_rank: int = 16
-  max_seq_length: int = 512
-  learning_rate: float = 1e-3
-  microbatch_size: int | None = None
-  log_every: int | None = None
-  checkpoint_every: int = 500
-  canary_repeats: int = 1
-
-  def __post_init__(self):
-    model.validate_model_name(self.model)
-    if self.log_every and self.checkpoint_every % self.log_every != 0:
-      raise ValueError('checkpoint_every must be a multiple of log_every.')
-    if self.canary_repeats < 1:
-      raise ValueError('canary_repeats must be >= 1.')
-
-  def configure(self, _=None, *, budget, delta=0.0) -> DPFineTuner:
-    """Returns a copy with noise_multiplier calibrated to the zCDP budget.
-
-    Sets the noise_multiplier to satisfy ``budget`` under a **loose upper
-    bound** that ignores Poisson subsampling amplification: the unamplified
-    composition of ``T`` Gaussian mechanisms with noise_multiplier ``sigma``
-    has zCDP cost ``T / (2 * sigma**2)``, so we set
-    ``sigma = sqrt(T / (2 * budget))``.
-
-    This is deliberately conservative. The ``dp_event`` property returns the
-    **full** event including subsampling amplification, so downstream callers
-    using ``dp_accounting`` (e.g. ``calibrate_dp_mechanism`` over a
-    heterogeneous composition) will get tight PLD-based accounting from the
-    raw events -- not from this loose zCDP bound.
-
-    Args:
-      budget: The privacy budget.
-      delta: Unused. Accepted for interface compatibility.
-
-    Returns:
-      A new ``DPFineTuner`` with calibrated
-      ``mechanism_config.noise_multiplier``.
-    """
-    del delta
-    rounds = math.ceil(self.iterations / self.num_bands)
-    noise_multiplier = math.sqrt(rounds / (2.0 * budget))
-    mechanism_config = execution_plan.BandMFConfig.default(
-        num_bands=self.num_bands,
-        iterations=self.iterations,
-        expected_participations=self.epochs,
-        l2_clip_norm=self.clipping_norm,
-        rescale_to_unit_norm=True,
-        noise_multiplier=noise_multiplier,
-    )
-    # Defer loading until __call__ so calibration binary search does not
-    # instantiate weights and loading runs inside the caller's device mesh.
-    model_fn = functools.partial(
-        model.load_gemma_sequence_model, self.model, lora_rank=self.lora_rank
-    )
-    return DPFineTuner(
-        model=model_fn,
-        mechanism_config=mechanism_config,
-        optimizer=_optimizers.denoised_adamw(self.learning_rate),
-        max_seq_length=self.max_seq_length,
-        loss_normalization=self.loss_normalization,
-        microbatch_size=self.microbatch_size,
-        log_every=self.log_every,
-        checkpoint_every=self.checkpoint_every,
-        canary_repeats=self.canary_repeats,
-    )
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

@@ -45,6 +45,7 @@ from absl import flags
 from absl import logging
 import dpsynth
 import dpsynth.training
+import dpsynth.training.gemma
 from etils import epath
 import jax
 import numpy as np
@@ -75,7 +76,7 @@ class Config:
   checkpoint_dir: str | None = None
   run_id: str | None = None
   canary_path: str | None = None
-  model: dpsynth.training.ModelName = 'gemma4_e2b_it'
+  model: dpsynth.training.gemma.ModelName = 'gemma4_e2b_it'
   microbatch_size: int = 8
   num_samples: int = 64
   seed: int = 0
@@ -98,7 +99,7 @@ def main(argv: Sequence[str]) -> None:
   if cfg.canary_path is not None:
     canaries = _load_examples(cfg.canary_path, cfg.instruction)
 
-  fine_tuner = dpsynth.training.DPFineTunerConfig(
+  fine_tuner = dpsynth.training.gemma.DPFineTunerConfig(
       model=cfg.model,
       iterations=1000,
       epochs=8.0,
@@ -110,7 +111,7 @@ def main(argv: Sequence[str]) -> None:
   out_dir = epath.Path(cfg.output_dir)
   logging.info('DP fine-tuning on %d documents...', len(train_data))
   with (
-      jax.set_mesh(dpsynth.training.make_mesh()),
+      jax.set_mesh(dpsynth.training.gemma.make_mesh()),
       dpsynth.checkpoint(cfg.checkpoint_dir, cfg.run_id),
   ):
     result = fine_tuner(
