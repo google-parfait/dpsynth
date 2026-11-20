@@ -296,9 +296,11 @@ class DatasetDescriptor:
     return tuple(attr.name for attr in self.attributes)
 
   def update_from_domain_specification(
-      self, domain_spec: Mapping[str, Any]
+      self, domain_spec: domain.Schema | Mapping[str, Any]
   ) -> None:
     """Updates the attributes of the dataset descriptor from a domain specification."""
+    if isinstance(domain_spec, domain.Schema):
+      domain_spec = domain_spec.attributes
     for attr_desc in self.attributes:
       if attr_desc.name in domain_spec:
         spec = domain_spec[attr_desc.name]

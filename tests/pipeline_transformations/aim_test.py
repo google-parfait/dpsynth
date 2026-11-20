@@ -15,9 +15,9 @@
 from unittest import mock
 
 from absl.testing import absltest
-from dpsynth import data_generation
 from dpsynth.core import domain
 from dpsynth.dataset_descriptors import dataset_descriptor
+from dpsynth.pipeline import _data_generation
 from dpsynth.pipeline_transformations import aim
 from dpsynth.pipeline_transformations import diagnostic_info
 import mbi
@@ -118,7 +118,7 @@ class AimTest(absltest.TestCase):
     compressed_data = self._get_uniform_random_data(100, domain_shape)
     descriptor = self._get_dataset_descriptor(shape=domain_shape, size=100)
 
-    additional_output = data_generation.AdditionalOutput()
+    additional_output = _data_generation.AdditionalOutput()
     diag_info = diagnostic_info.DiagnosticInformation()
     additional_output.diagnostic_info = backend.to_collection(
         [diag_info], compressed_data, "create diag info"

@@ -96,9 +96,12 @@ class DataGenerationConfig:
 
     if self.mechanism != Mechanism.AIM and self.aim_parameters is not None:
       raise ValueError('aim_parameters can only be set for AIM mechanism.')
+    if self.mechanism != Mechanism.SWIFT and self.swift_parameters is not None:
+      raise ValueError('swift_parameters can only be set for SWIFT mechanism.')
 
+    if self.mechanism == Mechanism.AIM and self.aim_parameters is None:
+      object.__setattr__(self, 'aim_parameters', aim.AIMParameters())
     if self.mechanism == Mechanism.SWIFT and self.swift_parameters is None:
-      # Use default parameters.
       object.__setattr__(self, 'swift_parameters', swift.SwiftParameters())
 
 
@@ -339,7 +342,7 @@ def generate_and_return_model(
           budget_accountant,
           compressed_data,
           compressed_descriptor,
-          config.aim_parameters,  # pyrefly: ignore[bad-argument-type]
+          config.aim_parameters or aim.AIMParameters(),
           additional_output=additional_output,
       )
     case Mechanism.SWIFT:
@@ -348,7 +351,7 @@ def generate_and_return_model(
           budget_accountant,
           compressed_data,
           compressed_descriptor,
-          config.swift_parameters,  # pyrefly: ignore[bad-argument-type]
+          config.swift_parameters or swift.SwiftParameters(),
           additional_output=additional_output,
       )
     case _:
@@ -404,7 +407,7 @@ def generate_and_return_model(
   output_data = _format_output_data(
       decoded_data,
       input_data=input_data,
-      output_format=config.output_format,  # pyrefly: ignore[bad-argument-type]
+      output_format=config.output_format or config.data_format,
       backend=backend,
       descriptor_col=compressed_descriptor,
   )
@@ -522,7 +525,7 @@ def _convert_tuples_to_records(
     data: beam.PCollection[tuple[Any, ...]] | Iterable[tuple[Any, ...]],
     descriptor: types.Collection[dataset_descriptor.DatasetDescriptor],
     backend: pipeline_dp.PipelineBackend,
-    one_element_of_input_data: beam.PCollection[Any] | None,
+    one_element_of_input_data: types.Collection[Any] | None,
 ) -> beam.PCollection[Any] | Iterable[Any]:
   """Converts tuples to records."""
   if one_element_of_input_data is None:
