@@ -18,12 +18,10 @@ mechanisms from distributed execution transformations.
 
 ```
 dpsynth/
- ├── bin/                         <-- Executable binaries (`main.py`, `run_data_generation.py`, `run_tabular_eval.py`)
  ├── data_generation.py           <-- Core Library API for distributed generation
  ├── dataset_descriptors/         <-- Format descriptors & schema converters (CSV, TFRecord)
  ├── discrete_mechanisms/         <-- Core mechanism implementations defined over integer-coded data represented as numpy arrays.  Also works with pre-computed marginal histograms instead of raw data
  ├── pipeline_transformations/    <-- Distributed pipeline implementations of DP transformations
- ├── eval/                        <-- Tabular evaluation engine & metrics (TV Distance, Cramer's V)
  └── domain.py                    <-- Public data model & attribute domain definitions
 ```
 
@@ -231,8 +229,8 @@ message DiagnosticInformation {
 }
 ```
 
-When launching jobs via `bin/run_data_generation.py`, passing
-`--diagnostic_information_path` outputs this proto. It tracks:
+Passing `AdditionalOutput` to `data_generation.generate` populates this proto.
+It tracks:
 
 *   **`compressed_attribute_sizes`**: The exact domain state space size after
     rare-category compression.
@@ -308,63 +306,3 @@ in [`mbi.estimation.MirrorDescent`](https://github.com/ryan112358/mbi/blob/maste
     sampler. Call `model.synthetic_data(rows)` to run parallelized randomized
     rounding over the junction tree and draw an arbitrary number of
     high-fidelity, consistent synthetic integer records.
-
---------------------------------------------------------------------------------
-
-## The Tabular Evaluation Framework (`eval/`)
-
-To rigorously evaluate the quality and statistical fidelity of generated
-synthetic data compared to real sensitive data, DPSynth includes a comprehensive
-evaluation engine located
-in [`eval/`](../eval/BUILD)
-and executable
-via [`bin/run_tabular_eval.py`](../bin/run_tabular_eval.py).
-
-```
-┌────────────────────────────────────────────────────────┐
-│ Sensitive Data (Real)   &   Synthetic Data (Generated) │
-└───────────────────────────┬────────────────────────────┘
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│ Tabular Evaluation Engine (`eval/tabular_eval.py`)     │
-│                                                        │
-│  1. Univariate Stats (Mean, Std, Min, Max, Nulls)      │
-│  2. One-Way Marginal Distances (TV Distance, Chi-Sq)   │
-│  3. Bivariate Correlations (Cramer's V Joint Counts)   │
-└───────────────────────────┬────────────────────────────┘
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│         TabularEvalReport Protobuf Dashboard           │
-└────────────────────────────────────────────────────────┘
-```
-
-### Evaluation Metrics & Workflow
-
-The evaluation framework is engine-agnostic (powered by `PipelineBackend`),
-allowing it to run locally on small CSVs or distributed across clusters on
-sharded
-tables.
-It computes:
-
-1.  **Univariate Statistics**: Evaluates basic moments (mean, standard
-    deviation, min, max, missing value counts) for numerical columns using
-    distributed accumulators (`NumericalStatisticsCombiner`).
-2.  **Marginal Distribution Distances**: Measures the statistical gap between
-    real and synthetic 1-way marginal distributions using Total Variation (TV)
-    distance and Chi-squared metrics.
-3.  **Bivariate Correlations (Cramer's V)**: Evaluates cross-column relational
-    integrity. It counts joint frequencies across categorical attribute pairs
-    `(col_A, col_B)` in both datasets and derives Cramer's V correlation
-    matrices to verify that multi-column dependencies were correctly preserved
-    by graphical model inference.
-
-### Running Evaluation (CLI)
-
-```bash
-python3 bin/run_tabular_eval.py \
-  --original_data_path=/path/to/real_data.csv \
-  --synthetic_data_path=/path/to/synthetic_data.csv \
-  --eval_report_path=/tmp/eval_report.pb \
-  --data_format=csv \
-  --use_beam=false
-```

@@ -7,12 +7,6 @@
 When your dataset is large enough to be processed on one machine (>1M records)
 or when your need distributed processing, use the **Scalable Beam API**.
 
-There are 2 options to run:
-
-1.  Using Library API from you code as Python Beam Pipeline.
-
-1.  From command line.
-
 This interface is built on top of `pipeline_dp.PipelineBackend`, allowing the
 mathematical synthesis transformations
 in [`pipeline_transformations/`](../pipeline_transformations/README.md)
@@ -134,67 +128,20 @@ with beam.Pipeline() as pipeline:
 
 --------------------------------------------------------------------------------
 
-## Command-Line Interface: `bin/run_data_generation.py`
+## Runnable Example
 
-The standalone
-binary [`bin/run_data_generation.py`](../bin/run_data_generation.py)
-orchestrates the complete distributed lifecycle. It handles format deduction,
-launches the Beam job on cluster infrastructure, and manages sink connectors.
-
-### Example: Local Run
-```bash
-python3 bin/run_data_generation.py \
-  --dataset=/path/to/sharded_data@100.tfrecord \
-  --epsilon=1.0 \
-  --delta=1e-8 \
-  --data_format=TFRECORD \
-  --output_format=TFRECORD \
-  --mechanism=mst \
-  --use_beam=false \
-  --output_path=/tmp/synthetic_out@100.tfrecord
-```
-
-### Comprehensive Flag Reference
-
-#### Core Privacy & I/O Flags
-
-*   `--dataset`: Path (or glob pattern) to input sharded files or database
-    query.
-*   `--domain_file`: Optional path to explicit `domain.yaml`. If omitted, the
-    schema is deduced and populated privately on-the-fly.
-*   `--epsilon`, `--delta`: Differential privacy budget.
-*   `--data_format`, `--output_format`: Must be one of `CSV` or `TFRECORD`.
-*   `--use_beam`: If `true`, launches a distributed
-    Beam job across computing clusters. If `false`, runs locally
-    in-process using `pipeline_dp.LocalBackend`.
-*   `--mechanism`: Supported options are `mst`, `aim`, `independent`, and
-    `swift`.
-*   `--attributes`: Comma-separated list of specific columns to synthesize. If
-    omitted, all columns are synthesized.
-*   `--num_out_records`: Target number of output synthetic records. If omitted,
-    generates a dataset approximately equal in size to the input data (privately
-    estimated).
-*   `--output_path`: Destination storage path for the synthetic data.
-
-#### Advanced & Diagnostic Flags
-
-*   `--diagnostic_information_path`: Storage path where a
-    `DiagnosticInformation` protobuf (containing DP budget splits, operation
-    counts, and L1 loss metrics) will be saved.
-*   `--model_save_path`: Storage path where the trained `SyntheticModel`
-    protobuf and populated `DatasetDescriptor` will be saved. This allows
-    generating additional records later without re-reading sensitive source
-    data.
-*   `--aim_rounds`, `--aim_pgm_iters`, `--aim_max_model_size`: Advanced tuning
-    parameters specifically for the AIM mechanism.
+See `examples/pipeline_tabular_synthesis.py` for a self-contained example script
+that loads a CSV dataset and YAML domain specification, builds a
+`DatasetDescriptor`, and runs `data_generation.generate` with either
+`pipeline_dp.LocalBackend` or `pipeline_dp.BeamBackend`.
 
 --------------------------------------------------------------------------------
 
-## Specifying Attribute Domains (`--domain_file`)
+## Specifying Attribute Domains
 
 While DPSynth can dynamically deduce column schemas and categorical listings,
 you can explicitly configure attribute types, categories, and bounds using a
-YAML domain specification file via the `--domain_file` flag.
+YAML domain specification file.
 
 ### ⚠️ Critical Requirement for Numerical Columns
 
@@ -208,22 +155,54 @@ YAML domain specification file via the `--domain_file` flag.
 >
 > To ensure your pipeline satisfies strict mathematical Differential Privacy
 > guarantees, you **must** pre-specify the absolute `min_value` and `max_value`
-> bounds for every numerical column in your `--domain_file`. These bounds should
-> be determined using public information or analytical heuristics without
+> bounds for every numerical column in your domain specification. These bounds
+> should be determined using public information or analytical heuristics without
 > looking at the sensitive data.
 
-[`synthetic_model.proto`](../pipeline_transformations/synthetic_model.proto).
+### Example: Applying a Domain Specification in Python
 
-#### A. From the CLI (`bin/run_data_generation.py`)
+```python
+import dpsynth
 
-Pass the `--model_save_path` flag to serialize the model during a standard data
-generation run.
-* Saves the model locally as a single binary file.
+domains = dpsynth.from_yaml("/path/to/my_public_domain.yaml")
+if isinstance(domains, dpsynth.Schema):
+    domains = domains.attributes
+descriptor.update_from_domain_specification(domains)
+```
 
-#### B. From the Library API (Python)
+--------------------------------------------------------------------------------
+
+## Saving & Re-Using the Trained Model
+
+Generating differentially private synthetic data involves computing noisy
+marginals and fitting a complex graphical model (Private-PGM Markov Random
+Field) over your sensitive data. This process consumes a portion of your privacy
+budget (epsilon, delta) and can be computationally intensive for large datasets.
+
+To solve this, DPSynth allows you to **save the trained model** (alongside its
+mapping schema / descriptor) to a file. Once saved, you can reload this model to
+generate/sample additional synthetic records on-demand.
+
+### Why Save the Model?
+
+*   **Zero Extra Privacy Cost**: Sampling records directly from a previously
+    trained model does **not** touch the sensitive source data and consumes
+    **exactly 0 additional privacy budget**, regardless of how many billions of
+    records you generate.
+*   **Ultra-Fast Sampling**: Reloading the graphical model and sampling records
+    from it bypasses the costly DP measurement and Private-PGM training phases.
+
+--------------------------------------------------------------------------------
+
+### 1. How to Save the Model
+
+DPSynth packs the Markov Random Field (`mbi.MarkovRandomField`) and the
+`DatasetDescriptor` into a single unified `SyntheticModel` Protocol Buffer
+representation defined
+in [`synthetic_model.proto`](../pipeline_transformations/synthetic_model.proto).
 
 If building a custom pipeline, use the unified helper functions
-in [`google_input_output.py`](../pipeline_transformations/google_input_output.py)
+in [`input_output.py`](../pipeline_transformations/input_output.py)
 to serialize and save the MRF and descriptor collections.
 
 --------------------------------------------------------------------------------
@@ -232,14 +211,6 @@ to serialize and save the MRF and descriptor collections.
 
 Once saved, you can reload the model and use the mathematical sampling layer to
 generate fresh synthetic records.
-
-#### A. From the CLI (`bin/run_data_generation_from_model.py`)
-
-Use the dedicated
-binary [`bin/run_data_generation_from_model.py`](../bin/run_data_generation_from_model.py)
-to sample records at scale on cluster infrastructure.
-
-#### B. From the Library API (Python)
 
 You can load and sample directly within your pipeline scripts, allowing you to
 easily plug synthetic generators into downstream ETL steps.
