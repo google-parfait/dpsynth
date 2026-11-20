@@ -12,7 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Distributed differentially private tabular synthesis example using PipelineDP."""
+"""Distributed differentially private tabular synthesis with Apache Beam.
+
+Demonstrates scaling tabular synthesis beyond single-machine memory using the
+``dpsynth.pipeline`` API backed by PipelineDP. Instead of loading the entire
+table into a Pandas DataFrame as in ``tabular_synthesis.py``, records stream
+through an Apache Beam pipeline (or an in-process Python iterable via
+``--no-use_beam`` for quick local debugging) to compute differentially private
+marginals and emit synthetic CSV rows (using the UCI Adult dataset by default).
+"""
 
 from __future__ import annotations
 

@@ -299,6 +299,9 @@ directory:
 
 *   **Overview & Quickstart** (`docs/index.md`):
     High-level overview and end-to-end Pandas DataFrame usage example.
+*   **Examples** (`docs/examples.md`):
+    Runnable scripts showcasing distinct synthesis capabilities across
+    modalities.
 *   **API Reference** (`docs/api_reference.rst`):
     Reference documentation for the public DPSynth Python API.
 *   **Specifying Attribute Domains** (`docs/specifying_domains.md`):
