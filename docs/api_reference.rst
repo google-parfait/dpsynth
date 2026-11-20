@@ -128,6 +128,8 @@ The primary entry point for generating differentially private synthetic data fro
 
    TabularConfig
    TabularMechanism
+   DataGenerationResult
+   TabularCodec
 
 ----
 

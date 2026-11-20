@@ -58,6 +58,7 @@ from dpsynth.discrete_mechanisms.swift import SWIFTConfig
 
 # Single-table tabular synthesis.
 from dpsynth.statistical._tabular import DataGenerationResult
+from dpsynth.statistical._tabular import TabularCodec
 from dpsynth.statistical._tabular import TabularConfig
 from dpsynth.statistical._tabular import TabularMechanism
 from dpsynth.statistical.postprocessing import generate_synthetic_data_from_marginals
@@ -108,6 +109,7 @@ __all__ = [
     'PrivacyReport',
     'SWIFTConfig',
     'Schema',
+    'TabularCodec',
     'TabularConfig',
     'TabularMechanism',
     'TradeOffCurve',

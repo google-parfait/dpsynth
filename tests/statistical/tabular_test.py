@@ -186,6 +186,7 @@ class DataGenerationV3Test(parameterized.TestCase):
         domains, epsilon=epsilon, delta=delta
     )
     result = calibrated(rng, df)
+    self.assertIsInstance(result.codec, dpsynth.TabularCodec)
     synthetic_df = result.synthetic_data
     self.assertIsInstance(synthetic_df, pd.DataFrame)
     self.assertListEqual(synthetic_df.columns.tolist(), ['A', 'B'])
