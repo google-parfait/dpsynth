@@ -13,36 +13,88 @@
 # limitations under the License.
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from dpsynth.training import _optimizers
 import jax
 import jax.numpy as jnp
 import optax
 
 
-class DenoisedAdamWTest(absltest.TestCase):
+class DenoisedAdamWTest(parameterized.TestCase):
 
   def test_step_zero_matches_normalized_sign_and_jit(self):
-    opt = _optimizers.scale_by_denoised_adam(b1=0.0, b2=0.999, eps=0.0)
+    opt = _optimizers.denoised_adamw(
+        learning_rate=1.0, b1=0.0, b2=0.999, eps=0.0, weight_decay=0.0
+    )
     params = {'w': jnp.array([[2.0, -4.0], [0.5, -1.0]], dtype=jnp.float32)}
     grads = {'w': jnp.array([[3.0, -6.0], [0.25, -0.5]], dtype=jnp.float32)}
     state = jax.jit(opt.init)(params)
     updates, _ = jax.jit(opt.update)(grads, state, params)
     self.assertTrue(
-        bool(jnp.allclose(updates['w'], jnp.sign(grads['w']), atol=1e-5))
+        bool(jnp.allclose(updates['w'], -jnp.sign(grads['w']), atol=1e-5))
     )
 
-  def test_zero_denoise_beta_matches_standard_adam(self):
-    opt_denoised = _optimizers.scale_by_denoised_adam(denoise_beta=0.0)
-    opt_adam = optax.scale_by_adam()
+  @parameterized.parameters(0.0, 0.85, 0.9)
+  def test_matches_ema_chained_with_adamw(self, b1):
+    opt_denoised = _optimizers.denoised_adamw(learning_rate=2e-3, b1=b1)
+    opt_adamw = optax.chain(
+        optax.ema(decay=b1), optax.adamw(learning_rate=2e-3, b1=0.0)
+    )
     params = {'w': jnp.array([1.0, -2.0, 0.5, 3.0], dtype=jnp.float32)}
     s_denoised = opt_denoised.init(params)
-    s_adam = opt_adam.init(params)
+    s_adamw = opt_adamw.init(params)
     for step in range(6):
       grads = {'w': jax.random.normal(jax.random.key(step), (4,))}
       u_denoised, s_denoised = opt_denoised.update(grads, s_denoised, params)
-      u_adam, s_adam = opt_adam.update(grads, s_adam, params)
+      u_adamw, s_adamw = opt_adamw.update(grads, s_adamw, params)
       self.assertTrue(
-          bool(jnp.allclose(u_denoised['w'], u_adam['w'], atol=1e-6))
+          bool(jnp.allclose(u_denoised['w'], u_adamw['w'], atol=1e-6))
+      )
+
+  @parameterized.parameters(0.0, 0.85, 0.9)
+  def test_matches_explicit_recurrence_and_uses_2x_state(self, b1):
+    b2, eps, lr, wd = 0.999, 1e-8, 2e-3, 1e-4
+    opt = _optimizers.denoised_adamw(
+        learning_rate=lr, b1=b1, b2=b2, eps=eps, weight_decay=wd
+    )
+    params = {
+        'w32': jnp.linspace(-1.0, 2.0, 8, dtype=jnp.float32),
+        'w16': jnp.linspace(-1.0, 2.0, 8, dtype=jnp.bfloat16),
+    }
+    state = opt.init(params)
+    param_arrays = [x for x in jax.tree.leaves(state) if x.shape == (8,)]
+    self.assertLen(param_arrays, 4)
+
+    mu = jax.tree.map(jnp.zeros_like, params)
+    nu = jax.tree.map(jnp.zeros_like, params)
+    lerp = lambda a, b, w: jnp.astype(w * a + (1.0 - w) * b, a.dtype)
+    for step in range(1, 8):
+      grads = {
+          'w32': jax.random.normal(jax.random.key(step), (8,), jnp.float32),
+          'w16': jax.random.normal(jax.random.key(step), (8,), jnp.bfloat16),
+      }
+      updates, state = opt.update(grads, state, params)
+
+      mu = jax.tree.map(lambda m, g: lerp(m, g, b1), mu, grads)
+      c1 = 1.0 - b1**step
+      mu_hat = jax.tree.map(lambda x, c=c1: jnp.astype(x / c, x.dtype), mu)
+      nu = jax.tree.map(lambda v, g: lerp(v, g**2, b2), nu, mu_hat)
+      c2 = 1.0 - b2**step
+      nu_hat = jax.tree.map(lambda x, c=c2: jnp.astype(x / c, x.dtype), nu)
+      ref = jax.tree.map(
+          lambda m, v, p: jnp.astype(
+              -lr * (jnp.astype(m / (jnp.sqrt(v) + eps), m.dtype) + wd * p),
+              p.dtype,
+          ),
+          mu_hat,
+          nu_hat,
+          params,
+      )
+      self.assertTrue(
+          bool(jnp.allclose(updates['w32'], ref['w32'], rtol=1e-5, atol=1e-6))
+      )
+      self.assertTrue(
+          bool(jnp.allclose(updates['w16'], ref['w16'], rtol=2e-2, atol=1e-4))
       )
 
   def test_ema_denoising_suppresses_alternating_noise_in_nu(self):
@@ -50,8 +102,8 @@ class DenoisedAdamWTest(absltest.TestCase):
     g_pos = {'w': jnp.ones((4,), dtype=jnp.float32)}
     g_neg = {'w': -jnp.ones((4,), dtype=jnp.float32)}
 
-    opt_denoised = _optimizers.scale_by_denoised_adam(denoise_beta=0.85)
-    opt_raw = _optimizers.scale_by_denoised_adam(denoise_beta=0.0)
+    opt_denoised = _optimizers.denoised_adamw(b1=0.9)
+    opt_raw = _optimizers.denoised_adamw(b1=0.0)
     s_denoised = opt_denoised.init(params)
     s_raw = opt_raw.init(params)
     for step in range(8):
@@ -59,13 +111,11 @@ class DenoisedAdamWTest(absltest.TestCase):
       _, s_denoised = opt_denoised.update(g, s_denoised, params)
       _, s_raw = opt_raw.update(g, s_raw, params)
 
-    assert isinstance(s_denoised, _optimizers.ScaleByDenoisedAdamState)
-    assert isinstance(s_raw, _optimizers.ScaleByDenoisedAdamState)
-    nu_denoised = float(jnp.mean(s_denoised.nu['w']))
-    nu_raw = float(jnp.mean(s_raw.nu['w']))
-    self.assertLess(nu_denoised, 0.25 * nu_raw)
+    nu_denoised = float(jnp.mean(optax.tree.get(s_denoised, 'nu')['w']))
+    nu_raw = float(jnp.mean(optax.tree.get(s_raw, 'nu')['w']))
+    self.assertLess(nu_denoised, 0.15 * nu_raw)
 
-  def test_denoised_adamw_finite_updates_and_dtypes(self):
+  def test_denoised_adamw_finite_updates_and_dtypes_under_scan(self):
     opt = _optimizers.denoised_adamw(learning_rate=3e-3, weight_decay=1e-4)
     params = {
         'w32': jnp.ones((8, 4), dtype=jnp.float32),
@@ -75,13 +125,13 @@ class DenoisedAdamWTest(absltest.TestCase):
         'w32': jax.random.normal(jax.random.key(0), (8, 4), dtype=jnp.float32),
         'w16': jax.random.normal(jax.random.key(1), (8, 4), dtype=jnp.bfloat16),
     }
-    state = opt.init(params)
-    for _ in range(4):
-      updates, state = opt.update(grads, state, params)
-      self.assertEqual(updates['w32'].dtype, jnp.float32)
-      self.assertEqual(updates['w16'].dtype, jnp.bfloat16)
-      for leaf in jax.tree.leaves(updates):
-        self.assertTrue(bool(jnp.all(jnp.isfinite(leaf))))
+    init_state = opt.init(params)
+    step_fn = lambda s, _: tuple(reversed(opt.update(grads, s, params)))
+    _, updates = jax.lax.scan(step_fn, init_state, None, length=4)
+    self.assertEqual(updates['w32'].dtype, jnp.float32)
+    self.assertEqual(updates['w16'].dtype, jnp.bfloat16)
+    for leaf in jax.tree.leaves(updates):
+      self.assertTrue(bool(jnp.all(jnp.isfinite(leaf))))
 
   def test_converges_on_noisy_quadratic(self):
     target = jnp.array([1.5, -2.0, 0.5, 3.0], dtype=jnp.float32)
