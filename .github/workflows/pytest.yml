@@ -96,6 +96,11 @@ jobs:
           uv pip install --system -r pylock.toml
           uv pip install --system --no-deps -e .
 
+      # -W (warnings-as-errors) is deferred until preexisting MyST/rST warnings
+      # in legacy docs are cleaned up.
+      - name: Build Sphinx documentation
+        run: sphinx-build -b html docs docs/_build/html
+
       - name: Run pyrefly
         run: pyrefly check
 
