@@ -70,20 +70,22 @@ any of them directly benefit DP Synth:
 Contributions to these libraries — bug fixes, performance improvements, new
 features — can be surfaced into DP Synth once they land upstream.
 
-## The `contrib/` Directory
+## Scope, Starter PRs, and Standalone Ecosystem Extensions
 
-If you're proposing a **new mechanism** or a substantial new feature that
-doesn't fit neatly into the existing module structure, place it in the
-[`contrib/`](contrib/) directory. This is a staging area for experimental or
-community-contributed code that hasn't yet been integrated into the core
-library.
-
-Once a contribution in `contrib/` has landed, matured, and proven useful, we'll
-work with you to migrate it into the appropriate core module.
-
-If your contribution is a bug fix, documentation improvement, or a change to an
-existing module, submit it directly to the relevant file — `contrib/` is only
-for new standalone additions.
+*   **Claiming issues**: Before starting work, check open issues and PRs. To
+    claim an issue, leave a comment such as `"I'd like to work on this"` and a
+    maintainer will assign it to you (GitHub restricts self-assignment on public
+    repositories).
+*   **Targeted bug fixes (<50 lines)**: Bug fixes and small documentation
+    updates should be minimal and surgical (under 50 changed lines, without
+    unrelated refactors or cleanups). Small, focused PRs review fastest and are
+    the best way to build familiarity with the codebase.
+*   **New mechanisms and pure additions**: Self-contained new mechanisms and
+    pure additions can be larger; please open an issue first to align on scope
+    and API design before writing code. Experimental or domain-specific research
+    extensions are often best developed first as standalone open-source
+    repositories built on `dpsynth`, `mbi`, and `jax_privacy`, which we are
+    happy to highlight from our documentation once validated.
 
 ## Acceptance Criteria
 
