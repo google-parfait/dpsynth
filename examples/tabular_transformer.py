@@ -12,7 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""End-to-end example of TabularTransformer with TabularConfig."""
+"""Autoregressive Transformer synthesis inside the TabularConfig workflow.
+
+Demonstrates how a neural generative model trained with BandMF plugs directly
+into ``TabularConfig`` as a drop-in replacement for marginal-based mechanisms.
+The outer tabular wrapper handles schema encoding and decoding while an
+autoregressive Transformer learns sequential dependencies across columns, making
+it well suited for ordered event sequences such as the UCI MSNBC clickstream
+dataset (303,139 user sessions padded to 16 page-category steps).
+"""
 
 from __future__ import annotations
 

@@ -12,26 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Differentially private fine-tuning of Gemma on text datasets.
+"""Differentially private fine-tuning of Gemma on unstructured text.
 
-Fine-tunes a small Gemma model on real text documents with DP-BandMF, then
-samples *synthetic* documents from it. The input ``--data_path`` must be a JSON
-file containing a list of text strings (``["doc 1", "doc 2", ...]``). Every
-training example pairs a document with the same fixed instruction prompt so the
-model learns the unconditional distribution of documents; we generate by feeding
-that prompt back with a non-zero temperature.
-
-Training is the expensive, privacy-consuming step; sampling is free
-post-processing. This example is for demonstration purposes only: it's not super
-highly tuned, and is missing some of the bells and whistles of a production job.
-
-Example usage::
-
-  python finetune_text.py \
-      --data_path=datasets/pubmed.json \
-      --canary_path=datasets/pubmed_canaries.json \
-      --output_dir=dpsynth_output \
-      --instruction="Write the abstract of a research paper."
+Demonstrates generating synthetic free-form text by fine-tuning a Gemma model
+with BandMF on private documents paired with a shared instruction prompt,
+optionally inserting canary strings to empirically audit memorization alongside
+the formal privacy guarantee. Because device sharding is handled automatically,
+the same script runs without modification on a single GPU or across a large
+cluster of GPUs or TPUs. Training is the privacy-consuming step while sampling
+from the tuned weights is free post-processing, producing both a reusable model
+checkpoint and synthetic text samples (using PubMed abstracts by default).
 """
 
 from __future__ import annotations
@@ -69,9 +59,9 @@ class Config:
     seed: RNG seed for training and sampling.
   """
 
-  data_path: str
-  output_dir: str
-  instruction: str
+  data_path: str = 'datasets/pubmed.json'
+  output_dir: str = 'dpsynth_output'
+  instruction: str = 'Write the abstract of a research paper.'
   checkpoint_dir: str | None = None
   run_id: str | None = None
   canary_path: str | None = None
