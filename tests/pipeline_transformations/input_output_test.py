@@ -27,7 +27,8 @@ from dpsynth.pipeline_transformations import types
 import jax.numpy as jnp
 import mbi
 import numpy as np
-import tensorflow as tf
+import pytest
+tf = pytest.importorskip("tensorflow")
 
 
 DATA_RECORD_CONVERTER = csv_descriptor.CSVConverter(
