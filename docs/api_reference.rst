@@ -133,10 +133,10 @@ The primary entry point for generating differentially private synthetic data fro
 
 ----
 
-Discrete Mechanisms (``dpsynth.discrete_mechanisms``)
-======================================================
+Discrete Mechanisms (``dpsynth``)
+=================================
 
-.. currentmodule:: dpsynth.discrete_mechanisms
+.. currentmodule:: dpsynth
 
 Discrete mechanisms operate on pre-discretized integer datasets
 (:class:`mbi.Dataset`).  :class:`~dpsynth.TabularConfig` applies them internally
@@ -148,7 +148,7 @@ Mechanism Configs
 
 Each config class corresponds to a published DP synthesis algorithm.  Pass one
 as the ``discrete_mechanism`` argument to :class:`~dpsynth.TabularConfig`,
-or use :class:`~dpsynth.discrete_mechanisms.DiscreteConfig` to add one-way
+or use :class:`~dpsynth.DiscreteConfig` to add one-way
 marginal measurement and domain compression.
 
 .. autosummary::

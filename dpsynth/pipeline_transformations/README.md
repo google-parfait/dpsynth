@@ -19,10 +19,10 @@ project. It interacts deeply with other core modules:
     here are the primary engine for the **Population Phase** of the
     `DatasetDescriptor`. They securely derive missing metadata (like bounds or
     categories) from raw data.
-*   **[discrete_mechanisms/](../discrete_mechanisms/)**: While this directory
+*   **[statistical/base/](../statistical/base/)**: While this directory
     implements Beam-native versions of mechanisms, it frequently reuses the
     shared mathematical utilities (e.g., domain compression logic) found in
-    `discrete_mechanisms/common.py`.
+    `statistical/base/common.py`.
 
 ## Functional Overview
 
@@ -75,9 +75,9 @@ Orchestrate the above components into end-to-end algorithms:
 *   **`mst.py`**: Distributed Maximum Spanning Tree Mechanism.
 *   **`independent_mechanism.py`**: Baseline independent attribute generation.
 
-## Relationship to `discrete_mechanisms`
+## Relationship to `statistical/base`
 
-While `discrete_mechanisms` is designed for **local, single-machine**
+While `statistical/base` is designed for **local, single-machine**
 prototyping on small datasets (using Pandas/NumPy), `pipeline_transformations`
 is built for massive-scale production datasets. In many cases, the pipeline
 implementation calls into the same core mathematical functions after the initial

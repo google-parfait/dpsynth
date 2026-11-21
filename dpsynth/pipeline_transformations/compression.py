@@ -17,8 +17,8 @@
 from typing import TypeAlias
 
 from dpsynth import transformations
-from dpsynth.discrete_mechanisms import common
 from dpsynth.pipeline_transformations import types
+from dpsynth.statistical.base import common
 import mbi
 import pipeline_dp
 

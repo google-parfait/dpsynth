@@ -20,14 +20,14 @@ mechanisms from distributed execution transformations.
 dpsynth/
  ├── data_generation.py           <-- Core Library API for distributed generation
  ├── dataset_descriptors/         <-- Format descriptors & schema converters (CSV, TFRecord)
- ├── discrete_mechanisms/         <-- Core mechanism implementations defined over integer-coded data represented as numpy arrays.  Also works with pre-computed marginal histograms instead of raw data
+ ├── statistical/base/            <-- Core mechanism implementations defined over integer-coded data represented as numpy arrays.  Also works with pre-computed marginal histograms instead of raw data
  ├── pipeline_transformations/    <-- Distributed pipeline implementations of DP transformations
  └── domain.py                    <-- Public data model & attribute domain definitions
 ```
 
 ### Architectural Separation: General vs. Distributed
 
-*   **`discrete_mechanisms/` (General Abstractions)**: Implements core
+*   **`statistical/base/` (General Abstractions)**: Implements core
     mathematical algorithms (`AIM`, `MST`, `SWIFT`, `INDEPENDENT`). Operating
     strictly on discrete integer data (`mbi.Dataset`), these modules are
     single-machine, in-memory engines. They contain zero references to
@@ -37,7 +37,7 @@ dpsynth/
     massive-scale, parallelized pipeline operations (e.g., distributed quantile
     bucketing, one-way marginal measurement, and batch record sampling). These
     modules orchestrate data preparation at scale before calling into the shared
-    mathematical routines in `discrete_mechanisms/common.py`.
+    mathematical routines in `statistical/base/common.py`.
 
 --------------------------------------------------------------------------------
 

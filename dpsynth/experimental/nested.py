@@ -31,10 +31,10 @@ import dataclasses
 
 from absl import logging
 import dp_accounting
-from dpsynth import discrete_mechanisms
 from dpsynth.core import _mechanism as api
 from dpsynth.core import domain
 from dpsynth.statistical import _tabular
+from dpsynth.statistical.base import mst
 import numpy as np
 import pandas as pd
 
@@ -241,10 +241,10 @@ class NestedTabularConfig(api.MechanismConfig):
 
   shared_budget_fraction: float = 0.5
   shared_mechanism: api.MechanismConfig = dataclasses.field(
-      default_factory=discrete_mechanisms.MSTConfig
+      default_factory=mst.MSTConfig
   )
   detail_mechanism: api.MechanismConfig = dataclasses.field(
-      default_factory=discrete_mechanisms.MSTConfig
+      default_factory=mst.MSTConfig
   )
   init_budget_fraction: float = 0.1
   compress_columns: bool = False

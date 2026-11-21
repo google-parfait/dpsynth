@@ -22,7 +22,7 @@ interacts with several other key modules:
 *   **[transformations.py](../transformations.py)**: `DatasetDescriptor` uses
     these tools to `encode()` raw values into discrete indices and `decode()`
     them back to the original domain.
-*   **[common.py](../discrete_mechanisms/common.py)**: Compression logic
+*   **[common.py](../statistical/base/common.py)**: Compression logic
     (mapping rare values to an "Other" category) utilizes utilities from this
     module, often storing the results as `mbi.LinearMeasurement` objects within
     the descriptors.

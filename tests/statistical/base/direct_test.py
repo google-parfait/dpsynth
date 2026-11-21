@@ -14,7 +14,8 @@
 
 from absl.testing import absltest
 import dpsynth
-from dpsynth.discrete_mechanisms import common
+from dpsynth.statistical.base import common
+from dpsynth.statistical.base import direct
 import mbi
 import numpy as np
 
@@ -22,9 +23,13 @@ import numpy as np
 class DirectTest(absltest.TestCase):
 
   def test_fits_one_way_marginals(self):
-    data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
+    data = mbi.Dataset.synthetic(mbi.Domain(('a', 'b', 'c'), (3, 4, 5)), N=1000)
 
-    prespecified_queries = [('a', 'b'), ('a', 'c'), ('b', 'c')]
+    prespecified_queries: list[tuple[str, ...]] = [
+        ('a', 'b'),
+        ('a', 'c'),
+        ('b', 'c'),
+    ]
     config = dpsynth.DirectConfig(
         prespecified_marginal_queries=prespecified_queries,
         pgm_iters=500,
@@ -40,11 +45,16 @@ class DirectTest(absltest.TestCase):
 
   def test_calibrate_gives_expected_gdp_budget(self):
     calibrated = dpsynth.DirectConfig().calibrate(epsilon=1.0, delta=1e-5)
+    self.assertIsInstance(calibrated, direct.Direct)
     self.assertAlmostEqual(calibrated.gdp_budget, 0.07185134, places=6)
 
   def test_custom_estimator(self):
-    data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
-    prespecified_queries = [('a', 'b'), ('a', 'c'), ('b', 'c')]
+    data = mbi.Dataset.synthetic(mbi.Domain(('a', 'b', 'c'), (3, 4, 5)), N=1000)
+    prespecified_queries: list[tuple[str, ...]] = [
+        ('a', 'b'),
+        ('a', 'c'),
+        ('b', 'c'),
+    ]
     config = dpsynth.DirectConfig(
         prespecified_marginal_queries=prespecified_queries,
         estimator=mbi.estimation.InteriorGradient(),
@@ -58,7 +68,7 @@ class DirectTest(absltest.TestCase):
       np.testing.assert_allclose(actual, expected, atol=1)
 
   def test_marginal_oracle_propagated_to_estimator(self):
-    data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b'], [2, 3]), N=100)
+    data = mbi.Dataset.synthetic(mbi.Domain(('a', 'b'), (2, 3)), N=100)
     calls = []
 
     def tracking_oracle(potentials, total=1, constraints=(), **kwargs):
@@ -78,7 +88,7 @@ class DirectTest(absltest.TestCase):
 
   def test_downward_closure_expands_subcliques_and_skips_one_way(self):
     data = mbi.Dataset.synthetic(
-        mbi.Domain(['a', 'b', 'c', 'd'], [2, 3, 2, 2]), N=100
+        mbi.Domain(('a', 'b', 'c', 'd'), (2, 3, 2, 2)), N=100
     )
     config = dpsynth.DirectConfig(
         prespecified_marginal_queries=[('a', 'b', 'c'), ('b', 'a', 'd')],

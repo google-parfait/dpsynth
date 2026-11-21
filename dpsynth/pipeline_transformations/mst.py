@@ -17,11 +17,11 @@
 import itertools
 from typing import Any, TypeAlias
 
-from dpsynth.discrete_mechanisms import mst as mst_mechanism
 from dpsynth.pipeline_transformations import diagnostic_info
 from dpsynth.pipeline_transformations import marginals_computations
 from dpsynth.pipeline_transformations import model
 from dpsynth.pipeline_transformations import types
+from dpsynth.statistical.base import mst
 import mbi
 import numpy as np
 import pipeline_dp
@@ -96,17 +96,19 @@ def fit_model(
 
 
 def _filter_marginals_with_mst(
-    backend: pipeline_dp.PipelineBackend, marginals: TwoWayMarginals, mst: MST
+    backend: pipeline_dp.PipelineBackend,
+    marginals: TwoWayMarginals,
+    spanning_tree: MST,
 ) -> TwoWayMarginals:
   """Returns the marginals which are in the MST."""
 
-  mst_set = backend.map(mst, set, "MST to Set")
+  mst_set = backend.map(spanning_tree, set, "MST to Set")
 
   def filter_by_mst_fn(
-      two_way_marginal: tuple[Edge, np.ndarray], mst: set[Edge]
+      two_way_marginal: tuple[Edge, np.ndarray], tree_edges: set[Edge]
   ) -> bool:
     attr1, attr2 = two_way_marginal[0]
-    return (attr1, attr2) in mst or (attr2, attr1) in mst
+    return (attr1, attr2) in tree_edges or (attr2, attr1) in tree_edges
 
   return backend.filter_with_side_inputs(
       marginals, filter_by_mst_fn, [mst_set], "Filter By MST"
@@ -156,7 +158,7 @@ def _select_dp_maximum_spanning_tree(
     weights_str = {(str(k[0]), str(k[1])): v for k, v in weights.items()}
 
     epsilon = _get_eps_from_laplace_noise_std(budget.noise_standard_deviation)
-    spanning_tree = mst_mechanism.dp_maximum_spanning_tree(
+    spanning_tree = mst.dp_maximum_spanning_tree(
         np.random.default_rng(),
         weights_str,
         exponential_mechanism_epsilon=epsilon,

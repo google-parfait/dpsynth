@@ -19,7 +19,6 @@ __version__ = '0.5.0'
 
 # Subpackages and legacy module aliases.
 from dpsynth import core
-from dpsynth import discrete_mechanisms
 from dpsynth import relational
 
 domain = core.domain
@@ -48,13 +47,13 @@ PrivacyReport = core.PrivacyReport
 TradeOffCurve = core.TradeOffCurve
 
 # Base discrete mechanisms.
-from dpsynth.discrete_mechanisms.aim import AIMConfig
-from dpsynth.discrete_mechanisms.direct import DirectConfig
-from dpsynth.discrete_mechanisms.discrete import DiscreteConfig
-from dpsynth.discrete_mechanisms.discrete import DiscreteMechanism
-from dpsynth.discrete_mechanisms.independent import IndependentConfig
-from dpsynth.discrete_mechanisms.mst import MSTConfig
-from dpsynth.discrete_mechanisms.swift import SWIFTConfig
+from dpsynth.statistical.base.aim import AIMConfig
+from dpsynth.statistical.base.direct import DirectConfig
+from dpsynth.statistical.base.independent import IndependentConfig
+from dpsynth.statistical.base.mst import MSTConfig
+from dpsynth.statistical.base.swift import SWIFTConfig
+from dpsynth.statistical.discrete import DiscreteConfig
+from dpsynth.statistical.discrete import DiscreteMechanism
 
 # Single-table tabular synthesis.
 from dpsynth.statistical._tabular import DataGenerationResult

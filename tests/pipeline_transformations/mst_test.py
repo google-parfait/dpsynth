@@ -17,7 +17,6 @@
 from unittest import mock
 
 from absl.testing import absltest
-from dpsynth.discrete_mechanisms import mst as mst_mechanism
 from dpsynth.pipeline_transformations import marginals_computations
 from dpsynth.pipeline_transformations import mst
 import mbi
@@ -72,7 +71,7 @@ class MstTest(absltest.TestCase):
     self.assertEqual(result[1][0], (1, 2))
     np.testing.assert_array_equal(result[1][1], np.array([7, 8, 9]))
 
-  @mock.patch.object(mst_mechanism, "dp_maximum_spanning_tree", autospec=True)
+  @mock.patch.object(mst.mst, "dp_maximum_spanning_tree", autospec=True)
   @mock.patch.object(marginals_computations, "compute_errors", autospec=True)
   def test_get_dp_maximum_spanning_tree(
       self, mock_compute_graph_weights, mock_dp_mst
@@ -117,7 +116,7 @@ class MstTest(absltest.TestCase):
     self.assertLen(result_mst_list, 1)
     self.assertListEqual(sorted(result_mst_list[0]), expected_mst_int_edges)
 
-  @mock.patch.object(mst_mechanism, "dp_maximum_spanning_tree", autospec=True)
+  @mock.patch.object(mst.mst, "dp_maximum_spanning_tree", autospec=True)
   @mock.patch.object(marginals_computations, "compute_errors", autospec=True)
   def test_select_dp_maximum_spanning_tree_check_epsilon(
       self, mock_compute_graph_weights, mock_dp_mst

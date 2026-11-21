@@ -47,8 +47,8 @@ DP mechanisms that naturally compose and build on top of each other:
 *   **Supported Modalities**:
     *   **Discrete**: Low-level discrete, integer-encoded datasets via
         marginal-based mechanisms
-        ([`DiscreteConfig`](dpsynth/discrete_mechanisms/discrete.py),
-        [`discrete_mechanisms/`](dpsynth/discrete_mechanisms/README.md)).
+        ([`DiscreteConfig`](dpsynth/statistical/discrete.py),
+        [`statistical/base/`](dpsynth/statistical/base/README.md)).
     *   **Tabular (Single-Table)**: Categorical, numerical, and open-set
         attributes ([`TabularConfig`](dpsynth/statistical/_tabular.py)).
     *   **Relational (Multi-Table)**: Multi-table databases with foreign-key
@@ -144,7 +144,7 @@ tested this on datasets up to ~100M rows, though performance will depend on the
 number of attributes and domain sizes. This code path:
 
 *   Operates directly on NumPy / Jax arrays and Pandas DataFrames via
-    [`discrete_mechanisms/`](dpsynth/discrete_mechanisms/README.md).
+    [`statistical/base/`](dpsynth/statistical/base/README.md).
 *   Accepts domains and data as Python objects — no
     `DatasetDescriptor` required.
 *   May be more feature-rich, including experimental mechanisms
@@ -224,7 +224,7 @@ These modules are used by both the in-memory and pipeline code paths:
 
 ### In-Memory Mode Only
 
-*   **[`discrete_mechanisms/`](dpsynth/discrete_mechanisms/README.md)**: Local,
+*   **[`statistical/base/`](dpsynth/statistical/base/README.md)**: Local,
     single-machine DP mechanisms (AIM, MST, etc.) and shared mathematical
     utilities like domain compression.
 *   **[`statistical/_tabular.py`](dpsynth/statistical/_tabular.py)**: The
@@ -267,7 +267,7 @@ These modules are used by both the in-memory and pipeline code paths:
 | Scenario | Recommended |
 |---|---|
 | Fits in memory, Pandas workflow | **In-Memory** (`dpsynth.TabularConfig`) |
-| Discrete data, precomputed marginals | **In-Memory** (`discrete_mechanisms`) |
+| Discrete data, precomputed marginals | **In-Memory** (`dpsynth.DiscreteConfig`) |
 | Large-scale, distributed processing | **Pipeline** (`data_generation`) |
 | Marginals from an external system | **Post-Processing** |
 | Prototyping / experimental features | **In-Memory** (more flexible) |

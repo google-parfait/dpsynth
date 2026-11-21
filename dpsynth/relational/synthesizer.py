@@ -23,11 +23,9 @@ from typing import Any, Literal
 
 from absl import logging
 import dp_accounting
-from dpsynth import discrete_mechanisms
 from dpsynth.core import _calibration
 from dpsynth.core import _mechanism as api
 from dpsynth.core import domain
-from dpsynth.discrete_mechanisms import common as dm_common
 from dpsynth.relational import domain as rel_domain
 from dpsynth.relational import post_processing
 from dpsynth.relational import transformations
@@ -35,6 +33,8 @@ from dpsynth.statistical import _tabular
 from dpsynth.statistical import initialization
 from dpsynth.statistical import primitives
 from dpsynth.statistical import vectorized_transformations as vtx
+from dpsynth.statistical.base import common
+from dpsynth.statistical.base import mst
 import mbi
 import numpy as np
 import pandas as pd
@@ -306,7 +306,7 @@ def _encode_and_compress_tables(
         raw_dataset.data, raw_dataset.domain, weights=weights[table_name]
     )
     one_ways = codec.one_way_measurements()
-    raw_mappings = dm_common.compression_mappings(
+    raw_mappings = common.compression_mappings(
         one_ways, compress_columns=compress_columns
     )
     mappings: dict[str, np.ndarray] = {
@@ -1056,7 +1056,7 @@ class MultiTableConfig(api.MechanismConfig):
 
   foreign_keys: Sequence[rel_domain.ForeignKeyRelation] = ()
   discrete_mechanism: api.MechanismConfig = dataclasses.field(
-      default_factory=discrete_mechanisms.MSTConfig
+      default_factory=mst.MSTConfig
   )
   numerical_bins: int = 32
   init_budget_fraction: float = 0.1

@@ -59,7 +59,7 @@ def main(cfg: Config) -> None:
     tabular_cfg = dpsynth.from_yaml(cfg.config_path, dpsynth.TabularConfig)
   else:
     tabular_cfg = dpsynth.TabularConfig(
-        discrete_mechanism=dpsynth.discrete_mechanisms.SWIFTConfig(),
+        discrete_mechanism=dpsynth.SWIFTConfig(),
         numerical_bins=32,
     )
   mechanism = dpsynth.calibrate(

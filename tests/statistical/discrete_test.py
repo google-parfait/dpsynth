@@ -17,9 +17,9 @@
 from unittest import mock
 from absl.testing import absltest
 import dpsynth
-from dpsynth.discrete_mechanisms import accounting
-from dpsynth.discrete_mechanisms import common
-from dpsynth.discrete_mechanisms import mst
+from dpsynth.statistical.base import accounting
+from dpsynth.statistical.base import common
+from dpsynth.statistical.base import mst
 import mbi
 import numpy as np
 
@@ -50,7 +50,7 @@ class DiscreteConfigTest(absltest.TestCase):
 class DiscreteMechanismTest(absltest.TestCase):
 
   def test_full_pipeline(self):
-    domain = mbi.Domain(['a', 'b', 'c'], [3, 4, 5])
+    domain = mbi.Domain(('a', 'b', 'c'), (3, 4, 5))
     data = mbi.Dataset.synthetic(domain, N=500)
     rng = np.random.default_rng(42)
 
@@ -61,10 +61,11 @@ class DiscreteMechanismTest(absltest.TestCase):
     result = synth(rng, data)
 
     self.assertIsInstance(result, common.DiscreteMechanismResult)
+    assert result.synthetic_data is not None
     self.assertEqual(result.synthetic_data.domain, domain)
 
   def test_with_initial_measurements_skips_one_way(self):
-    domain = mbi.Domain(['a', 'b', 'c'], [3, 4, 5])
+    domain = mbi.Domain(('a', 'b', 'c'), (3, 4, 5))
     data = mbi.Dataset.synthetic(domain, N=500)
     rng = np.random.default_rng(42)
 
@@ -80,7 +81,7 @@ class DiscreteMechanismTest(absltest.TestCase):
     self.assertIsInstance(result, common.DiscreteMechanismResult)
 
   def test_compression_restores_domain(self):
-    domain = mbi.Domain(['a', 'b', 'c'], [10, 4, 5])
+    domain = mbi.Domain(('a', 'b', 'c'), (10, 4, 5))
     rng = np.random.default_rng(0)
     df = {col: rng.integers(0, domain[col], size=1000) for col in domain}
     df['a'] = rng.choice(3, size=1000)
@@ -93,6 +94,7 @@ class DiscreteMechanismTest(absltest.TestCase):
     synth = config.configure(budget=10000)
     result = synth(rng, data)
 
+    assert result.synthetic_data is not None
     self.assertEqual(result.synthetic_data.domain, domain)
 
   def test_dp_event_composes_one_way_and_inner(self):
@@ -108,7 +110,7 @@ class DiscreteMechanismTest(absltest.TestCase):
     config = dpsynth.DiscreteConfig(
         mechanism=dpsynth.MSTConfig(pgm_iters=500),
     )
-    domain = mbi.Domain(['a', 'b'], [3, 4])
+    domain = mbi.Domain(('a', 'b'), (3, 4))
     data = mbi.Dataset.synthetic(domain, N=200)
     rng = np.random.default_rng(0)
 
@@ -119,12 +121,13 @@ class DiscreteMechanismTest(absltest.TestCase):
   def test_converts_dataset_to_clique_vector(self):
     config = dpsynth.DiscreteConfig(mechanism=dpsynth.MSTConfig(pgm_iters=500))
     synth = config.configure(budget=100.0)
-    domain = mbi.Domain(['a', 'b'], [3, 4])
+    domain = mbi.Domain(('a', 'b'), (3, 4))
     data = mbi.Dataset.synthetic(domain, N=20)
     with mock.patch.object(
         mst.MST, '__call__', side_effect=synth.base_mechanism.__call__
     ) as mock_call:
       synth(np.random.default_rng(0), data)
+      assert mock_call.call_args is not None
       self.assertIsInstance(mock_call.call_args.args[1], mbi.CliqueVector)
 
   def test_use_jax_for_generation(self):
@@ -132,11 +135,12 @@ class DiscreteMechanismTest(absltest.TestCase):
         mechanism=dpsynth.MSTConfig(pgm_iters=100),
         use_jax_for_generation=True,
     )
-    domain = mbi.Domain(['a', 'b'], [3, 4])
+    domain = mbi.Domain(('a', 'b'), (3, 4))
     data = mbi.Dataset.synthetic(domain, N=200)
     rng = np.random.default_rng(0)
     synth = config.configure(budget=100.0)
     result = synth(rng, data)
+    assert result.synthetic_data is not None
     self.assertEqual(result.synthetic_data.domain, domain)
     self.assertEqual(result.synthetic_data.records, 200)
 
@@ -146,11 +150,12 @@ class DiscreteMechanismTest(absltest.TestCase):
         use_jax_for_bincount=True,
         use_jax_for_generation=True,
     )
-    domain = mbi.Domain(['a', 'b'], [3, 4])
+    domain = mbi.Domain(('a', 'b'), (3, 4))
     data = mbi.Dataset.synthetic(domain, N=200)
     rng = np.random.default_rng(0)
     synth = config.configure(budget=100.0)
     result = synth(rng, data)
+    assert result.synthetic_data is not None
     self.assertEqual(result.synthetic_data.domain, domain)
     self.assertEqual(result.synthetic_data.records, 200)
 

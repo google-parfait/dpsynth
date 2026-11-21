@@ -103,7 +103,7 @@ import dpsynth
 
 # Step 1: Instantiate a reusable configuration recipe.
 config = dpsynth.TabularConfig(
-    discrete_mechanism=dpsynth.discrete_mechanisms.AIMConfig(
+    discrete_mechanism=dpsynth.AIMConfig(
         pgm_iters=5000,
         max_marginal_size=10_000_000,
         select_budget_fraction=0.5,

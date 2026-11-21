@@ -14,7 +14,7 @@
 
 from absl.testing import absltest
 import dpsynth
-from dpsynth.discrete_mechanisms import common
+from dpsynth.statistical.base import common
 import mbi
 import numpy as np
 
@@ -23,7 +23,7 @@ class IndependentTest(absltest.TestCase):
 
   def test_fits_one_way_marginals(self):
     """Independent with externally-supplied 1-ways should recover marginals."""
-    data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
+    data = mbi.Dataset.synthetic(mbi.Domain(('a', 'b', 'c'), (3, 4, 5)), N=1000)
 
     config = dpsynth.IndependentConfig()
 
@@ -56,7 +56,7 @@ class IndependentTest(absltest.TestCase):
 
   def test_skips_duplicate_cliques_from_initial_measurements(self):
     """Independent should not re-measure pre-measured cliques."""
-    data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=100)
+    data = mbi.Dataset.synthetic(mbi.Domain(('a', 'b', 'c'), (3, 4, 5)), N=100)
     # Pre-measure column 'a'.
     marginal_a = data.project(('a',)).datavector()
     initial = [mbi.LinearMeasurement(marginal_a, ('a',), stddev=1.0)]

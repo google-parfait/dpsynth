@@ -30,7 +30,7 @@ from typing import Any
 
 from dpsynth import transformations
 from dpsynth.core import domain
-from dpsynth.discrete_mechanisms import common
+from dpsynth.statistical.base import common
 import mbi
 
 

@@ -23,12 +23,18 @@ compression.
 from absl.testing import absltest
 from absl.testing import parameterized
 import dpsynth
-from dpsynth.discrete_mechanisms import common
+from dpsynth.statistical.base import common
 import mbi
 import numpy as np
 
 _ZCDP_RHO = 10000
-_WORKLOAD = [('a', 'b'), ('b', 'c'), ('a',), ('b',), ('c',)]
+_WORKLOAD: list[tuple[str, ...]] = [
+    ('a', 'b'),
+    ('b', 'c'),
+    ('a',),
+    ('b',),
+    ('c',),
+]
 
 _MECHANISMS = {
     'AIM': dpsynth.AIMConfig(workload=_WORKLOAD, max_rounds=4, pgm_iters=500),
@@ -43,7 +49,7 @@ _MECHANISMS = {
 
 def _make_skewed_dataset(rng):
   """Creates a dataset where column 'a' concentrates in 3 of 10 bins."""
-  domain = mbi.Domain(['a', 'b', 'c'], [10, 4, 5])
+  domain = mbi.Domain(('a', 'b', 'c'), (10, 4, 5))
   df = {col: rng.integers(0, domain[col], size=1000) for col in domain}
   df['a'] = rng.choice(3, size=1000)  # Only bins 0-2 populated.
   return mbi.Dataset(df, domain)
@@ -54,7 +60,7 @@ class SupportingCliquesSufficiencyTest(parameterized.TestCase):
 
   @parameterized.named_parameters(*_MECHANISMS.items())
   def test_mechanism_runs_on_precomputed_marginals(self, mechanism):
-    domain = mbi.Domain(['a', 'b', 'c', 'd'], [3, 4, 5, 6])
+    domain = mbi.Domain(('a', 'b', 'c', 'd'), (3, 4, 5, 6))
     data = mbi.Dataset.synthetic(domain, N=500)
     rng = np.random.default_rng(42)
 
@@ -83,6 +89,7 @@ class CompressionPropertyTest(parameterized.TestCase):
 
     result = synth_config.configure(budget=_ZCDP_RHO)(rng, data)
 
+    assert result.synthetic_data is not None
     self.assertEqual(result.synthetic_data.domain, original_domain)
 
   @parameterized.named_parameters(*_MECHANISMS.items())
@@ -101,6 +108,7 @@ class CompressionPropertyTest(parameterized.TestCase):
     mechanism = synth_config.configure(budget=_ZCDP_RHO)
     result = mechanism(rng, data, initial_measurements=initial_measurements)
 
+    assert result.synthetic_data is not None
     self.assertEqual(result.synthetic_data.domain, original_domain)
     self.assertNotEmpty(result.mappings)
 

@@ -26,10 +26,10 @@ from dpsynth.core import _checkpoint
 from dpsynth.core import _mechanism
 from dpsynth.core import constraints
 from dpsynth.core import domain
-from dpsynth.discrete_mechanisms import common as dm_common
-from dpsynth.discrete_mechanisms import mst
 from dpsynth.statistical import initialization
 from dpsynth.statistical import vectorized_transformations as vtx
+from dpsynth.statistical.base import common
+from dpsynth.statistical.base import mst
 import mbi
 import numpy as np
 import pandas as pd
@@ -192,7 +192,7 @@ class DataGenerationResult:
   """Result of end-to-end DP synthetic data generation."""
 
   synthetic_data: pd.DataFrame
-  discrete_mechanism_result: dm_common.DiscreteMechanismResult
+  discrete_mechanism_result: common.DiscreteMechanismResult
   codec: TabularCodec
 
 
@@ -310,7 +310,7 @@ class TabularMechanism(_mechanism.CalibratedMechanism):
             for col in self.schema
             if isinstance(self.schema[col], domain.CategoricalAttribute)
         ]
-        mappings = dm_common.compression_mappings(
+        mappings = common.compression_mappings(
             one_way_measurements,
             compress_columns=candidate_cols,
             constraints=mbi_constraints,
@@ -328,7 +328,7 @@ class TabularMechanism(_mechanism.CalibratedMechanism):
         cliques = cfg.supporting_cliques(data.domain)
         data = _checkpoint.get_or_compute(
             'precomputed_marginals',
-            dm_common.precompute_marginals,
+            common.precompute_marginals,
             data,
             cliques,  # pyrefly: ignore[bad-argument-type]
             use_jax=self.config.use_jax_for_bincount,
@@ -346,7 +346,7 @@ class TabularMechanism(_mechanism.CalibratedMechanism):
     if mechanism_result.synthetic_data is not None:
       synthetic_discrete = mechanism_result.synthetic_data
     else:
-      synthetic_discrete = dm_common.generate_synthetic_data(
+      synthetic_discrete = common.generate_synthetic_data(
           mechanism_result.model,
           rng,
           use_jax=self.config.use_jax_for_generation,

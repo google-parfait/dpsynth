@@ -15,8 +15,8 @@
 from absl.testing import absltest
 import dp_accounting
 import dpsynth
-from dpsynth.discrete_mechanisms import common
-from dpsynth.discrete_mechanisms import mst
+from dpsynth.statistical.base import common
+from dpsynth.statistical.base import mst
 import mbi
 import numpy as np
 
@@ -77,7 +77,7 @@ class MSTTest(absltest.TestCase):
 
   def test_fits_one_way_marginals(self):
     """MST + externally-supplied 1-ways should recover all one-way marginals."""
-    data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
+    data = mbi.Dataset.synthetic(mbi.Domain(('a', 'b', 'c'), (3, 4, 5)), N=1000)
 
     calibrated = dpsynth.MSTConfig(pgm_iters=500).configure(budget=10000)
 

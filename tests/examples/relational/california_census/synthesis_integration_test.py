@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from dpsynth import discrete_mechanisms
+import dpsynth
 from dpsynth.relational import domain as rel_domain
 from dpsynth.relational import synthesizer as rel_synth
 from etils import epath
@@ -119,7 +119,7 @@ class CaliforniaCensusSynthesisIntegrationTest(parameterized.TestCase):
 
     config = rel_synth.MultiTableConfig(
         foreign_keys=self.foreign_keys,
-        discrete_mechanism=discrete_mechanisms.MSTConfig(pgm_iters=10),
+        discrete_mechanism=dpsynth.MSTConfig(pgm_iters=10),
         num_permutation_slots=1,
         exploration_strategy='empty_token',
         numerical_bins=2,

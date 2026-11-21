@@ -14,13 +14,13 @@
 
 from absl.testing import absltest
 import dpsynth
-from dpsynth.discrete_mechanisms import common
+from dpsynth.statistical.base import common
 import mbi
 import numpy as np
 
 
 def _make_correlated_dataset(rng, n=1000):
-  domain = mbi.Domain(["a", "b", "c"], [3, 3, 3])
+  domain = mbi.Domain(("a", "b", "c"), (3, 3, 3))
   a = rng.integers(0, 3, size=n)
   b = np.where(rng.random(n) < 0.75, a, rng.integers(0, 3, size=n))
   c = (a + b + rng.integers(0, 2, size=n)) % 3
@@ -57,7 +57,7 @@ def _correlated_workload_mechanism_baseline_errors(
 class AIMTest(absltest.TestCase):
 
   def test_fits_one_way_marginals_with_aim(self):
-    data = mbi.Dataset.synthetic(mbi.Domain(["a", "b", "c"], [3, 4, 5]), N=1000)
+    data = mbi.Dataset.synthetic(mbi.Domain(("a", "b", "c"), (3, 4, 5)), N=1000)
     workload = [("a",), ("b",), ("c",)]
     config = dpsynth.AIMConfig(workload=workload, max_rounds=4, pgm_iters=500)
 
@@ -76,7 +76,7 @@ class AIMTest(absltest.TestCase):
     self.assertEqual(config.pgm_iters, 1000)
 
   def test_workload_degree(self):
-    domain = mbi.Domain(["a", "b", "c"], [3, 3, 3])
+    domain = mbi.Domain(("a", "b", "c"), (3, 3, 3))
     config = dpsynth.AIMConfig(degree=2)
     self.assertCountEqual(
         config.supporting_cliques(domain),
@@ -84,7 +84,7 @@ class AIMTest(absltest.TestCase):
     )
 
   def test_call_with_constraints_raises(self):
-    domain = mbi.Domain(["a", "b"], [2, 2])
+    domain = mbi.Domain(("a", "b"), (2, 2))
     constraint = mbi.Constraint(domain, np.array([[1, 0], [0, 1]]))
     calibrated = dpsynth.AIMConfig().configure(budget=1.0)
     data = mbi.Dataset.synthetic(domain, N=10)

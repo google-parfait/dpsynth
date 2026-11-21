@@ -17,10 +17,10 @@ import os
 
 from absl.testing import absltest
 import dpsynth
-from dpsynth.discrete_mechanisms import clique_tree
-from dpsynth.discrete_mechanisms import common
-from dpsynth.discrete_mechanisms import swift
-from dpsynth.discrete_mechanisms import swift_utils
+from dpsynth.statistical.base import clique_tree
+from dpsynth.statistical.base import common
+from dpsynth.statistical.base import swift
+from dpsynth.statistical.base import swift_utils
 import mbi
 import networkx as nx
 import numpy as np
@@ -30,7 +30,7 @@ class CliqueTreeTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.domain = mbi.Domain(['a', 'b', 'c', 'd'], [2, 3, 4, 5])
+    self.domain = mbi.Domain(('a', 'b', 'c', 'd'), (2, 3, 4, 5))
 
   def test_best_supporting_edge(self):
     edges = [(('a',), ('b',)), (('b',), ('c',))]
@@ -79,8 +79,12 @@ class CliqueTreeTest(absltest.TestCase):
 class SWIFTTest(absltest.TestCase):
 
   def test_select_queries(self):
-    errors = {('a', 'b'): 100, ('b', 'c'): 100, ('a', 'c'): 100}
-    domain = mbi.Domain(['a', 'b', 'c'], [2, 3, 4])
+    errors: dict[mbi.Clique, float] = {
+        ('a', 'b'): 100.0,
+        ('b', 'c'): 100.0,
+        ('a', 'c'): 100.0,
+    }
+    domain = mbi.Domain(('a', 'b', 'c'), (2, 3, 4))
     candidates = {key: 1.0 for key in errors}
     max_clique_size = 100
     gdp_budget = 100.0
@@ -99,8 +103,12 @@ class SWIFTTest(absltest.TestCase):
     self.assertAlmostEqual(selected[('b', 'c')], expected_budget_bc)
 
   def test_select_queries_nonpositive_errors(self):
-    errors = {('a', 'b'): 0.0, ('b', 'c'): -1.0, ('a', 'c'): -2.0}
-    domain = mbi.Domain(['a', 'b', 'c'], [2, 3, 4])
+    errors: dict[mbi.Clique, float] = {
+        ('a', 'b'): 0.0,
+        ('b', 'c'): -1.0,
+        ('a', 'c'): -2.0,
+    }
+    domain = mbi.Domain(('a', 'b', 'c'), (2, 3, 4))
     candidates = {key: 1.0 for key in errors}
     gdp_budget = 100.0
 
@@ -122,9 +130,11 @@ class SWIFTTest(absltest.TestCase):
     self.assertLen(allocation, 3)
 
   def test_build_clique_tree(self):
-    domain = mbi.Domain(['a', 'b', 'c', 'd', 'e', 'f'], [3, 4, 5, 6, 7, 8])
+    domain = mbi.Domain(('a', 'b', 'c', 'd', 'e', 'f'), (3, 4, 5, 6, 7, 8))
     max_clique_size = 100
-    errors = {key: 1.0 for key in itertools.combinations(domain.attributes, 2)}
+    errors: dict[mbi.Clique, float] = {
+        key: 1.0 for key in itertools.combinations(domain.attributes, 2)
+    }
 
     tree = swift.build_clique_tree(domain, errors, max_clique_size)
     actual_max_clique_size = max(domain.size(cl) for cl in tree.nodes)
@@ -135,7 +145,7 @@ class SWIFTTest(absltest.TestCase):
     self.assertLessEqual(actual_max_clique_size, max_clique_size)
 
   def test_fits_one_way_marginals(self):
-    data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
+    data = mbi.Dataset.synthetic(mbi.Domain(('a', 'b', 'c'), (3, 4, 5)), N=1000)
 
     config = dpsynth.SWIFTConfig(pgm_iters=500).configure(budget=10000)
 
@@ -150,7 +160,7 @@ class SWIFTTest(absltest.TestCase):
 
   def test_checkpointing(self):
     temp_dir = self.create_tempdir().full_path
-    data = mbi.Dataset.synthetic(mbi.Domain(['a', 'b', 'c'], [3, 4, 5]), N=1000)
+    data = mbi.Dataset.synthetic(mbi.Domain(('a', 'b', 'c'), (3, 4, 5)), N=1000)
     config = dpsynth.SWIFTConfig(pgm_iters=10).configure(budget=10.0)
 
     with dpsynth.checkpoint(temp_dir, 'run_1', cleanup=False):

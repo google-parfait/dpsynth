@@ -24,9 +24,9 @@ import typing
 from absl import logging
 import dp_accounting
 from dpsynth.core import _mechanism as api
-from dpsynth.discrete_mechanisms import accounting
-from dpsynth.discrete_mechanisms import common
 from dpsynth.statistical import primitives
+from dpsynth.statistical.base import accounting
+from dpsynth.statistical.base import common
 import mbi
 import networkx as nx
 import numpy as np

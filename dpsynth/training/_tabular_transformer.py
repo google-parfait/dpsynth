@@ -22,7 +22,7 @@ import typing
 
 import dp_accounting
 from dpsynth.core import _mechanism as api
-from dpsynth.discrete_mechanisms import common as dm_common
+from dpsynth.statistical.base import common
 from dpsynth.training import _trainer as dp_trainer
 from dpsynth.training import _transformer_model as transformer_model
 from flax import nnx
@@ -189,7 +189,7 @@ class TabularTransformer(api.CalibratedMechanism):
       initial_potentials=None,
       constraints=(),
       **kwargs: typing.Any,
-  ) -> dm_common.DiscreteMechanismResult:
+  ) -> common.DiscreteMechanismResult:
     del initial_measurements, initial_potentials, constraints, kwargs
     # 1-to-1 per-record mapping preserves record-level differential privacy.
     columns = list(data.domain.attributes)
@@ -216,7 +216,7 @@ class TabularTransformer(api.CalibratedMechanism):
         data.domain,
         num_rows=len(rows),
     )
-    return dm_common.DiscreteMechanismResult(
+    return common.DiscreteMechanismResult(
         model=typing.cast(mbi.Model, None),
         synthetic_data=synthetic_dataset,
     )

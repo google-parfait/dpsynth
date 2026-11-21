@@ -14,10 +14,11 @@
 
 import itertools
 import pickle
+from typing import Any
 
 from absl.testing import absltest
 from dpsynth import transformations
-from dpsynth.discrete_mechanisms import common
+from dpsynth.statistical.base import common
 import mbi
 import numpy as np
 
@@ -29,7 +30,7 @@ def assert_serializable(obj):
 class CommonTest(absltest.TestCase):
 
   def test_measure_marginals_with_noise(self):
-    data = mbi.Dataset.synthetic(mbi.Domain(["a", "b", "c"], [3, 4, 5]), N=1000)
+    data = mbi.Dataset.synthetic(mbi.Domain(("a", "b", "c"), (3, 4, 5)), N=1000)
     marginal_queries = [("a",), ("b",), ("c",)]
     measurements = common.measure_marginals_with_noise(
         np.random.default_rng(0), data, marginal_queries, gdp_sigma=1.0
@@ -59,13 +60,13 @@ class CommonTest(absltest.TestCase):
     self.assertEqual(compressed_domain, mbi.Domain.fromdict({"a": 5}))
 
   def test_supporting_cliques(self):
-    domain = mbi.Domain(["a", "b", "c", "d"], [3, 3, 3, 100])
+    domain = mbi.Domain(("a", "b", "c", "d"), (3, 3, 3, 100))
     cliques = common.supporting_cliques(domain, workload=None)
     self.assertCountEqual(
         cliques, list(itertools.combinations(domain.attributes, 3))
     )
     # Default workload with two columns.
-    two_column_domain = mbi.Domain(["a", "b"], [3, 3])
+    two_column_domain = mbi.Domain(("a", "b"), (3, 3))
     cliques = common.supporting_cliques(two_column_domain, workload=None)
     self.assertCountEqual(cliques, [("a", "b")])
     # Configurable workload degree.
@@ -86,13 +87,14 @@ class CommonTest(absltest.TestCase):
     self.assertIn(("a", "b"), cliques)
     self.assertNotIn(("a", "d"), cliques)
     # Workload with lists instead of tuples.
-    cliques = common.supporting_cliques(domain, [["a", "b"], ["c", "d"]])
+    list_workload: Any = [["a", "b"], ["c", "d"]]
+    cliques = common.supporting_cliques(domain, list_workload)
     self.assertCountEqual(cliques, [("a", "b"), ("c", "d")])
     for cl in cliques:
       self.assertIsInstance(cl, tuple)
 
   def test_compiled_workload_degree(self):
-    domain = mbi.Domain(["a", "b", "c"], [3, 3, 3])
+    domain = mbi.Domain(("a", "b", "c"), (3, 3, 3))
     workload = common.compiled_workload(domain, None, degree=2)
     self.assertCountEqual(
         workload,
@@ -100,14 +102,15 @@ class CommonTest(absltest.TestCase):
     )
 
   def test_compiled_workload_with_lists(self):
-    domain = mbi.Domain(["a", "b"], [3, 3])
-    workload = common.compiled_workload(domain, [["a", "b"]])
+    domain = mbi.Domain(("a", "b"), (3, 3))
+    list_workload: Any = [["a", "b"]]
+    workload = common.compiled_workload(domain, list_workload)
     self.assertIn(("a", "b"), workload)
     for cl in workload.keys():
       self.assertIsInstance(cl, tuple)
 
   def test_compiled_workload_default_with_two_columns(self):
-    domain = mbi.Domain(["a", "b"], [3, 3])
+    domain = mbi.Domain(("a", "b"), (3, 3))
     workload = common.compiled_workload(domain, None)
     self.assertCountEqual(
         workload.keys(),
@@ -115,7 +118,7 @@ class CommonTest(absltest.TestCase):
     )
 
   def test_precompute_marginals_standard_and_jax(self):
-    domain = mbi.Domain(["a", "b"], [3, 4])
+    domain = mbi.Domain(("a", "b"), (3, 4))
     data = mbi.Dataset.synthetic(domain, N=100)
     cliques = [("a",), ("a", "b")]
 

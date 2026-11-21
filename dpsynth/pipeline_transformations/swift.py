@@ -19,12 +19,12 @@ import functools
 from typing import Any
 
 from dpsynth.dataset_descriptors import dataset_descriptor
-from dpsynth.discrete_mechanisms import accounting
-from dpsynth.discrete_mechanisms import common
-from dpsynth.discrete_mechanisms import swift
 from dpsynth.pipeline_transformations import diagnostic_info
 from dpsynth.pipeline_transformations import marginals_computations
 from dpsynth.pipeline_transformations import types
+from dpsynth.statistical.base import accounting
+from dpsynth.statistical.base import common
+from dpsynth.statistical.base import swift
 import mbi
 import networkx as nx
 import numpy as np

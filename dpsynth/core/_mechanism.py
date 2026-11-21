@@ -19,7 +19,7 @@ building block for all differentially private algorithms in DP Synth.
 
 Example usage::
 
-  mechanism = dpsynth.discrete_mechanisms.AIMMechanism(pgm_iters=500)
+  mechanism = dpsynth.AIMConfig(pgm_iters=500)
 
   # Calibrate to (epsilon, delta)-DP.
   calibrated = dpsynth.calibrate(mechanism, epsilon=1.0, delta=1e-5)

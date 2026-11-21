@@ -37,7 +37,7 @@ from typing import Literal
 
 from absl import app
 from absl import logging
-from dpsynth import discrete_mechanisms
+import dpsynth
 from dpsynth.core import domain
 from examples.relational.california_census import example_eval_california_census as eval_utils
 from dpsynth.relational import domain as rel_domain
@@ -162,7 +162,7 @@ def create_calibrated_mechanism(
   )
   config = rel_synth.MultiTableConfig(
       foreign_keys=foreign_keys,
-      discrete_mechanism=discrete_mechanisms.MSTConfig(pgm_iters=PGM_ITERS),
+      discrete_mechanism=dpsynth.MSTConfig(pgm_iters=PGM_ITERS),
       num_permutation_slots=num_permutation_slots,
       exploration_strategy=exploration_strategy,
   )

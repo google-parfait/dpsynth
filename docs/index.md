@@ -80,7 +80,6 @@ predefined domain specification for the UCI Adult dataset from
 
 ```python
 import dpsynth
-from dpsynth import discrete_mechanisms
 import numpy as np
 import pandas as pd
 
@@ -88,7 +87,7 @@ domains = dpsynth.from_yaml("examples/datasets/adult_domain.yaml")
 sensitive_df = pd.read_csv("examples/datasets/adult.csv")
 
 config = dpsynth.TabularConfig(
-    discrete_mechanism=discrete_mechanisms.MSTConfig(),
+    discrete_mechanism=dpsynth.MSTConfig(),
 )
 mechanism = dpsynth.calibrate(config, domains, epsilon=1.0, delta=1e-6)
 result = mechanism(np.random.default_rng(), sensitive_df)

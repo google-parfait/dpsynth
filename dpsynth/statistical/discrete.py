@@ -29,9 +29,9 @@ import dataclasses
 from absl import logging
 import dp_accounting
 from dpsynth.core import _mechanism as api
-from dpsynth.discrete_mechanisms import accounting
-from dpsynth.discrete_mechanisms import common
-from dpsynth.discrete_mechanisms import mst
+from dpsynth.statistical.base import accounting
+from dpsynth.statistical.base import common
+from dpsynth.statistical.base import mst
 import mbi
 import numpy as np
 

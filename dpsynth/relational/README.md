@@ -54,7 +54,7 @@ foreign_keys = [
 # Configure relational synthesizer
 config = MultiTableConfig(
     foreign_keys=foreign_keys,
-    discrete_mechanism=dpsynth.discrete_mechanisms.AIMConfig(),
+    discrete_mechanism=dpsynth.AIMConfig(),
 )
 
 # Calibrate and run
