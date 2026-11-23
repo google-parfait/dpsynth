@@ -27,8 +27,8 @@ $(\epsilon, \delta)$-differential privacy.
 DPSynth is designed to support synthetic data generation across a broad range of
 data modalities:
 
-*   **Discrete**: Integer-encoded tabular datasets via marginal-based graphical
-    model mechanisms (such as AIM, MST, SWIFT, and Independent).
+*   **Discrete**: Integer-encoded tabular datasets via marginal-based
+    mechanisms (such as AIM, MST, SWIFT, and Independent).
 *   **Tabular**: Single-table schemas with mixed categorical, numerical, and
     open-set string attributes.
 *   **Relational**: Multi-table databases with foreign-key hierarchies and
@@ -107,6 +107,7 @@ see the
 
 Overview <self>
 library_ecosystem
+examples
 api_reference
 ```
 

@@ -12,7 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""In-memory differentially private tabular synthesis example."""
+"""End-to-end differentially private synthesis for mixed tabular DataFrames.
+
+Demonstrates the standard in-memory workflow for single-table CSV or Parquet
+datasets with mixed categorical and numerical columns. Given a declarative YAML
+domain schema, ``TabularConfig`` automatically handles differentially private
+quantile binning and category encoding, runs a marginal-based mechanism (SWIFT),
+decodes synthetic records back to the original column types, and writes a
+formal privacy report (using the 48,842-row, 15-column UCI Adult dataset by
+default).
+"""
 
 from __future__ import annotations
 
