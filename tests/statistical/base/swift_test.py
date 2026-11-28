@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
 import itertools
 import os
+from unittest import mock
 
 from absl.testing import absltest
 import dpsynth
@@ -21,6 +23,7 @@ from dpsynth.statistical.base import clique_tree
 from dpsynth.statistical.base import common
 from dpsynth.statistical.base import swift
 from dpsynth.statistical.base import swift_utils
+import jax
 import mbi
 import networkx as nx
 import numpy as np
@@ -177,6 +180,31 @@ class SWIFTTest(absltest.TestCase):
     self.assertIsInstance(result2, common.DiscreteMechanismResult)
     self.assertLen(result2.measurements, len(result1.measurements))
     self.assertEqual(result2.model.domain, result1.model.domain)
+
+  def test_precompile_cache_reuse(self):
+    jax.clear_caches()
+    sd = importlib.import_module('mbi.extensions.synthetic_data')
+    data = mbi.Dataset.synthetic(mbi.Domain(('a', 'b', 'c'), (3, 4, 5)), N=200)
+    calibrated = dpsynth.SWIFTConfig(
+        workload=[('a', 'b'), ('a', 'c'), ('b', 'c')], pgm_iters=50
+    ).configure(budget=100.0)
+
+    with (
+        mock.patch.object(
+            mbi.estimation.MirrorDescent,
+            '_step',
+            autospec=True,
+            side_effect=mbi.estimation.MirrorDescent._step,  # pylint: disable=protected-access
+        ) as step_spy,
+        mock.patch.object(
+            sd, '_gumbel_round', wraps=sd._gumbel_round  # pylint: disable=protected-access
+        ) as gumbel_spy,
+    ):
+      calibrated(np.random.default_rng(0), data)
+
+    # Traced once in precompile() and reused with 0 re-traces at runtime.
+    self.assertEqual(step_spy.call_count, 1)
+    self.assertEqual(gumbel_spy.call_count, len(data.domain))
 
 
 if __name__ == '__main__':
