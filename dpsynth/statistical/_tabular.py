@@ -161,7 +161,7 @@ class TabularCodec:
       else:
         query = mbi.DatavectorQuery()
       measurement = mbi.LinearMeasurement(
-          cm.noisy_counts, (col,), stddev=cm.stddev, query=query
+          cm.noisy_counts, (col,), stddev=float(cm.stddev), query=query
       )
       measurements.append(measurement)
     return measurements
