@@ -43,6 +43,7 @@ from dpsynth.statistical.base import clique_tree
 from dpsynth.statistical.base import common
 from dpsynth.statistical.base import swift_utils
 import mbi
+import mbi.clique_utils
 import networkx as nx
 import numpy as np
 
@@ -107,6 +108,18 @@ class SWIFT(api.CalibratedMechanism):
         accounting.gdp_gaussian_sigma(self.gdp_budget)
     )
 
+  def _make_estimator(
+      self,
+      domain: mbi.Domain,
+      jtree: nx.Graph,
+      constraints: Sequence[mbi.Constraint],
+  ) -> mbi.estimation.MirrorDescent:
+    oracle = self.config.marginal_oracle or mbi.marginal_oracles.default_oracle(
+        list(jtree.nodes), domain, has_constraints=bool(constraints)
+    )
+    closed_oracle = functools.partial(oracle, jtree=jtree)  # pyrefly: ignore[unexpected-keyword]
+    return mbi.estimation.MirrorDescent(marginal_oracle=closed_oracle)
+
   def select_and_measure_queries(
       self,
       rng: np.random.Generator,
@@ -116,7 +129,13 @@ class SWIFT(api.CalibratedMechanism):
       constraints: Sequence[mbi.Constraint] = (),
       rows: int = 1,
       phase_times: dict[str, float] | None = None,
-  ) -> tuple[list[mbi.LinearMeasurement], nx.Graph, Any, Any]:
+  ) -> tuple[
+      list[mbi.LinearMeasurement],
+      nx.Graph,
+      mbi.estimation.MirrorDescent,
+      Any,
+      Any,
+  ]:
     """Selects and measures workload queries."""
     if phase_times is None:
       phase_times = {}
@@ -162,11 +181,7 @@ class SWIFT(api.CalibratedMechanism):
     all_cliques = [m.clique for m in initial_measurements] + list(selected)
     logging.info(mbi.summarize(data.domain, all_cliques, jtree))
 
-    oracle = self.config.marginal_oracle or mbi.marginal_oracles.default_oracle(
-        all_cliques, data.domain, has_constraints=bool(constraints)
-    )
-    closed_oracle = functools.partial(oracle, jtree=jtree)  # pyrefly: ignore[unexpected-keyword]
-    estimator = mbi.estimation.MirrorDescent(marginal_oracle=closed_oracle)
+    estimator = self._make_estimator(data.domain, jtree, constraints)
     pgm_future = estimator.precompile(
         data.domain,
         list(initial_measurements),
@@ -174,7 +189,10 @@ class SWIFT(api.CalibratedMechanism):
         constraints=constraints,
     )
     synth_future = mbi.extensions.precompile(
-        data.domain, list(jtree.nodes), rows
+        data.domain,
+        mbi.clique_utils.maximal_subset(all_cliques),
+        rows,
+        constraints=constraints,
     )
     logging.info('[SWIFT] Started precompilation of MirrorDescent + synth.')
 
@@ -189,7 +207,7 @@ class SWIFT(api.CalibratedMechanism):
       measurements = list(initial_measurements) + new_measurements
       logging.info('[SWIFT] Finished measurements.')
 
-    return measurements, jtree, pgm_future, synth_future
+    return measurements, jtree, estimator, pgm_future, synth_future
 
   def estimate_model(
       self,
@@ -198,6 +216,7 @@ class SWIFT(api.CalibratedMechanism):
       *,
       constraints: Sequence[mbi.Constraint] = (),
       jtree: nx.Graph | None = None,
+      estimator: mbi.estimation.MirrorDescent | None = None,
       pgm_future: Any = None,
       phase_times: dict[str, float] | None = None,
   ) -> mbi.Model:
@@ -210,16 +229,12 @@ class SWIFT(api.CalibratedMechanism):
       pgm_future.result()
       logging.info('[SWIFT] PGM precompile wait: %.2fs', time.time() - t0)
 
-    if jtree is None:
-      all_cliques = [m.clique for m in measurements]
-      jtree, _ = mbi.junction_tree.make_junction_tree(domain, all_cliques)
+    if estimator is None:
+      if jtree is None:
+        all_cliques = [m.clique for m in measurements]
+        jtree, _ = mbi.junction_tree.make_junction_tree(domain, all_cliques)
+      estimator = self._make_estimator(domain, jtree, constraints)
 
-    all_cliques = list(jtree.nodes)
-    oracle = self.config.marginal_oracle or mbi.marginal_oracles.default_oracle(
-        all_cliques, domain, has_constraints=bool(constraints)
-    )
-    closed_oracle = functools.partial(oracle, jtree=jtree)  # pyrefly: ignore[unexpected-keyword]
-    estimator = mbi.estimation.MirrorDescent(marginal_oracle=closed_oracle)
     with common.timed(phase_times, 'estimation'):
       final_model = estimator.estimate(
           domain,
@@ -247,18 +262,21 @@ class SWIFT(api.CalibratedMechanism):
     rows = int(max(rows, 1))
 
     jtree = None
+    estimator = None
     pgm_future = None
     synth_future = None
 
     def _measure(measure_rng) -> list[mbi.LinearMeasurement]:
-      nonlocal jtree, pgm_future, synth_future
-      meas, jtree, pgm_future, synth_future = self.select_and_measure_queries(
-          measure_rng,
-          data,
-          initial_measurements=initial_measurements,
-          constraints=constraints,
-          rows=rows,
-          phase_times=phase_times,
+      nonlocal jtree, estimator, pgm_future, synth_future
+      meas, jtree, estimator, pgm_future, synth_future = (
+          self.select_and_measure_queries(
+              measure_rng,
+              data,
+              initial_measurements=initial_measurements,
+              constraints=constraints,
+              rows=rows,
+              phase_times=phase_times,
+          )
       )
       return meas
 
@@ -270,6 +288,7 @@ class SWIFT(api.CalibratedMechanism):
           measurements,
           constraints=constraints,
           jtree=jtree,
+          estimator=estimator,
           pgm_future=pgm_future,
           phase_times=phase_times,
       )
