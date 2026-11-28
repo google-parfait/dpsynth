@@ -251,7 +251,7 @@ def measure_marginals_with_noise(
     )
   measurements = []
   for proj, wgt in zip(marginal_queries, weights):
-    stddev = gdp_sigma / wgt
+    stddev = float(gdp_sigma / wgt)
     x = np.asarray(data.project(proj).datavector())
     y = primitives.gaussian_mechanism(rng, x, sigma=stddev, l2_sensitivity=1.0)
     measurements.append(mbi.LinearMeasurement(y, proj, stddev))
